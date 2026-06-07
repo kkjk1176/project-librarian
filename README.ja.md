@@ -170,6 +170,12 @@ Git の副作用:
 - `core.hooksPath` を変更せず hook ファイルだけをインストールするには、`npx project-wiki-bootstrap --no-git-config` を使います。
 - プロジェクトがすでに別の `core.hooksPath` を使っている場合は、実行前に確認するか、実行後に git config を戻してください。
 
+ファイル保持:
+
+- 既存の `AGENTS.md`、`CLAUDE.md`、`wiki/AGENTS.md` ファイル全体は上書きしません。
+- 管理セクションがない場合、bootstrap は marker で囲まれた project-wiki セクションを既存内容の末尾に追加します。
+- 再実行時は、自身の `PROJECT-WIKI-*` marker の間だけを置き換え、それ以外のプロジェクト固有内容は保持します。
+
 言語ポリシー:
 
 - このリポジトリ README は GitHub 配布のため、デフォルトで英語です。

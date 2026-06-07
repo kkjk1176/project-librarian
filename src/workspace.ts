@@ -57,7 +57,7 @@ export function writeStarter(relativePath: string, content: string): FileStatus 
   return "updated";
 }
 
-export function upsertMarkedSection(relativePath: string, startMarker: string, endMarker: string, section: string, fallbackHeading = ""): FileStatus {
+export function upsertMarkedSection(relativePath: string, startMarker: string, endMarker: string, section: string): FileStatus {
   if (!exists(relativePath)) {
     write(relativePath, `${section.trim()}\n`);
     return "created";
@@ -69,12 +69,6 @@ export function upsertMarkedSection(relativePath: string, startMarker: string, e
     const next = `${current.slice(0, start).trimEnd()}\n\n${section.trim()}\n\n${current.slice(end + endMarker.length).trimStart()}`.trim() + "\n";
     if (next === current) return "exists";
     write(relativePath, next);
-    return "updated";
-  }
-  if (fallbackHeading && current.includes(fallbackHeading)) {
-    const headingIndex = current.indexOf(fallbackHeading);
-    const prefix = current.slice(0, headingIndex).trimEnd();
-    write(relativePath, `${prefix ? `${prefix}\n\n` : ""}${section.trim()}\n`);
     return "updated";
   }
   write(relativePath, `${current.trimEnd()}\n\n${section.trim()}\n`);

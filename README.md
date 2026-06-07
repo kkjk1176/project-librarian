@@ -170,6 +170,12 @@ Git side effect:
 - Use `npx project-wiki-bootstrap --no-git-config` to install hook files without changing `core.hooksPath`.
 - If a project already uses another `core.hooksPath`, review before running or reset the git config afterward.
 
+File preservation:
+
+- Existing `AGENTS.md`, `CLAUDE.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
+- Bootstrap appends its marker-bounded project-wiki section when no managed section exists.
+- On rerun, bootstrap replaces only the content between its own `PROJECT-WIKI-*` markers and preserves surrounding project-specific content.
+
 Language policy:
 
 - This repository README is English by default for GitHub distribution.

@@ -106,7 +106,7 @@ function writeStarter(relativePath, content) {
     write(relativePath, content);
     return "updated";
 }
-function upsertMarkedSection(relativePath, startMarker, endMarker, section, fallbackHeading = "") {
+function upsertMarkedSection(relativePath, startMarker, endMarker, section) {
     if (!exists(relativePath)) {
         write(relativePath, `${section.trim()}\n`);
         return "created";
@@ -119,12 +119,6 @@ function upsertMarkedSection(relativePath, startMarker, endMarker, section, fall
         if (next === current)
             return "exists";
         write(relativePath, next);
-        return "updated";
-    }
-    if (fallbackHeading && current.includes(fallbackHeading)) {
-        const headingIndex = current.indexOf(fallbackHeading);
-        const prefix = current.slice(0, headingIndex).trimEnd();
-        write(relativePath, `${prefix ? `${prefix}\n\n` : ""}${section.trim()}\n`);
         return "updated";
     }
     write(relativePath, `${current.trimEnd()}\n\n${section.trim()}\n`);

@@ -69,6 +69,12 @@ node -e 'JSON.parse(require("fs").readFileSync(".codex/hooks.json","utf8")); JSO
 
 The script is idempotent. It creates missing files, updates the managed startup/hook/index operating files, and preserves project-specific planning files unless adding a missing TL;DR.
 
+Existing root instruction files are preservation-first:
+
+- Existing `AGENTS.md`, `CLAUDE.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
+- If no managed project-wiki section exists, bootstrap appends its marker-bounded section to the existing file.
+- On rerun, bootstrap replaces only content between its own `PROJECT-WIKI-*` markers and preserves surrounding project-specific content.
+
 Use `--lint` for read-only validation:
 
 ```bash
