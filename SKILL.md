@@ -7,45 +7,60 @@ metadata:
 
 # Project Wiki Bootstrap
 
-Use this skill to install or update a token-efficient planning wiki in the current project.
+Use this skill to install, update, validate, search, or migrate a token-efficient planning wiki in the current project.
+
+Users should normally interact with this skill through natural language, or through `/project-wiki-bootstrap` in Claude Code. Do not ask users to run lifecycle flags directly unless they explicitly want shell commands; execute the matching `npx project-wiki-bootstrap` operation yourself from the project root.
+
+Supported actions:
+
+- Bootstrap or update the project wiki and generated agent/hook files.
+- Validate the wiki setup.
+- Search project wiki content.
+- Refresh the wiki index.
+- Capture a candidate note into the wiki inbox.
+- Check for pending, stale, proposed, or undecided wiki pages.
+- Initialize a project glossary.
+- Migrate an existing wiki/docs structure.
+- Review processed migration inbox state.
+- Install hook files without changing git config.
 
 ## Workflow
 
-1. Run the bundled script from the project root:
+1. For initial wiki bootstrap or general update requests, run from the project root:
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js"
+npx project-wiki-bootstrap
 ```
 
 For projects that already have wiki/docs in another structure, run migration mode:
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --migrate
+npx project-wiki-bootstrap --migrate
 ```
 
 When project terminology becomes important, initialize the optional glossary:
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --glossary-init
+npx project-wiki-bootstrap --glossary-init
 ```
 
-Useful lifecycle operations:
+Map lifecycle requests to these internal operations:
 
-```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --no-git-config
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --query "search terms"
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --refresh-index
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --capture-inbox --title "Candidate title" --content "Candidate content"
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --prune-check
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --review-migration
-```
+- Validate/check the wiki: `npx project-wiki-bootstrap --lint`.
+- Search the wiki: `npx project-wiki-bootstrap --query "search terms"`.
+- Refresh wiki routing/index: `npx project-wiki-bootstrap --refresh-index`.
+- Capture a project candidate: `npx project-wiki-bootstrap --capture-inbox --title "Candidate title" --content "Candidate content"`.
+- Check stale/pending pages: `npx project-wiki-bootstrap --prune-check`.
+- Review migrated inbox state: `npx project-wiki-bootstrap --review-migration`.
+- Install hook files without changing git config: `npx project-wiki-bootstrap --no-git-config`.
 
 2. Verify:
 
 ```bash
 node .codex/hooks/wiki-session-start.js
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --lint
-node -e 'JSON.parse(require("fs").readFileSync(".codex/hooks.json","utf8")); console.log("project wiki bootstrap ok")'
+node .claude/hooks/wiki-session-start.js
+npx project-wiki-bootstrap --lint
+node -e 'JSON.parse(require("fs").readFileSync(".codex/hooks.json","utf8")); JSON.parse(require("fs").readFileSync(".claude/settings.json","utf8")); console.log("project wiki bootstrap ok")'
 ```
 
 3. Report the files created or updated.
@@ -57,7 +72,7 @@ The script is idempotent. It creates missing files, updates the managed startup/
 Use `--lint` for read-only validation:
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --lint
+npx project-wiki-bootstrap --lint
 ```
 
 Use `--query` and `--prune-check` for read-only inspection. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
@@ -73,6 +88,8 @@ It installs:
 - `.githooks/wiki-commit-trailers.js` staged-file based trailer generator.
 - `.codex/hooks.json` `SessionStart` hook.
 - `.codex/hooks/wiki-session-start.js` compact startup context injector.
+- `.claude/settings.json` Claude Code `SessionStart` hook.
+- `.claude/hooks/wiki-session-start.js` compact startup context injector for Claude Code.
 - `wiki/startup.md` compact session-start context.
 - `wiki/index.md` router with read/update/token-budget hints.
 - `wiki/canonical/` project-current-truth starter documents.
@@ -81,7 +98,7 @@ It installs:
 - `wiki/meta/` wiki operating rules, project decision policy, and wiki-operations Decision Pack.
 - `wiki/sources/` source summary starter documents.
 
-The startup hook injects only `wiki/startup.md` and `wiki/index.md` for Codex. Claude Code reads `CLAUDE.md`, which imports `AGENTS.md`; `CLAUDE.md` should stay compact and should not duplicate the wiki rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
+The Codex and Claude Code startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Claude Code uses `.claude/settings.json` plus `.claude/hooks/wiki-session-start.js`. `CLAUDE.md` still imports `AGENTS.md` so Claude Code shares the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
 
 When the project is a git repository, the script configures `git config core.hooksPath .githooks` by default so wiki commit trailers are generated automatically. Use `--no-git-config` to install hook files without changing git config. If the project is not a git repository yet, the hook files are still installed and will work after `core.hooksPath` is set.
 
@@ -111,7 +128,7 @@ Every wiki markdown file should include a compact metadata header with `status`,
 
 Wiki-specific commit trailers are automated through `.githooks/prepare-commit-msg`.
 
-The hook runs when staged files include `wiki/`, `AGENTS.md`, `.codex/hooks/`, `.githooks/`, or `tools/project-wiki-bootstrap/`.
+The hook runs when staged files include `wiki/`, `AGENTS.md`, `CLAUDE.md`, `.codex/hooks.json`, `.codex/hooks/`, `.claude/settings.json`, `.claude/hooks/`, `.githooks/`, or `tools/project-wiki-bootstrap/`.
 
 It appends these trailers when they are missing:
 
@@ -126,7 +143,7 @@ It appends these trailers when they are missing:
 
 Do not hand-write wiki trailers unless the hook is unavailable or the generated value needs correction.
 
-`--lint` verifies the hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
+`--lint` verifies the Codex and Claude hook files/settings, git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
 
 ## Glossary Mode
 
@@ -184,7 +201,7 @@ Inbox rows use these statuses:
 Run semantic review sync after LLM or human processing:
 
 ```bash
-node "${CLAUDE_SKILL_DIR:-$HOME/.codex/skills/project-wiki-bootstrap}/scripts/init-project-wiki.js" --review-migration
+npx project-wiki-bootstrap --review-migration
 ```
 
 `wiki/migration/verification.md` verifies file coverage: every legacy markdown file should be mapped to a new-wiki migration target. This is not a semantic-completeness proof. Semantic migration is complete only after inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0.

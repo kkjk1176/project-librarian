@@ -5,9 +5,16 @@
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "project-wiki-bootstrap": "scripts/init-project-wiki.js"
+    "project-wiki-bootstrap": "dist/init-project-wiki.js"
   },
   "scripts": {
-    "test": "bash tests/smoke.sh"
+    "build": "tsc && chmod +x dist/init-project-wiki.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && npm run typecheck && bash tests/smoke.sh",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3"
   }
 }
