@@ -31,6 +31,7 @@ if node "$CLI" --definitely-unknown > unknown-option.log 2>&1; then
 fi
 grep -q "unknown option: --definitely-unknown" unknown-option.log
 test ! -e AGENTS.md
+grep -q -- "--issue-draft" help.log
 
 cd "$TMPDIR"
 node "$CLI"
@@ -70,6 +71,43 @@ node "$CLI" --capture-inbox --title "Smoke" --content "Candidate content"
 node "$CLI" --query Smoke
 node "$CLI" --prune-check
 node "$CLI" --lint
+
+mkdir "$TMPDIR/issue-draft"
+cd "$TMPDIR/issue-draft"
+node "$CLI"
+node "$CLI" --issue-draft --issue-title "Report unexpected wiki hook behavior" > issue-draft.md
+grep -q "# Report unexpected wiki hook behavior" issue-draft.md
+grep -q "## What You Were Trying To Do" issue-draft.md
+grep -q "## What Happened Instead" issue-draft.md
+grep -q "## Side Effects Or Risk" issue-draft.md
+grep -q "## Affected Generated Files" issue-draft.md
+grep -q "AGENTS.md" issue-draft.md
+grep -q "git branch: not a git repository" issue-draft.md
+grep -q "working directory: <absolute-path>" issue-draft.md
+if grep -q "$TMPDIR" issue-draft.md; then
+  echo "issue draft leaked an absolute temp path" >&2
+  exit 1
+fi
+git init >/dev/null
+mkdir "$TMPDIR/custom-hooks"
+git config core.hooksPath "$TMPDIR/custom-hooks"
+node "$CLI" --issue-draft > issue-draft-git.md
+grep -q "# Report project-wiki-bootstrap problem or side effect" issue-draft-git.md
+grep -q "git local changes:" issue-draft-git.md
+grep -q "git core.hooksPath: <absolute-path>" issue-draft-git.md
+grep -q "## Diagnostics To Attach" issue-draft-git.md
+if grep -q "$TMPDIR" issue-draft-git.md; then
+  echo "issue draft leaked an absolute git hooks path" >&2
+  exit 1
+fi
+node "$CLI" --issue-draft --title "Capture title should not apply" > issue-draft-title-fallback.md
+grep -q "# Report project-wiki-bootstrap problem or side effect" issue-draft-title-fallback.md
+node "$CLI" --issue-draft --issue-title $'Problem title\nInjected heading' > issue-draft-sanitized-title.md
+grep -q "# Problem title Injected heading" issue-draft-sanitized-title.md
+if grep -q "^Injected heading$" issue-draft-sanitized-title.md; then
+  echo "issue draft title preserved an unsafe newline" >&2
+  exit 1
+fi
 
 mkdir "$TMPDIR/wiki-diagnostics"
 cd "$TMPDIR/wiki-diagnostics"

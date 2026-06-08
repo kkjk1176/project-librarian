@@ -71,6 +71,7 @@ npx project-wiki-bootstrap
 - 刷新 `wiki/index.md`
 - 将候选备注保存到 `wiki/inbox/project-candidates.md`
 - 报告 stale 或 undecided 状态的 wiki 页面
+- 为使用 skill 时发现的问题或副作用生成 GitHub issue body 草稿
 - 创建 `wiki/canonical/glossary.md`
 - 将已有 markdown 文档迁移到可 review 的 inbox
 - 分析代码，并将有代码依据的项目信息写入 wiki
@@ -100,6 +101,8 @@ Review the migrated wiki inbox.
 | 先应用安全的 routing fix 再诊断 | `npx project-wiki-bootstrap --doctor --fix` |
 
 坏链接会导致检查失败。重复 route、orphan page 和质量问题会作为 warning 报告，便于判断是否需要合并、routing、刷新或重写文档。
+
+如需为问题或副作用生成 GitHub issue body 草稿，可运行 `npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki hook behavior"`。该命令是 read-only，会输出包含复现步骤、期望行为与实际行为、受影响生成文件、环境信息和应附加 diagnostics 的模板；不会创建 GitHub issue，也不需要 network access。
 
 ## 安装的文件
 

@@ -24,6 +24,8 @@ Options:
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
   --doctor                         Run lint, link-check, and quality-check together.
   --fix                            With --doctor, safely refresh generated index routing.
+  --issue-draft                    Print a problem/side-effect GitHub issue body draft.
+  --issue-title <title>            Override the generated issue draft title.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
@@ -86,6 +88,10 @@ if (args_1.codeIndexMode) {
 }
 if (args_1.queryTerm) {
     (0, modes_1.runQueryMode)();
+    process.exit(0);
+}
+if (args_1.issueDraftMode) {
+    (0, modes_1.runIssueDraftMode)();
     process.exit(0);
 }
 if (args_1.pruneCheckMode) {

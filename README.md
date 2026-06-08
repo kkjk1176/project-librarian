@@ -71,6 +71,7 @@ After installation, ask Codex or Claude Code to:
 - refresh `wiki/index.md`
 - capture a candidate note into `wiki/inbox/project-candidates.md`
 - report stale or undecided wiki pages
+- draft a GitHub issue body for problems or side effects found while using the skill
 - create `wiki/canonical/glossary.md`
 - migrate existing markdown docs into reviewable inboxes
 - analyze code and update wiki pages with code-backed evidence
@@ -100,6 +101,16 @@ Use diagnostics when the wiki exists but needs review or cleanup:
 | Apply safe routing fixes before diagnostics | `npx project-wiki-bootstrap --doctor --fix` |
 
 Broken links fail the check. Duplicate routes, orphan pages, and quality findings are reported as actionable warnings so humans or agents can decide whether to merge, route, refresh, or rewrite documents.
+
+## GitHub Issue Drafts
+
+Use issue drafts when a project-wiki-bootstrap run caused a side effect, exposed confusing behavior, failed in a specific environment, or generated unexpected files:
+
+```bash
+npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki hook behavior"
+```
+
+The command is read-only. It prints a Markdown problem-report template with reproduction steps, expected vs actual behavior, side effects, affected generated files, environment context, and diagnostics to attach. It does not create a GitHub issue or require network access.
 
 ## What Gets Installed
 

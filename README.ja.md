@@ -71,6 +71,7 @@ npx project-wiki-bootstrap
 - `wiki/index.md` の更新
 - 候補メモを `wiki/inbox/project-candidates.md` に保存
 - stale または undecided 状態の wiki ページの報告
+- skill 使用中に見つかった問題や副作用の GitHub issue body ドラフトを作成
 - `wiki/canonical/glossary.md` の作成
 - 既存 markdown 文書の review 用 inbox への移行
 - コードを分析し、根拠のあるプロジェクト情報を wiki に反映
@@ -100,6 +101,8 @@ Claude Code では `/project-wiki-bootstrap` も使えます。
 | 安全な routing fix の後に診断を実行 | `npx project-wiki-bootstrap --doctor --fix` |
 
 壊れたリンクは失敗として扱います。重複 route、orphan page、品質項目は、merge、routing、更新、rewrite の判断材料として warning で報告します。
+
+問題や副作用の GitHub issue body ドラフトを作るには `npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki hook behavior"` を使います。このコマンドは read-only で、再現手順、期待動作と実際の動作、影響を受けた生成ファイル、環境情報、添付すべき diagnostics のテンプレートを出力します。GitHub issue は作成せず network access も不要です。
 
 ## インストールされるファイル
 

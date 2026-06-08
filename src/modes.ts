@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as childProcess from "node:child_process";
-import { captureCategory, captureContent, captureTitle, noGitConfigMode, queryTerm } from "./args";
+import * as path from "node:path";
+import { captureCategory, captureContent, captureTitle, issueDraftTitle, noGitConfigMode, queryTerm } from "./args";
 import type { FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiLinkReference } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
@@ -74,6 +75,136 @@ export function appendCaptureInbox(): FileStatus {
   if (current.includes(row)) return "exists";
   write(relativePath, `${current.trimEnd()}\n${row}\n`);
   return "updated";
+}
+
+function gitOutput(args: string[]): string {
+  try {
+    return childProcess.execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function markdownList(items: string[], empty: string): string {
+  if (items.length === 0) return `- ${empty}`;
+  return items.map((item) => `- ${item}`).join("\n");
+}
+
+function redactedPath(value: string): string {
+  if (!value || value === "unset" || value === "not a git repository") return value;
+  return path.isAbsolute(value) ? "<absolute-path>" : value;
+}
+
+function runtimePackageVersion(): string {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8")) as { version?: string };
+    return packageJson.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function existingFileList(files: string[]): string[] {
+  return files.map((file) => `${exists(file) ? "[x]" : "[ ]"} \`${file}\``);
+}
+
+function issueReportTitle(): string {
+  const title = issueDraftTitle.replace(/\r?\n/g, " ").trim();
+  if (title) return title;
+  return "Report project-wiki-bootstrap problem or side effect";
+}
+
+export function runIssueDraftMode(): void {
+  const gitRepo = isGitRepository();
+  const statusLines = gitRepo ? gitOutput(["status", "--short"]).split(/\r?\n/).filter(Boolean) : [];
+  const branch = gitRepo ? gitOutput(["rev-parse", "--abbrev-ref", "HEAD"]) || "unknown" : "not a git repository";
+  const hooksPath = gitRepo ? gitOutput(["config", "--get", "core.hooksPath"]) || "unset" : "not a git repository";
+  const remoteNames = gitRepo ? gitOutput(["remote"]).split(/\r?\n/).filter(Boolean) : [];
+  const generatedFiles = existingFileList([
+    "AGENTS.md",
+    "CLAUDE.md",
+    "wiki/AGENTS.md",
+    "wiki/startup.md",
+    "wiki/index.md",
+    ".codex/hooks.json",
+    ".codex/hooks/wiki-session-start.js",
+    ".claude/settings.json",
+    ".claude/hooks/wiki-session-start.js",
+    ".githooks/prepare-commit-msg",
+    ".githooks/wiki-commit-trailers.js",
+  ]);
+  const title = issueReportTitle();
+  const environment = [
+    `project-wiki-bootstrap version: ${runtimePackageVersion()}`,
+    `node version: ${process.version}`,
+    `working directory: ${redactedPath(root)}`,
+    `git branch: ${branch}`,
+    `git local changes: ${gitRepo ? statusLines.length : "not available"}`,
+    `git remotes configured: ${remoteNames.length}`,
+    `git core.hooksPath: ${redactedPath(hooksPath)}`,
+  ];
+  const verification = [
+    "Run `npx project-wiki-bootstrap --lint` and paste the output.",
+    "If generated wiki links or document quality are involved, run `npx project-wiki-bootstrap --doctor` and paste the output.",
+    "If the problem involves code evidence indexing, include the exact `--code-*` command and whether the runtime supports `node:sqlite`.",
+  ];
+  console.log(`# ${title}
+
+## Summary
+
+Describe the problem, side effect, confusing behavior, or edge case found while using project-wiki-bootstrap.
+
+## What You Were Trying To Do
+
+- Command or natural-language skill request:
+- Target project type:
+- Expected project-wiki-bootstrap behavior:
+
+## What Happened Instead
+
+- Actual behavior:
+- Error output or surprising generated content:
+- Whether rerunning changed the result:
+
+## Reproduction Steps
+
+1. 
+2. 
+3. 
+
+## Side Effects Or Risk
+
+- Files unexpectedly changed:
+- Existing content that may have been overwritten or moved:
+- Hooks, git config, or agent startup context affected:
+- User-visible confusion or workflow breakage:
+
+## Affected Generated Files
+
+${markdownList(generatedFiles, "No standard generated files detected yet.")}
+
+## Environment
+
+${markdownList(environment, "Environment unavailable.")}
+
+## Diagnostics To Attach
+
+${markdownList(verification, "Add the exact validation commands and results before filing.")}
+
+## Workaround
+
+- Current workaround, if any:
+- Whether the workaround is safe to repeat:
+
+## Notes
+
+- This draft is read-only and does not create a GitHub issue.
+- If local git changes are present, try to reproduce on a clean checkout before filing when practical.
+`);
 }
 
 export function runPruneCheckMode(): void {

@@ -20,6 +20,7 @@ Supported actions:
 - Refresh the wiki index.
 - Capture a candidate note into the wiki inbox.
 - Check for pending, stale, proposed, or undecided wiki pages.
+- Draft a GitHub issue body for problems or side effects found while using the skill.
 - Initialize a project glossary.
 - Analyze existing code and canonicalize code-backed project behavior, features, policies, constraints, terminology, domain rules, and open questions into the wiki.
 - Build and query an optional SQLite code evidence index for large repositories.
@@ -58,6 +59,7 @@ Map lifecycle requests to these internal operations:
 - Refresh wiki routing/index: `npx project-wiki-bootstrap --refresh-index`.
 - Capture a project candidate: `npx project-wiki-bootstrap --capture-inbox --title "Candidate title" --content "Candidate content"`.
 - Check stale/pending pages: `npx project-wiki-bootstrap --prune-check`.
+- Draft a GitHub issue body for a skill problem or side effect: `npx project-wiki-bootstrap --issue-draft --issue-title "Issue title"`.
 - Review migrated inbox state: `npx project-wiki-bootstrap --review-migration`.
 
 2. Verify:
@@ -88,7 +90,7 @@ Use `--lint` for read-only validation:
 npx project-wiki-bootstrap --lint
 ```
 
-Use `--query`, `--prune-check`, `--link-check`, `--quality-check`, and `--doctor` for read-only inspection. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
+Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, and `--doctor` for read-only inspection/output. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
 
 Use `--review-migration` or `--semantic-migrate` after migration inbox rows are processed. It syncs inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
@@ -243,6 +245,7 @@ The glossary is a project terminology contract, not a general notes file. It exc
 These modes preserve this project's stricter source-of-truth boundaries:
 
 - `--query "terms"`: read-only keyword search over wiki paths, metadata, titles, and bodies. It does not use embeddings.
+- `--issue-draft --issue-title "..."`: read-only Markdown problem-report draft for skill failures, side effects, confusing behavior, or generated-file surprises. It does not create a GitHub issue or require network access.
 - `--refresh-index`: updates a managed auto-discovered block in `wiki/index.md` for wiki files not routed by the hand-written index.
 - `--capture-inbox --title "..." --content "..."`: appends a project-candidate row to `wiki/inbox/project-candidates.md` and routes the inbox from `wiki/index.md`.
 - `--prune-check`: read-only report of active wiki pages with pending/proposed/stale review signals.

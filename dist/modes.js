@@ -37,6 +37,7 @@ exports.buildRefreshIndexBlock = buildRefreshIndexBlock;
 exports.runQueryMode = runQueryMode;
 exports.projectCandidatesContent = projectCandidatesContent;
 exports.appendCaptureInbox = appendCaptureInbox;
+exports.runIssueDraftMode = runIssueDraftMode;
 exports.runPruneCheckMode = runPruneCheckMode;
 exports.collectLinkDiagnostics = collectLinkDiagnostics;
 exports.collectQualityDiagnostics = collectQualityDiagnostics;
@@ -46,6 +47,7 @@ exports.runDoctorMode = runDoctorMode;
 exports.runLintMode = runLintMode;
 const fs = __importStar(require("node:fs"));
 const childProcess = __importStar(require("node:child_process"));
+const path = __importStar(require("node:path"));
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
@@ -120,6 +122,134 @@ function appendCaptureInbox() {
         return "exists";
     (0, workspace_1.write)(relativePath, `${current.trimEnd()}\n${row}\n`);
     return "updated";
+}
+function gitOutput(args) {
+    try {
+        return childProcess.execFileSync("git", args, {
+            cwd: workspace_1.root,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+    }
+    catch {
+        return "";
+    }
+}
+function markdownList(items, empty) {
+    if (items.length === 0)
+        return `- ${empty}`;
+    return items.map((item) => `- ${item}`).join("\n");
+}
+function redactedPath(value) {
+    if (!value || value === "unset" || value === "not a git repository")
+        return value;
+    return path.isAbsolute(value) ? "<absolute-path>" : value;
+}
+function runtimePackageVersion() {
+    try {
+        const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+        return packageJson.version ?? "unknown";
+    }
+    catch {
+        return "unknown";
+    }
+}
+function existingFileList(files) {
+    return files.map((file) => `${(0, workspace_1.exists)(file) ? "[x]" : "[ ]"} \`${file}\``);
+}
+function issueReportTitle() {
+    const title = args_1.issueDraftTitle.replace(/\r?\n/g, " ").trim();
+    if (title)
+        return title;
+    return "Report project-wiki-bootstrap problem or side effect";
+}
+function runIssueDraftMode() {
+    const gitRepo = (0, workspace_1.isGitRepository)();
+    const statusLines = gitRepo ? gitOutput(["status", "--short"]).split(/\r?\n/).filter(Boolean) : [];
+    const branch = gitRepo ? gitOutput(["rev-parse", "--abbrev-ref", "HEAD"]) || "unknown" : "not a git repository";
+    const hooksPath = gitRepo ? gitOutput(["config", "--get", "core.hooksPath"]) || "unset" : "not a git repository";
+    const remoteNames = gitRepo ? gitOutput(["remote"]).split(/\r?\n/).filter(Boolean) : [];
+    const generatedFiles = existingFileList([
+        "AGENTS.md",
+        "CLAUDE.md",
+        "wiki/AGENTS.md",
+        "wiki/startup.md",
+        "wiki/index.md",
+        ".codex/hooks.json",
+        ".codex/hooks/wiki-session-start.js",
+        ".claude/settings.json",
+        ".claude/hooks/wiki-session-start.js",
+        ".githooks/prepare-commit-msg",
+        ".githooks/wiki-commit-trailers.js",
+    ]);
+    const title = issueReportTitle();
+    const environment = [
+        `project-wiki-bootstrap version: ${runtimePackageVersion()}`,
+        `node version: ${process.version}`,
+        `working directory: ${redactedPath(workspace_1.root)}`,
+        `git branch: ${branch}`,
+        `git local changes: ${gitRepo ? statusLines.length : "not available"}`,
+        `git remotes configured: ${remoteNames.length}`,
+        `git core.hooksPath: ${redactedPath(hooksPath)}`,
+    ];
+    const verification = [
+        "Run `npx project-wiki-bootstrap --lint` and paste the output.",
+        "If generated wiki links or document quality are involved, run `npx project-wiki-bootstrap --doctor` and paste the output.",
+        "If the problem involves code evidence indexing, include the exact `--code-*` command and whether the runtime supports `node:sqlite`.",
+    ];
+    console.log(`# ${title}
+
+## Summary
+
+Describe the problem, side effect, confusing behavior, or edge case found while using project-wiki-bootstrap.
+
+## What You Were Trying To Do
+
+- Command or natural-language skill request:
+- Target project type:
+- Expected project-wiki-bootstrap behavior:
+
+## What Happened Instead
+
+- Actual behavior:
+- Error output or surprising generated content:
+- Whether rerunning changed the result:
+
+## Reproduction Steps
+
+1. 
+2. 
+3. 
+
+## Side Effects Or Risk
+
+- Files unexpectedly changed:
+- Existing content that may have been overwritten or moved:
+- Hooks, git config, or agent startup context affected:
+- User-visible confusion or workflow breakage:
+
+## Affected Generated Files
+
+${markdownList(generatedFiles, "No standard generated files detected yet.")}
+
+## Environment
+
+${markdownList(environment, "Environment unavailable.")}
+
+## Diagnostics To Attach
+
+${markdownList(verification, "Add the exact validation commands and results before filing.")}
+
+## Workaround
+
+- Current workaround, if any:
+- Whether the workaround is safe to repeat:
+
+## Notes
+
+- This draft is read-only and does not create a GitHub issue.
+- If local git changes are present, try to reproduce on a clean checkout before filing when practical.
+`);
 }
 function runPruneCheckMode() {
     const candidates = [];

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeIndexMode, codeQuerySql, codeSearchSymbol, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, linkCheckMode, lintMode, migrateMode, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
+import { captureInboxMode, codeFilesMode, codeIndexMode, codeQuerySql, codeSearchSymbol, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueDraftMode, linkCheckMode, lintMode, migrateMode, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
 import { hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
-import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runLinkCheckMode, runLintMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
+import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
 import { agentsSection, claudeSection, decisionPolicy, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
@@ -28,6 +28,8 @@ Options:
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
   --doctor                         Run lint, link-check, and quality-check together.
   --fix                            With --doctor, safely refresh generated index routing.
+  --issue-draft                    Print a problem/side-effect GitHub issue body draft.
+  --issue-title <title>            Override the generated issue draft title.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
@@ -97,6 +99,10 @@ if (codeIndexMode) {
 }
 if (queryTerm) {
   runQueryMode();
+  process.exit(0);
+}
+if (issueDraftMode) {
+  runIssueDraftMode();
   process.exit(0);
 }
 if (pruneCheckMode) {

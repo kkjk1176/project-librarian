@@ -71,6 +71,7 @@ npx project-wiki-bootstrap
 - `wiki/index.md` 갱신
 - 후보 메모를 `wiki/inbox/project-candidates.md`에 저장
 - stale 또는 undecided 상태의 wiki 문서 보고
+- 스킬 사용 중 발견한 문제나 부작용을 GitHub issue 본문 초안으로 작성
 - `wiki/canonical/glossary.md` 생성
 - 기존 markdown 문서를 검토 가능한 inbox로 마이그레이션
 - 코드를 분석해 근거가 있는 프로젝트 정보를 wiki에 반영
@@ -100,6 +101,16 @@ Claude Code에서는 `/project-wiki-bootstrap`도 사용할 수 있습니다.
 | 안전한 routing fix 후 진단 실행 | `npx project-wiki-bootstrap --doctor --fix` |
 
 깨진 링크는 실패로 처리합니다. 중복 route, orphan page, 품질 항목은 사람이 병합, routing, 갱신, 재작성 여부를 판단할 수 있도록 warning으로 보고합니다.
+
+## GitHub Issue Drafts
+
+project-wiki-bootstrap 실행 중 부작용이 생기거나, 동작이 헷갈리거나, 특정 환경에서 실패하거나, 예상하지 못한 파일이 생성되었을 때 사용합니다.
+
+```bash
+npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki hook behavior"
+```
+
+이 명령은 read-only입니다. 재현 단계, 기대 동작과 실제 동작, 부작용, 영향을 받은 생성 파일, 환경 정보, 첨부할 diagnostics를 포함한 Markdown 문제 보고 템플릿을 출력합니다. GitHub issue를 직접 생성하지 않으며 network access도 필요하지 않습니다.
 
 ## 설치되는 파일
 
