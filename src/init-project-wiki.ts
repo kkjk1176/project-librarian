@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeIndexMode, codeQuerySql, codeSearchSymbol, codeStatusMode, command, glossaryMode, lintMode, migrateMode, noGitConfigMode, pruneCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode } from "./args";
+import { captureInboxMode, codeFilesMode, codeIndexMode, codeQuerySql, codeSearchSymbol, codeStatusMode, command, glossaryMode, helpMode, lintMode, migrateMode, noGitConfigMode, pruneCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
 import { hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runLintMode, runPruneCheckMode, runQueryMode } from "./modes";
@@ -14,6 +14,45 @@ type CodeIndexModule = typeof import("./code-index");
 
 function codeIndex(): CodeIndexModule {
   return require("./code-index") as CodeIndexModule;
+}
+
+function printUsage(): void {
+  console.log(`Usage:
+  project-wiki-bootstrap [init] [options]
+  project-wiki-bootstrap install-skill [--scope user|project] [--agents codex|claude|both]
+
+Options:
+  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
+  --lint                           Validate the generated project wiki setup without editing files.
+  --query <terms>                  Search wiki paths, metadata, titles, and bodies.
+  --refresh-index                  Update the managed auto-discovered wiki index block.
+  --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
+  --glossary-init                  Create and route the optional glossary page.
+  --prune-check                    Report active pages with stale or unresolved signals.
+  --review-migration               Sync migration inbox statuses into migration review files.
+  --no-git-config                  Install hook files without changing git core.hooksPath.
+  --code-index                     Build the disposable .project-wiki code evidence index.
+  --code-query <sql>               Run conservative read-only SQL over the code evidence index.
+  --code-status, --code-files      Inspect the code evidence index.
+  --code-search-symbol <term>      Search indexed symbols.
+  --help                           Show this help.`);
+}
+
+if (helpMode) {
+  printUsage();
+  process.exit(0);
+}
+
+if (unknownCommand) {
+  console.error(`unknown command: ${unknownCommand}`);
+  printUsage();
+  process.exit(1);
+}
+
+if (unknownOptions.length > 0) {
+  console.error(`unknown option${unknownOptions.length === 1 ? "" : "s"}: ${unknownOptions.join(", ")}`);
+  printUsage();
+  process.exit(1);
 }
 
 if (command === "install-skill") {

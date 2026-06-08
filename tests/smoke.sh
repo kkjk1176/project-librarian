@@ -14,6 +14,25 @@ cd "$TMPDIR"
 
 test -x "$CLI"
 
+mkdir "$TMPDIR/help-and-errors"
+cd "$TMPDIR/help-and-errors"
+node "$CLI" --help > help.log
+grep -q "Usage:" help.log
+test ! -e AGENTS.md
+if node "$CLI" unknown-command > unknown-command.log 2>&1; then
+  echo "expected unknown command to fail" >&2
+  exit 1
+fi
+grep -q "unknown command: unknown-command" unknown-command.log
+test ! -e AGENTS.md
+if node "$CLI" --definitely-unknown > unknown-option.log 2>&1; then
+  echo "expected unknown option to fail" >&2
+  exit 1
+fi
+grep -q "unknown option: --definitely-unknown" unknown-option.log
+test ! -e AGENTS.md
+
+cd "$TMPDIR"
 node "$CLI"
 test -f AGENTS.md
 test -f CLAUDE.md
@@ -64,8 +83,48 @@ if [ "$(git config --get core.hooksPath || true)" = ".githooks" ]; then
   exit 1
 fi
 
+mkdir "$TMPDIR/existing-hooks-path"
+cd "$TMPDIR/existing-hooks-path"
+git init >/dev/null
+mkdir custom-hooks
+git config core.hooksPath custom-hooks
+node "$CLI" > existing-hooks-path.log
+grep -q "skipped-existing-hooksPath custom-hooks" existing-hooks-path.log
+test "$(git config --get core.hooksPath)" = "custom-hooks"
+
 mkdir "$TMPDIR/existing-instructions"
 cd "$TMPDIR/existing-instructions"
+mkdir -p .codex .claude
+cat > .codex/hooks.json <<'EOF'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          { "type": "command", "command": "node .codex/hooks/wiki-session-start.js", "timeout": 10 },
+          { "type": "command", "command": "node custom-codex-hook.js" }
+        ]
+      }
+    ]
+  }
+}
+EOF
+cat > .claude/settings.json <<'EOF'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          { "type": "command", "command": "node .claude/hooks/wiki-session-start.js" },
+          { "type": "command", "command": "node custom-claude-hook.js" }
+        ]
+      }
+    ]
+  }
+}
+EOF
 cat > AGENTS.md <<'EOF'
 # Existing Agent Instructions
 
@@ -91,6 +150,8 @@ grep -q "PROJECT-WIKI-FIRST:START" AGENTS.md
 grep -q "Custom Claude content before the compatibility section." CLAUDE.md
 grep -q "Custom Claude content after a heading that matches the bootstrap fallback heading." CLAUDE.md
 grep -q "PROJECT-WIKI-CLAUDE:START" CLAUDE.md
+node -e 'const c=require("./.codex/hooks.json"); if (!JSON.stringify(c).includes("node custom-codex-hook.js")) process.exit(1)'
+node -e 'const c=require("./.claude/settings.json"); if (!JSON.stringify(c).includes("node custom-claude-hook.js")) process.exit(1)'
 
 mkdir "$TMPDIR/code-index"
 cd "$TMPDIR/code-index"
@@ -150,6 +211,11 @@ node "$CLI" --code-query "select route from routes where route = '/health'" > co
 grep -q "/health" code-routes.json
 node "$CLI" --code-query "select kind from edges where kind = 'route_to_handler'" > code-edges.json
 grep -q "route_to_handler" code-edges.json
+if node "$CLI" --code-query "with changed as (delete from files returning path) select path from changed" > bad-code-query.log 2>&1; then
+  echo "expected writable-looking --code-query to fail" >&2
+  exit 1
+fi
+grep -q "code queries must be read-only SQL" bad-code-query.log
 node "$CLI" --code-index --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
 test -f .project-wiki/custom.sqlite
 if node "$CLI" --code-index --code-index-out ../outside.sqlite > bad-code-index-out.log 2>&1; then

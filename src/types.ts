@@ -7,6 +7,7 @@ export type FileStatus =
   | "removed"
   | "skipped-no-git"
   | "skipped-no-git-config"
+  | `skipped-existing-hooksPath ${string}`
   | "updated"
   | `updated from ${string}`
   | `moved wiki to ${string}`
@@ -29,6 +30,7 @@ export interface HookCommand {
 export interface SessionStartHook {
   matcher: string;
   hooks: HookCommand[];
+  [key: string]: unknown;
 }
 
 export interface HookConfig {

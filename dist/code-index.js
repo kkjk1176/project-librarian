@@ -540,7 +540,9 @@ function openDatabase(databasePath) {
 }
 function isReadOnlySql(sql) {
     const trimmed = sql.trim().toLowerCase();
-    return /^(select|with)\b/.test(trimmed) && !/;\s*\S/.test(trimmed);
+    if (!/^(select|with)\b/.test(trimmed) || /;\s*\S/.test(trimmed))
+        return false;
+    return !/\b(attach|alter|create|delete|detach|drop|insert|pragma|reindex|replace|update|vacuum)\b/.test(trimmed);
 }
 function requireExistingIndex() {
     const databasePath = codeEvidenceDatabasePath();
@@ -622,6 +624,7 @@ function runCodeQueryMode() {
     }
     const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
     try {
+        database.exec("PRAGMA query_only = ON");
         printRows(database.prepare(args_1.codeQuerySql).all());
     }
     finally {

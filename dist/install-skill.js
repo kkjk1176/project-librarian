@@ -98,7 +98,7 @@ function sameFile(source, target) {
 }
 function copyPath(source, target, dryRun) {
     if (!fs.existsSync(source))
-        return "exists";
+        fail(`missing package file: ${source}`);
     const existed = fs.existsSync(target);
     if (dryRun)
         return "dry-run";

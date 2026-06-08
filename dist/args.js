@@ -1,13 +1,58 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeFilesMode = exports.codeStatusMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.glossaryMode = exports.lintMode = exports.migrateMode = exports.args = exports.commandArgs = exports.command = exports.rawArgs = void 0;
+exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeFilesMode = exports.codeStatusMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.glossaryMode = exports.lintMode = exports.migrateMode = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
 const knownCommands = new Set(["init", "install-skill"]);
+exports.helpMode = exports.rawArgs.includes("--help") || exports.rawArgs.includes("-h");
+exports.unknownCommand = exports.rawArgs[0] && !exports.rawArgs[0].startsWith("-") && !knownCommands.has(exports.rawArgs[0]) ? exports.rawArgs[0] : "";
 exports.command = knownCommands.has(exports.rawArgs[0] ?? "") ? exports.rawArgs[0] : "init";
 exports.commandArgs = exports.command === exports.rawArgs[0] ? exports.rawArgs.slice(1) : exports.rawArgs;
 exports.args = new Set(exports.commandArgs);
+const flagsWithoutValues = new Set([
+    "--adopt-existing",
+    "--capture-inbox",
+    "--code-evidence-files",
+    "--code-evidence-index",
+    "--code-evidence-status",
+    "--code-files",
+    "--code-index",
+    "--code-status",
+    "--dry-run",
+    "--glossary-init",
+    "--lint",
+    "--migrate",
+    "--no-git-config",
+    "--prune-check",
+    "--refresh-index",
+    "--review-migration",
+    "--semantic-migrate",
+]);
+const flagsWithValues = new Set([
+    "--agents",
+    "--category",
+    "--code-evidence-out",
+    "--code-evidence-query",
+    "--code-evidence-scope",
+    "--code-evidence-symbol",
+    "--code-index-out",
+    "--code-query",
+    "--code-scope",
+    "--code-search-symbol",
+    "--content",
+    "--query",
+    "--scope",
+    "--title",
+]);
+const knownFlags = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
+function flagName(arg) {
+    return arg.startsWith("--") ? arg.split("=", 1)[0] ?? arg : arg;
+}
+exports.unknownOptions = Array.from(new Set(exports.commandArgs
+    .filter((arg) => arg.startsWith("-"))
+    .map(flagName)
+    .filter((arg) => !knownFlags.has(arg))));
 exports.migrateMode = exports.args.has("--migrate") || exports.args.has("--adopt-existing");
 exports.lintMode = exports.args.has("--lint");
 exports.glossaryMode = exports.args.has("--glossary-init");

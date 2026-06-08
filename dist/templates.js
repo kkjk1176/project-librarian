@@ -304,7 +304,8 @@ node dist/init-project-wiki.js --query "search terms"
 ## Git Hook Setup
 
 - The script installs \`.githooks/prepare-commit-msg\` and \`.githooks/wiki-commit-trailers.js\`.
-- By default, git repositories are configured with \`git config core.hooksPath .githooks\`.
+- By default, git repositories with an unset \`core.hooksPath\` are configured with \`git config core.hooksPath .githooks\`.
+- Existing \`core.hooksPath\` values are preserved so an existing hook chain is not replaced.
 - Run bootstrap with \`--no-git-config\` to install hook files without changing git config.
 `;
 exports.decisionPolicy = `${(0, exports.metadata)("wiki-meta", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "project decision recording levels or ADR criteria change")}
@@ -478,7 +479,7 @@ Canonical: [[meta/operating-model]], [[meta/decision-policy]]
 | ${workspace_1.today} | Keep wiki operating docs in \`wiki/meta/\`. | Project truth stays focused on product/project content. | Store operating docs in \`canonical/\` or \`decisions/\`. | Meta docs become hard to discover. | [[meta/operating-model]] |
 | ${workspace_1.today} | Bootstrap-generated operating documents are English by default. | Repository entry points and operating contracts are easier for public users to inspect. | Generate operating docs in a fixed non-English language. | The project intentionally targets a single-language local audience. | [[meta/operating-model]] |
 | ${workspace_1.today} | Project canonical content language is chosen from user/project context. | User language and source material should drive project truth, not the bootstrap tool. | Hardcode Korean or English as the canonical content language. | A team requires a fixed language policy. | [[startup]], [[index]] |
-| ${workspace_1.today} | Install git hook files but allow \`--no-git-config\`. | Public users may not want \`core.hooksPath\` changed automatically. | Always configure git hooks. | Users prefer automatic setup and accept the side effect. | [[meta/operating-model]] |
+| ${workspace_1.today} | Install git hook files but preserve existing \`core.hooksPath\` values and allow \`--no-git-config\`. | Public users may already have a hook chain such as Husky. | Always replace \`core.hooksPath\`. | Users prefer automatic setup and accept the side effect. | [[meta/operating-model]] |
 | ${workspace_1.today} | Commit automation writes the \`Wiki-scope\` trailer. | Reviewers should see whether a commit touched startup, canonical docs, decisions, or wiki operations. | Leave wiki impact implicit in the diff. | Trailer format becomes too noisy. | [[meta/operating-model]] |
 | ${workspace_1.today} | Migration may mark rows \`needs-human-review\`. | Ambiguous, risky, or high-impact legacy content should not be closed automatically. | Force every migrated row into adopted/rejected/resolved. | Human review queues become too large. | [[meta/operating-model]] |
 | ${workspace_1.today} | Capture stores candidates in \`wiki/inbox/\`. | Useful ideas are not lost, but unreviewed content does not become canonical truth. | Save all conversation content directly into canonical docs. | Inbox content is frequently abandoned. | [[meta/operating-model]] |

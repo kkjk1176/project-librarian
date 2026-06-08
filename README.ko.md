@@ -148,7 +148,8 @@ Config 파일(`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`,
 
 ## 정책과 side effect
 
-- git 저장소에서는 기본적으로 `git config core.hooksPath .githooks`를 설정합니다.
+- git 저장소에서는 `core.hooksPath`가 비어 있을 때 기본적으로 `git config core.hooksPath .githooks`를 설정합니다.
+- 다른 `core.hooksPath`가 이미 있으면 bootstrap은 기존 값을 보존하고 git config 변경을 건너뛰었다고 보고합니다.
 - `--no-git-config`를 사용하면 `core.hooksPath`를 바꾸지 않고 hook 파일만 설치합니다.
 - 기존 `AGENTS.md`, `CLAUDE.md`, `wiki/AGENTS.md`는 project-wiki marker block 밖의 내용을 보존합니다.
 - 생성되는 운영 문서는 기본적으로 영어입니다. 프로젝트 canonical wiki content는 사용자 지시나 기존 프로젝트 언어를 따릅니다.
