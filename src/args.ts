@@ -1,8 +1,56 @@
 export const rawArgs: string[] = process.argv.slice(2);
 const knownCommands: Set<string> = new Set(["init", "install-skill"]);
+export const helpMode = rawArgs.includes("--help") || rawArgs.includes("-h");
+export const unknownCommand = rawArgs[0] && !rawArgs[0].startsWith("-") && !knownCommands.has(rawArgs[0]) ? rawArgs[0] : "";
 export const command: "init" | "install-skill" = knownCommands.has(rawArgs[0] ?? "") ? rawArgs[0] as "init" | "install-skill" : "init";
 export const commandArgs: string[] = command === rawArgs[0] ? rawArgs.slice(1) : rawArgs;
 export const args: Set<string> = new Set(commandArgs);
+
+const flagsWithoutValues: Set<string> = new Set([
+  "--adopt-existing",
+  "--capture-inbox",
+  "--code-evidence-files",
+  "--code-evidence-index",
+  "--code-evidence-status",
+  "--code-files",
+  "--code-index",
+  "--code-status",
+  "--dry-run",
+  "--glossary-init",
+  "--lint",
+  "--migrate",
+  "--no-git-config",
+  "--prune-check",
+  "--refresh-index",
+  "--review-migration",
+  "--semantic-migrate",
+]);
+const flagsWithValues: Set<string> = new Set([
+  "--agents",
+  "--category",
+  "--code-evidence-out",
+  "--code-evidence-query",
+  "--code-evidence-scope",
+  "--code-evidence-symbol",
+  "--code-index-out",
+  "--code-query",
+  "--code-scope",
+  "--code-search-symbol",
+  "--content",
+  "--query",
+  "--scope",
+  "--title",
+]);
+const knownFlags: Set<string> = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
+
+function flagName(arg: string): string {
+  return arg.startsWith("--") ? arg.split("=", 1)[0] ?? arg : arg;
+}
+
+export const unknownOptions: string[] = Array.from(new Set(commandArgs
+  .filter((arg) => arg.startsWith("-"))
+  .map(flagName)
+  .filter((arg) => !knownFlags.has(arg))));
 
 export const migrateMode = args.has("--migrate") || args.has("--adopt-existing");
 export const lintMode = args.has("--lint");

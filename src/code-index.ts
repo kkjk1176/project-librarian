@@ -519,7 +519,8 @@ function openDatabase(databasePath: string): SqliteDatabase {
 
 function isReadOnlySql(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
-  return /^(select|with)\b/.test(trimmed) && !/;\s*\S/.test(trimmed);
+  if (!/^(select|with)\b/.test(trimmed) || /;\s*\S/.test(trimmed)) return false;
+  return !/\b(attach|alter|create|delete|detach|drop|insert|pragma|reindex|replace|update|vacuum)\b/.test(trimmed);
 }
 
 function requireExistingIndex(): void {
@@ -599,6 +600,7 @@ export function runCodeQueryMode(): void {
   }
   const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
   try {
+    database.exec("PRAGMA query_only = ON");
     printRows(database.prepare(codeQuerySql).all());
   } finally {
     database.close();

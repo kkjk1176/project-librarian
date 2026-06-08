@@ -58,6 +58,8 @@ function upsertGitHooksPath() {
     }
     if (previous === ".githooks")
         return "exists";
+    if (previous)
+        return `skipped-existing-hooksPath ${previous}`;
     childProcess.execFileSync("git", ["config", "core.hooksPath", ".githooks"], {
         cwd: workspace_1.root,
         stdio: "ignore",
@@ -77,8 +79,11 @@ function upsertSessionStartHookConfig(relativePath, command, matchers, timeout) 
     }
     if (!Array.isArray(config.hooks.SessionStart))
         config.hooks.SessionStart = [];
-    const unmanaged = config.hooks.SessionStart.filter((entry) => {
-        return !Array.isArray(entry?.hooks) || !entry.hooks.some((hook) => hook?.command === command);
+    const unmanaged = config.hooks.SessionStart.flatMap((entry) => {
+        if (!Array.isArray(entry?.hooks))
+            return [entry];
+        const hooks = entry.hooks.filter((hook) => hook?.command !== command);
+        return hooks.length > 0 ? [{ ...entry, hooks }] : [];
     });
     const managed = matchers.map((matcher) => ({
         matcher,

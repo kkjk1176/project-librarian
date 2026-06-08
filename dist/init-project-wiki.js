@@ -12,6 +12,41 @@ const wiki_files_1 = require("./wiki-files");
 function codeIndex() {
     return require("./code-index");
 }
+function printUsage() {
+    console.log(`Usage:
+  project-wiki-bootstrap [init] [options]
+  project-wiki-bootstrap install-skill [--scope user|project] [--agents codex|claude|both]
+
+Options:
+  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
+  --lint                           Validate the generated project wiki setup without editing files.
+  --query <terms>                  Search wiki paths, metadata, titles, and bodies.
+  --refresh-index                  Update the managed auto-discovered wiki index block.
+  --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
+  --glossary-init                  Create and route the optional glossary page.
+  --prune-check                    Report active pages with stale or unresolved signals.
+  --review-migration               Sync migration inbox statuses into migration review files.
+  --no-git-config                  Install hook files without changing git core.hooksPath.
+  --code-index                     Build the disposable .project-wiki code evidence index.
+  --code-query <sql>               Run conservative read-only SQL over the code evidence index.
+  --code-status, --code-files      Inspect the code evidence index.
+  --code-search-symbol <term>      Search indexed symbols.
+  --help                           Show this help.`);
+}
+if (args_1.helpMode) {
+    printUsage();
+    process.exit(0);
+}
+if (args_1.unknownCommand) {
+    console.error(`unknown command: ${args_1.unknownCommand}`);
+    printUsage();
+    process.exit(1);
+}
+if (args_1.unknownOptions.length > 0) {
+    console.error(`unknown option${args_1.unknownOptions.length === 1 ? "" : "s"}: ${args_1.unknownOptions.join(", ")}`);
+    printUsage();
+    process.exit(1);
+}
 if (args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);

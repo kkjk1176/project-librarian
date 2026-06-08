@@ -148,7 +148,8 @@ Config ファイル (`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package
 
 ## ポリシーと side effect
 
-- git リポジトリでは、デフォルトで `git config core.hooksPath .githooks` を設定します。
+- git リポジトリでは、`core.hooksPath` が未設定の場合にデフォルトで `git config core.hooksPath .githooks` を設定します。
+- 既存の `core.hooksPath` がある場合、bootstrap はその値を保持し、git config の変更をスキップしたことを報告します。
 - `--no-git-config` を使うと、`core.hooksPath` を変更せず hook ファイルだけをインストールします。
 - 既存の `AGENTS.md`、`CLAUDE.md`、`wiki/AGENTS.md` は project-wiki marker block の外側を保持します。
 - 生成される運用文書はデフォルトで英語です。プロジェクトの canonical wiki content はユーザー指示または既存のプロジェクト言語に従います。

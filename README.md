@@ -148,7 +148,8 @@ Config files (`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`,
 
 ## Policies And Side Effects
 
-- In a git repository, bootstrap configures `git config core.hooksPath .githooks` by default.
+- In a git repository, bootstrap configures `git config core.hooksPath .githooks` by default when `core.hooksPath` is unset.
+- If another `core.hooksPath` already exists, bootstrap preserves it and reports the skipped git config change.
 - Use `--no-git-config` to install hook files without changing `core.hooksPath`.
 - Existing `AGENTS.md`, `CLAUDE.md`, and `wiki/AGENTS.md` files are preserved outside project-wiki marker blocks.
 - Generated operating documents are English by default. Project canonical wiki content should follow the user's instruction or the project's existing language.

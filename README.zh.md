@@ -148,7 +148,8 @@ Config 文件（`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json
 
 ## 策略和 side effect
 
-- 在 git 仓库中，默认会设置 `git config core.hooksPath .githooks`。
+- 在 git 仓库中，如果 `core.hooksPath` 尚未设置，默认会设置 `git config core.hooksPath .githooks`。
+- 如果已经存在其他 `core.hooksPath`，bootstrap 会保留该值，并报告已跳过 git config 修改。
 - 使用 `--no-git-config` 时，只安装 hook 文件，不修改 `core.hooksPath`。
 - 已有 `AGENTS.md`、`CLAUDE.md` 和 `wiki/AGENTS.md` 会保留 project-wiki marker block 之外的内容。
 - 生成的运行文档默认使用英语。项目 canonical wiki content 应遵循用户指令或项目已有语言。

@@ -70,7 +70,7 @@ function sameFile(source: string, target: string): boolean {
 }
 
 function copyPath(source: string, target: string, dryRun: boolean): InstallStatus {
-  if (!fs.existsSync(source)) return "exists";
+  if (!fs.existsSync(source)) fail(`missing package file: ${source}`);
   const existed = fs.existsSync(target);
   if (dryRun) return "dry-run";
   const sourceStat = fs.statSync(source);
