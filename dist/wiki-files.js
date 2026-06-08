@@ -130,7 +130,31 @@ function compactSummary(text) {
         .slice(0, 180);
 }
 function splitMarkdownRow(line) {
-    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+    const trimmed = line.trim();
+    const row = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+    const cells = [];
+    let current = "";
+    let escaped = false;
+    for (const char of row) {
+        if (escaped) {
+            current += char === "|" ? "|" : `\\${char}`;
+            escaped = false;
+        }
+        else if (char === "\\") {
+            escaped = true;
+        }
+        else if (char === "|") {
+            cells.push(current.trim());
+            current = "";
+        }
+        else {
+            current += char;
+        }
+    }
+    if (escaped)
+        current += "\\";
+    cells.push(current.trim());
+    return cells;
 }
 function parseMarkdownTableRows(text, expectedColumns) {
     return text

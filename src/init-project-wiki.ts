@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeIndexMode, codeQuerySql, codeSearchSymbol, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueDraftMode, linkCheckMode, lintMode, migrateMode, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
+import { captureInboxMode, codeFilesMode, codeIndexMode, codeQueryMode, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueDraftMode, linkCheckMode, lintMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
 import { hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
@@ -61,6 +61,12 @@ if (unknownOptions.length > 0) {
   process.exit(1);
 }
 
+if (missingValueOptions.length > 0) {
+  console.error(`missing value for option${missingValueOptions.length === 1 ? "" : "s"}: ${missingValueOptions.join(", ")}`);
+  printUsage();
+  process.exit(1);
+}
+
 if (fixMode && !doctorMode) {
   console.error("--fix is only supported with --doctor.");
   process.exit(1);
@@ -71,13 +77,13 @@ if (command === "install-skill") {
   process.exit(0);
 }
 
-const activeCodeModes = [Boolean(codeQuerySql), codeStatusMode, codeFilesMode, Boolean(codeSearchSymbol), codeIndexMode].filter(Boolean).length;
+const activeCodeModes = [codeQueryMode, codeStatusMode, codeFilesMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
   console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-status, --code-files, or --code-search-symbol.");
   process.exit(1);
 }
 
-if (codeQuerySql) {
+if (codeQueryMode) {
   codeIndex().runCodeQueryMode();
   process.exit(0);
 }
@@ -89,7 +95,7 @@ if (codeFilesMode) {
   codeIndex().runCodeFilesMode();
   process.exit(0);
 }
-if (codeSearchSymbol) {
+if (codeSearchSymbolMode) {
   codeIndex().runCodeSearchSymbolMode();
   process.exit(0);
 }

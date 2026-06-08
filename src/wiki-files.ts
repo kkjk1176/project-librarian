@@ -79,7 +79,27 @@ export function compactSummary(text: string): string {
 
 
 export function splitMarkdownRow(line: string): string[] {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  const trimmed = line.trim();
+  const row = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells: string[] = [];
+  let current = "";
+  let escaped = false;
+  for (const char of row) {
+    if (escaped) {
+      current += char === "|" ? "|" : `\\${char}`;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (char === "|") {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (escaped) current += "\\";
+  cells.push(current.trim());
+  return cells;
 }
 
 export function parseMarkdownTableRows(text: string, expectedColumns: number): string[][] {

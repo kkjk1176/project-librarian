@@ -64,10 +64,13 @@ function classifyMarkdown(relativePath, text) {
         return "canonical";
     return "other";
 }
+function markdownTableCell(value) {
+    return String(value).replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+}
 function markdownTableRows(items) {
     if (items.length === 0)
         return "| none | - | - | - |\n";
-    return items.map((item) => `| ${item.path} | ${item.title.replace(/\|/g, "/")} | ${item.summary.replace(/\|/g, "/")} | pending |`).join("\n") + "\n";
+    return items.map((item) => `| ${markdownTableCell(item.path)} | ${markdownTableCell(item.title)} | ${markdownTableCell(item.summary)} | pending |`).join("\n") + "\n";
 }
 function buildInbox(title, description, items) {
     return `${(0, templates_1.metadata)("migration-inbox", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "migration candidates are adopted or rescanned")}
@@ -128,7 +131,7 @@ function runMigrationMode(migrationState) {
     };
     const inventoryRows = items.length === 0
         ? "| none | - | - | 0 | - |\n"
-        : items.map((item) => `| ${item.path} | ${item.kind} | ${item.title.replace(/\|/g, "/")} | ${item.bytes} | ${item.summary.replace(/\|/g, "/")} |`).join("\n") + "\n";
+        : items.map((item) => `| ${markdownTableCell(item.path)} | ${item.kind} | ${markdownTableCell(item.title)} | ${item.bytes} | ${markdownTableCell(item.summary)} |`).join("\n") + "\n";
     const inventory = `${(0, templates_1.metadata)("migration-inventory", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration scan is rerun")}
 # Migration Inventory
 
@@ -163,7 +166,7 @@ ${inventoryRows}`;
 `;
     const verificationRows = items.length === 0
         ? "| none | - | - | pass | - |\n"
-        : items.map((item) => `| ${item.path} | ${item.kind} | ${migrationTargetForKind(item.kind)} | mapped | pending semantic rewrite |`).join("\n") + "\n";
+        : items.map((item) => `| ${markdownTableCell(item.path)} | ${item.kind} | ${migrationTargetForKind(item.kind)} | mapped | pending semantic rewrite |`).join("\n") + "\n";
     const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox items are adopted, rejected, or rescanned")}
 # Migration Verification
 
@@ -293,7 +296,7 @@ function runReviewMigrationMode() {
     const complete = pending === 0 && needsHuman === 0;
     const reviewRows = reviewedRows.length === 0
         ? "| none | - | - | - | - |\n"
-        : reviewedRows.map((row) => `| ${row.legacyPath} | ${row.kind} | ${row.inboxStatus} | ${row.semanticStatus} | ${row.note.replace(/\|/g, "/")} |`).join("\n") + "\n";
+        : reviewedRows.map((row) => `| ${markdownTableCell(row.legacyPath)} | ${row.kind} | ${row.inboxStatus} | ${row.semanticStatus} | ${markdownTableCell(row.note)} |`).join("\n") + "\n";
     const review = `${(0, templates_1.metadata)("migration-review", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox statuses change")}
 # Migration Review
 
@@ -313,7 +316,7 @@ function runReviewMigrationMode() {
 ${reviewRows}`;
     const verificationRowsText = reviewedRows.length === 0
         ? "| none | - | - | pass | - |\n"
-        : reviewedRows.map((row) => `| ${row.legacyPath} | ${row.kind} | ${row.target} | ${row.coverage} | ${row.semanticStatus} |`).join("\n") + "\n";
+        : reviewedRows.map((row) => `| ${markdownTableCell(row.legacyPath)} | ${row.kind} | ${row.target} | ${row.coverage} | ${row.semanticStatus} |`).join("\n") + "\n";
     const legacyRoot = (verificationText.match(/^- legacy root:\s*(.+)$/m) || [])[1] || "unknown";
     const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox items are adopted, rejected, resolved, or marked needs-human-review")}
 # Migration Verification

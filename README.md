@@ -149,7 +149,7 @@ For large repositories, the skill can build a disposable SQLite evidence cache:
 npx project-wiki-bootstrap --code-index --code-scope src
 ```
 
-The cache lives under `.project-wiki/` and is regenerated as needed. It is evidence for wiki updates, not canonical wiki content. Code changes are not watched automatically; inspection commands report stale cache counts or warnings so you can rerun `--code-index` intentionally.
+The cache lives under `.project-wiki/` and is regenerated as needed. It is evidence for wiki updates, not canonical wiki content. Code changes are not watched automatically; inspection commands report stale cache counts or warnings so you can rerun `--code-index` intentionally. `.env*` files other than `.env.example` and obvious sensitive config filenames containing secret, credential, token, private, or key terms are excluded by default.
 
 Useful commands:
 

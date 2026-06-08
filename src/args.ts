@@ -53,10 +53,30 @@ function flagName(arg: string): string {
   return arg.startsWith("--") ? arg.split("=", 1)[0] ?? arg : arg;
 }
 
+function hasFlag(name: string): boolean {
+  const prefix = `${name}=`;
+  return commandArgs.some((arg) => arg === name || arg.startsWith(prefix));
+}
+
+function flagHasValue(name: string): boolean {
+  const prefix = `${name}=`;
+  for (let index = 0; index < commandArgs.length; index += 1) {
+    const arg = commandArgs[index];
+    if (!arg) continue;
+    if (arg.startsWith(prefix)) return arg.slice(prefix.length).trim().length > 0;
+    if (arg === name) {
+      const next = commandArgs[index + 1];
+      return Boolean(next && !next.startsWith("-"));
+    }
+  }
+  return true;
+}
+
 export const unknownOptions: string[] = Array.from(new Set(commandArgs
   .filter((arg) => arg.startsWith("-"))
   .map(flagName)
   .filter((arg) => !knownFlags.has(arg))));
+export const missingValueOptions: string[] = Array.from(flagsWithValues).filter((flag) => hasFlag(flag) && !flagHasValue(flag));
 
 export const migrateMode = args.has("--migrate") || args.has("--adopt-existing");
 export const lintMode = args.has("--lint");
@@ -74,6 +94,8 @@ export const noGitConfigMode = args.has("--no-git-config");
 export const codeIndexMode = args.has("--code-index") || args.has("--code-evidence-index");
 export const codeStatusMode = args.has("--code-status") || args.has("--code-evidence-status");
 export const codeFilesMode = args.has("--code-files") || args.has("--code-evidence-files");
+export const codeQueryMode = hasFlag("--code-query") || hasFlag("--code-evidence-query");
+export const codeSearchSymbolMode = hasFlag("--code-search-symbol") || hasFlag("--code-evidence-symbol");
 
 export function argValue(name: string): string {
   const prefix = `${name}=`;

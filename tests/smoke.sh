@@ -31,6 +31,18 @@ if node "$CLI" --definitely-unknown > unknown-option.log 2>&1; then
 fi
 grep -q "unknown option: --definitely-unknown" unknown-option.log
 test ! -e AGENTS.md
+if node "$CLI" --query > missing-query.log 2>&1; then
+  echo "expected missing --query value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --query" missing-query.log
+test ! -e AGENTS.md
+if node "$CLI" --code-query --code-status > missing-code-query.log 2>&1; then
+  echo "expected missing --code-query value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-query" missing-code-query.log
+test ! -e AGENTS.md
 grep -q -- "--issue-draft" help.log
 
 cd "$TMPDIR"
@@ -68,6 +80,8 @@ node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
 node "$CLI" --refresh-index
 node "$CLI" --capture-inbox --title "Smoke" --content "Candidate content"
+node "$CLI" --capture-inbox > capture-inbox-empty-rerun.log
+grep -q "exists  wiki/inbox/project-candidates.md" capture-inbox-empty-rerun.log
 node "$CLI" --query Smoke
 node "$CLI" --prune-check
 node "$CLI" --lint
@@ -187,6 +201,21 @@ if [ "$(git config --get core.hooksPath || true)" = ".githooks" ]; then
   exit 1
 fi
 
+mkdir "$TMPDIR/migration-pipe"
+cd "$TMPDIR/migration-pipe"
+mkdir wiki
+cat > 'wiki/spec|decision.md' <<'EOF'
+# Pipe Decision
+
+Decision: preserve a source path containing a pipe.
+EOF
+node "$CLI" --migrate
+grep -q 'spec\\|decision.md' wiki/migration/verification.md
+node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node "$CLI" --review-migration > review-migration-pipe.log
+grep -q "semantic migration complete: yes" wiki/migration/verification.md
+grep -q 'spec\\|decision.md' wiki/migration/review.md
+
 mkdir "$TMPDIR/existing-hooks-path"
 cd "$TMPDIR/existing-hooks-path"
 git init >/dev/null
@@ -295,7 +324,15 @@ EOF
 cat > .env.example <<'EOF'
 PUBLIC_EXAMPLE=placeholder
 EOF
-node "$CLI" --code-index --code-scope src --code-scope package.json --code-scope .env.example > code-index.log
+cat > secrets.json <<'EOF'
+{
+  "TOP_SECRET": "do-not-index"
+}
+EOF
+cat > service-token.yaml <<'EOF'
+SERVICE_TOKEN: do-not-index
+EOF
+node "$CLI" --code-index --code-scope src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
 test -f .project-wiki/code-evidence.sqlite
 grep -q "files: 3" code-index.log
 node "$CLI" --code-query "select path from files order by path" > code-query.json
@@ -305,8 +342,12 @@ grep -q "typescript-ast" code-files.json
 ! grep -q "ignored/ignored.js" code-files.json
 grep -q ".env.example" code-files.json
 ! grep -q ".env.local" code-files.json
+! grep -q "secrets.json" code-files.json
+! grep -q "service-token.yaml" code-files.json
 ! grep -q "SECRET_TOKEN" code-files.json
 ! grep -q "LOCAL_SECRET" code-files.json
+! grep -q "TOP_SECRET" code-files.json
+! grep -q "SERVICE_TOKEN" code-files.json
 node "$CLI" --code-status > code-status.json
 grep -q "edges" code-status.json
 grep -q "stale_files" code-status.json

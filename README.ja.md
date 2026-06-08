@@ -141,7 +141,7 @@ wiki ディレクトリ:
 npx project-wiki-bootstrap --code-index --code-scope src
 ```
 
-cache は `.project-wiki/` 配下に作成され、必要に応じて再生成できます。これは wiki 更新のための根拠であり、canonical wiki content ではありません。
+cache は `.project-wiki/` 配下に作成され、必要に応じて再生成できます。これは wiki 更新のための根拠であり、canonical wiki content ではありません。`.env.example` 以外の `.env*` ファイルと、secret、credential、token、private、key 系の語を含む明らかに機密性の高い config ファイル名は既定で除外されます。
 
 便利なコマンド:
 

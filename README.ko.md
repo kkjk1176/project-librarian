@@ -149,7 +149,7 @@ wiki 디렉터리:
 npx project-wiki-bootstrap --code-index --code-scope src
 ```
 
-cache는 `.project-wiki/` 아래에 생성되며 필요할 때 다시 만들 수 있습니다. wiki 갱신을 위한 근거이지 canonical wiki content가 아닙니다.
+cache는 `.project-wiki/` 아래에 생성되며 필요할 때 다시 만들 수 있습니다. wiki 갱신을 위한 근거이지 canonical wiki content가 아닙니다. `.env.example`을 제외한 `.env*` 파일과 secret, credential, token, private, key 용어가 들어간 명백한 민감 config 파일명은 기본적으로 제외됩니다.
 
 유용한 명령:
 

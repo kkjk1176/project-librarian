@@ -110,10 +110,11 @@ function projectCandidatesContent() {
 function appendCaptureInbox() {
     (0, workspace_1.mkdirp)("wiki/inbox");
     const relativePath = "wiki/inbox/project-candidates.md";
-    if (!(0, workspace_1.exists)(relativePath))
+    const existed = (0, workspace_1.exists)(relativePath);
+    if (!existed)
         (0, workspace_1.write)(relativePath, projectCandidatesContent());
     if (!args_1.captureTitle && !args_1.captureContent)
-        return "created";
+        return existed ? "exists" : "created";
     const title = (args_1.captureTitle || "Untitled candidate").replace(/\|/g, "/");
     const content = (args_1.captureContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
     const row = `| ${workspace_1.today} | ${title} | ${args_1.captureCategory.replace(/\|/g, "/")} | ${content} | pending |`;

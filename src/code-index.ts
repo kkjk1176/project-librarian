@@ -155,6 +155,13 @@ function isBlockedEnvFile(relativePath: string): boolean {
   return base.startsWith(".env") && base !== ".env.example";
 }
 
+function isBlockedSensitiveConfigFile(relativePath: string): boolean {
+  if (fileLanguage(relativePath) !== "config") return false;
+  const base = path.basename(relativePath).toLowerCase();
+  if (base === ".env.example") return false;
+  return /(^|[._-])(secret|secrets|credential|credentials|token|tokens|private|key|keys)([._-]|$)/i.test(base);
+}
+
 function isJavaScriptLike(relativePath: string): boolean {
   return [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"].includes(path.extname(relativePath).toLowerCase());
 }
@@ -168,6 +175,7 @@ function extractionProfile(relativePath: string): string {
 
 function shouldIndexFile(relativePath: string): boolean {
   if (isBlockedEnvFile(relativePath)) return false;
+  if (isBlockedSensitiveConfigFile(relativePath)) return false;
   const language = fileLanguage(relativePath);
   if (language) return true;
   const base = path.basename(relativePath);

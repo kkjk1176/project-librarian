@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueDraftTitle = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeFilesMode = exports.codeStatusMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
@@ -55,10 +55,30 @@ const knownFlags = new Set([...flagsWithoutValues, ...flagsWithValues, "--help",
 function flagName(arg) {
     return arg.startsWith("--") ? arg.split("=", 1)[0] ?? arg : arg;
 }
+function hasFlag(name) {
+    const prefix = `${name}=`;
+    return exports.commandArgs.some((arg) => arg === name || arg.startsWith(prefix));
+}
+function flagHasValue(name) {
+    const prefix = `${name}=`;
+    for (let index = 0; index < exports.commandArgs.length; index += 1) {
+        const arg = exports.commandArgs[index];
+        if (!arg)
+            continue;
+        if (arg.startsWith(prefix))
+            return arg.slice(prefix.length).trim().length > 0;
+        if (arg === name) {
+            const next = exports.commandArgs[index + 1];
+            return Boolean(next && !next.startsWith("-"));
+        }
+    }
+    return true;
+}
 exports.unknownOptions = Array.from(new Set(exports.commandArgs
     .filter((arg) => arg.startsWith("-"))
     .map(flagName)
     .filter((arg) => !knownFlags.has(arg))));
+exports.missingValueOptions = Array.from(flagsWithValues).filter((flag) => hasFlag(flag) && !flagHasValue(flag));
 exports.migrateMode = exports.args.has("--migrate") || exports.args.has("--adopt-existing");
 exports.lintMode = exports.args.has("--lint");
 exports.linkCheckMode = exports.args.has("--link-check");
@@ -75,6 +95,8 @@ exports.noGitConfigMode = exports.args.has("--no-git-config");
 exports.codeIndexMode = exports.args.has("--code-index") || exports.args.has("--code-evidence-index");
 exports.codeStatusMode = exports.args.has("--code-status") || exports.args.has("--code-evidence-status");
 exports.codeFilesMode = exports.args.has("--code-files") || exports.args.has("--code-evidence-files");
+exports.codeQueryMode = hasFlag("--code-query") || hasFlag("--code-evidence-query");
+exports.codeSearchSymbolMode = hasFlag("--code-search-symbol") || hasFlag("--code-evidence-symbol");
 function argValue(name) {
     const prefix = `${name}=`;
     const inline = exports.commandArgs.find((arg) => arg.startsWith(prefix));

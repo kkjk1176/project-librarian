@@ -66,8 +66,9 @@ export function projectCandidatesContent(): string {
 export function appendCaptureInbox(): FileStatus {
   mkdirp("wiki/inbox");
   const relativePath = "wiki/inbox/project-candidates.md";
-  if (!exists(relativePath)) write(relativePath, projectCandidatesContent());
-  if (!captureTitle && !captureContent) return "created";
+  const existed = exists(relativePath);
+  if (!existed) write(relativePath, projectCandidatesContent());
+  if (!captureTitle && !captureContent) return existed ? "exists" : "created";
   const title = (captureTitle || "Untitled candidate").replace(/\|/g, "/");
   const content = (captureContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
   const row = `| ${today} | ${title} | ${captureCategory.replace(/\|/g, "/")} | ${content} | pending |`;

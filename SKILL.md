@@ -136,6 +136,7 @@ Safety and runtime boundaries:
 - Keep code scopes inside the project root.
 - In git repositories, the indexer respects `.gitignore` through `git ls-files --cached --others --exclude-standard`.
 - `.env*` files are excluded from the index, except `.env.example`.
+- Obvious sensitive config filenames containing secret, credential, token, private, or key terms are excluded from the index.
 - Code evidence indexing requires a Node runtime that provides `node:sqlite`; if unavailable, report the runtime requirement and continue with normal repository inspection.
 
 Scope selection is handled through the user's natural-language request:

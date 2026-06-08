@@ -141,7 +141,7 @@ wiki 目录:
 npx project-wiki-bootstrap --code-index --code-scope src
 ```
 
-cache 会创建在 `.project-wiki/` 下，并可按需重新生成。它是 wiki 更新的依据，不是 canonical wiki content。
+cache 会创建在 `.project-wiki/` 下，并可按需重新生成。它是 wiki 更新的依据，不是 canonical wiki content。除 `.env.example` 外的 `.env*` 文件，以及文件名明显包含 secret、credential、token、private、key 等敏感 config 术语的文件，默认会被排除。
 
 有用命令:
 
