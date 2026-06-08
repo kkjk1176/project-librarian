@@ -56,6 +56,21 @@ npx project-wiki-bootstrap install-skill --scope project --agents both
 | 현재 저장소의 Codex와 Claude Code에 설치 | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
 | 한 에이전트에만 설치 | `npx project-wiki-bootstrap install-skill --agents codex` 또는 `--agents claude` |
 
+### 에이전트 세션의 로컬 Runner
+
+skill 설치 후 Codex와 Claude Code는 npm에서 패키지를 다시 가져오지 말고 설치된 로컬 사본을 실행해야 합니다. 이렇게 하면 제한된 에이전트 환경에서 network 실패와 미고정 공개 패키지 실행 차단을 피할 수 있습니다.
+
+자주 쓰는 로컬 runner:
+
+| 설치 위치 | Runner |
+| --- | --- |
+| 프로젝트 범위 Codex skill | `node .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 프로젝트 범위 Claude skill | `node .claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 사용자 범위 Codex skill | `node ~/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 사용자 범위 Claude skill | `node ~/.claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+
+직접 shell에서 실행하는 사용자는 registry 접근이 가능할 때 `npx project-wiki-bootstrap ...`를 계속 사용할 수 있습니다. 설치된 skill을 사용하는 에이전트는 로컬 runner를 우선해야 하며, 실패하면 생성 파일을 수동으로 재구성하는 fallback 대신 실제 오류를 보고해야 합니다.
+
 ### 2. Project Wiki 생성, 갱신, 유지보수
 
 skill 설치 후 대상 프로젝트 루트에서 wiki 명령을 실행합니다.

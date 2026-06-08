@@ -56,6 +56,21 @@ Install options:
 | Install for Codex and Claude Code in the current repository | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
 | Install for only one agent | `npx project-wiki-bootstrap install-skill --agents codex` or `--agents claude` |
 
+### Local Runner For Agent Sessions
+
+After the skill is installed, Codex and Claude Code should run the installed local copy instead of fetching the package from npm again. This avoids network failures and avoids unpinned public package execution in restricted agent environments.
+
+Common local runners:
+
+| Installation | Runner |
+| --- | --- |
+| Project-scoped Codex skill | `node .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| Project-scoped Claude skill | `node .claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| User-scoped Codex skill | `node ~/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| User-scoped Claude skill | `node ~/.claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+
+Direct shell users can still use `npx project-wiki-bootstrap ...` when registry access is available. Agents using the installed skill should prefer the local runner and should report the real error if it fails instead of manually recreating generated files as a fallback.
+
 ### 2. Bootstrap or Maintain the Project Wiki
 
 After installing the skill, run the wiki command from the target project root:

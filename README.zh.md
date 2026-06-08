@@ -56,6 +56,21 @@ npx project-wiki-bootstrap install-skill --scope project --agents both
 | 为当前仓库内的 Codex 和 Claude Code 安装 | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
 | 只为一个代理安装 | `npx project-wiki-bootstrap install-skill --agents codex` 或 `--agents claude` |
 
+### 代理会话中的本地 Runner
+
+安装 skill 后，Codex 和 Claude Code 应运行已安装的本地副本，而不是再次从 npm 获取包。这样可以避免受限代理环境中的 network failure，以及未固定公开包执行被拦截的问题。
+
+常用本地 runner:
+
+| 安装位置 | Runner |
+| --- | --- |
+| 项目范围 Codex skill | `node .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 项目范围 Claude skill | `node .claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 用户范围 Codex skill | `node ~/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+| 用户范围 Claude skill | `node ~/.claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js` |
+
+直接在 shell 中运行的用户，在 registry access 可用时仍可使用 `npx project-wiki-bootstrap ...`。使用已安装 skill 的代理应优先使用本地 runner；如果失败，应报告真实错误，而不是手动重建生成文件作为 fallback。
+
 ### 2. 创建、更新和维护 Project Wiki
 
 安装 skill 后，在目标项目根目录运行 wiki 命令。

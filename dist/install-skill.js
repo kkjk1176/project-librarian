@@ -135,7 +135,7 @@ function runInstallSkillMode() {
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
     console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, wiki/, .codex/hooks.json, or .claude/settings.json.");
-    console.log("next: run `npx project-wiki-bootstrap` from the target project root to bootstrap or update the project wiki.");
+    console.log("next: agents should run the installed local project-wiki-bootstrap runner from the target project root; direct shell users can still run `npx project-wiki-bootstrap` when registry access is available.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);
     }

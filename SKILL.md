@@ -9,7 +9,7 @@ metadata:
 
 Use this skill to install, update, validate, search, migrate, or code-canonicalize a token-efficient planning wiki in the current project.
 
-Users should normally interact with this skill through natural language, or through `/project-wiki-bootstrap` in Claude Code. Do not ask users to run lifecycle flags directly unless they explicitly want shell commands; execute the matching `npx project-wiki-bootstrap` operation yourself from the project root.
+Users should normally interact with this skill through natural language, or through `/project-wiki-bootstrap` in Claude Code. Do not ask users to run lifecycle flags directly unless they explicitly want shell commands; resolve a local project-wiki-bootstrap runner and execute the matching operation yourself from the project root.
 
 Supported actions:
 
@@ -30,55 +30,69 @@ Supported actions:
 
 ## Workflow
 
-1. For project bootstrap requests, choose the matching command and run it from the project root:
+1. Resolve the project-wiki-bootstrap runner before executing lifecycle operations.
+
+Prefer an already installed local runner over network package execution:
+
+- In the project-wiki-bootstrap source repository, use `node dist/init-project-wiki.js` when `dist/init-project-wiki.js` exists.
+- In a target repository with a project-scoped Codex skill install, use `node .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js`.
+- In a target repository with a project-scoped Claude skill install, use `node .claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js`.
+- In a user-scoped Codex skill install, use `node ~/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js`.
+- In a user-scoped Claude skill install, use `node ~/.claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js`.
+
+Use `npx` or `npm exec` only when no local runner exists and registry access is explicitly acceptable for the environment. When using npm package execution, pin the package version instead of running an unpinned public package.
+
+If the resolved runner fails, report the real error and stop or fix the cause. Do not manually recreate bootstrap or migration output as a fallback.
+
+2. For project bootstrap requests, choose the matching command and run it from the project root. The examples below use `$PROJECT_WIKI_BOOTSTRAP` to mean the resolved runner from step 1:
 
 ```bash
-npx project-wiki-bootstrap
+$PROJECT_WIKI_BOOTSTRAP
 ```
 
 Use the command variants as follows:
 
-- New project wiki or normal update: `npx project-wiki-bootstrap`.
-- Existing wiki/docs need migration: `npx project-wiki-bootstrap --migrate`.
-- Install hook files without changing git config: `npx project-wiki-bootstrap --no-git-config`.
+- New project wiki or normal update: `$PROJECT_WIKI_BOOTSTRAP`.
+- Existing wiki/docs need migration: `$PROJECT_WIKI_BOOTSTRAP --migrate`.
+- Install hook files without changing git config: `$PROJECT_WIKI_BOOTSTRAP --no-git-config`.
 
 When project terminology becomes important, initialize the optional glossary:
 
 ```bash
-npx project-wiki-bootstrap --glossary-init
+$PROJECT_WIKI_BOOTSTRAP --glossary-init
 ```
 
 Map lifecycle requests to these internal operations:
 
-- Validate/check the wiki: `npx project-wiki-bootstrap --lint`.
-- Check wiki links and routing: `npx project-wiki-bootstrap --link-check`.
-- Check document quality signals: `npx project-wiki-bootstrap --quality-check`.
-- Run all wiki diagnostics: `npx project-wiki-bootstrap --doctor`.
-- Safely refresh generated routing before diagnostics: `npx project-wiki-bootstrap --doctor --fix`.
-- Search the wiki: `npx project-wiki-bootstrap --query "search terms"`.
-- Refresh wiki routing/index: `npx project-wiki-bootstrap --refresh-index`.
-- Capture a project candidate: `npx project-wiki-bootstrap --capture-inbox --title "Candidate title" --content "Candidate content"`.
-- Check stale/pending pages: `npx project-wiki-bootstrap --prune-check`.
-- Draft a GitHub issue body for a skill problem or side effect: `npx project-wiki-bootstrap --issue-draft --issue-title "Issue title"`.
-- Review migrated inbox state: `npx project-wiki-bootstrap --review-migration`.
+- Validate/check the wiki: `$PROJECT_WIKI_BOOTSTRAP --lint`.
+- Check wiki links and routing: `$PROJECT_WIKI_BOOTSTRAP --link-check`.
+- Check document quality signals: `$PROJECT_WIKI_BOOTSTRAP --quality-check`.
+- Run all wiki diagnostics: `$PROJECT_WIKI_BOOTSTRAP --doctor`.
+- Safely refresh generated routing before diagnostics: `$PROJECT_WIKI_BOOTSTRAP --doctor --fix`.
+- Search the wiki: `$PROJECT_WIKI_BOOTSTRAP --query "search terms"`.
+- Refresh wiki routing/index: `$PROJECT_WIKI_BOOTSTRAP --refresh-index`.
+- Capture a project candidate: `$PROJECT_WIKI_BOOTSTRAP --capture-inbox --title "Candidate title" --content "Candidate content"`.
+- Check stale/pending pages: `$PROJECT_WIKI_BOOTSTRAP --prune-check`.
+- Draft a GitHub issue body for a skill problem or side effect: `$PROJECT_WIKI_BOOTSTRAP --issue-draft --issue-title "Issue title"`.
+- Review migrated inbox state: `$PROJECT_WIKI_BOOTSTRAP --review-migration`.
 
 Skill problem reporting contract:
 
-- If you discover a project-wiki-bootstrap bug, regression, confusing generated behavior, unintended side effect, or mismatch between this skill's promised workflow and the implementation while using this skill, run `npx project-wiki-bootstrap --issue-draft --issue-title "..."` before the final response unless the user explicitly asked not to generate a draft.
+- If you discover a project-wiki-bootstrap bug, regression, confusing generated behavior, unintended side effect, or mismatch between this skill's promised workflow and the implementation while using this skill, run `$PROJECT_WIKI_BOOTSTRAP --issue-draft --issue-title "..."` before the final response unless the user explicitly asked not to generate a draft.
 - Run the issue draft even when you can also fix the problem locally. The draft is read-only and preserves the problem report; it does not replace the code/wiki fix.
 - Choose a concise issue title that names the observed problem, not the fix. Summarize the generated draft path or key output in the final response.
 
-2. Verify:
+3. Verify:
 
 ```bash
 node .codex/hooks/wiki-session-start.js
 node .claude/hooks/wiki-session-start.js
-npx project-wiki-bootstrap --lint
-npx project-wiki-bootstrap --doctor
+$PROJECT_WIKI_BOOTSTRAP --lint
+$PROJECT_WIKI_BOOTSTRAP --doctor
 node -e 'JSON.parse(require("fs").readFileSync(".codex/hooks.json","utf8")); JSON.parse(require("fs").readFileSync(".claude/settings.json","utf8")); console.log("project wiki bootstrap ok")'
 ```
 
-3. Report the files created or updated.
+4. Report the files created or updated.
 
 ## Behavior
 
@@ -93,10 +107,10 @@ Existing root instruction files are preservation-first:
 Use `--lint` for read-only validation:
 
 ```bash
-npx project-wiki-bootstrap --lint
+$PROJECT_WIKI_BOOTSTRAP --lint
 ```
 
-Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, and `--doctor` for read-only inspection/output. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
+Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, and `--doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
 
 Use `--review-migration` or `--semantic-migrate` after migration inbox rows are processed. It syncs inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
@@ -107,7 +121,7 @@ Use this workflow when the user asks to analyze existing code and turn what the 
 For large repositories or repeated analysis, build a regenerable SQLite code evidence index before canonicalization:
 
 ```bash
-npx project-wiki-bootstrap --code-index
+$PROJECT_WIKI_BOOTSTRAP --code-index
 ```
 
 `--code-evidence-index` is an equivalent explicit alias. Use the old `--code-index` form only as the short compatibility name.
@@ -115,21 +129,21 @@ npx project-wiki-bootstrap --code-index
 Pass user-requested code scopes internally with `--code-scope`:
 
 ```bash
-npx project-wiki-bootstrap --code-index --code-scope src --code-scope packages/api
+$PROJECT_WIKI_BOOTSTRAP --code-index --code-scope src --code-scope packages/api
 ```
 
 Run read-only SQL over the cache with `--code-query`:
 
 ```bash
-npx project-wiki-bootstrap --code-query "select path, language from files order by path"
+$PROJECT_WIKI_BOOTSTRAP --code-query "select path, language from files order by path"
 ```
 
 Use the built-in inspection surfaces before writing custom SQL when they are enough:
 
 ```bash
-npx project-wiki-bootstrap --code-status
-npx project-wiki-bootstrap --code-files
-npx project-wiki-bootstrap --code-search-symbol Auth
+$PROJECT_WIKI_BOOTSTRAP --code-status
+$PROJECT_WIKI_BOOTSTRAP --code-files
+$PROJECT_WIKI_BOOTSTRAP --code-search-symbol Auth
 ```
 
 The code evidence index lives at `.project-wiki/code-evidence.sqlite`. It is not canonical wiki content, should not be copied into `wiki/`, and can be deleted and regenerated.
@@ -164,7 +178,7 @@ Execution contract:
 5. Split large subjects into focused documents when a single file would force agents to read unrelated content.
 6. Cite concrete evidence with repository-relative paths and distinguish code-proven facts from inference.
 7. Update `wiki/startup.md` and `wiki/index.md` only with compact routing hints, not large code summaries.
-8. Run `npx project-wiki-bootstrap --refresh-index` and `npx project-wiki-bootstrap --lint` after wiki edits when practical.
+8. Run `$PROJECT_WIKI_BOOTSTRAP --refresh-index` and `$PROJECT_WIKI_BOOTSTRAP --lint` after wiki edits when practical.
 
 It installs:
 
@@ -289,7 +303,7 @@ Inbox rows use these statuses:
 Run semantic review sync after LLM or human processing:
 
 ```bash
-npx project-wiki-bootstrap --review-migration
+$PROJECT_WIKI_BOOTSTRAP --review-migration
 ```
 
 `wiki/migration/verification.md` verifies file coverage: every legacy markdown file should be mapped to a new-wiki migration target. This is not a semantic-completeness proof. Semantic migration is complete only after inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0.

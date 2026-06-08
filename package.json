@@ -1,6 +1,6 @@
 {
   "name": "project-wiki-bootstrap",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Bootstrap a token-efficient project planning wiki for humans and LLM agents.",
   "license": "MIT",
   "type": "commonjs",

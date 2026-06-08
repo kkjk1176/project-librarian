@@ -45,7 +45,8 @@ grep -q "missing value for option: --code-query" missing-code-query.log
 test ! -e AGENTS.md
 grep -q -- "--issue-draft" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
-grep -q "run \`npx project-wiki-bootstrap --issue-draft --issue-title" "$ROOT/SKILL.md"
+grep -Fq 'run `$PROJECT_WIKI_BOOTSTRAP --issue-draft --issue-title' "$ROOT/SKILL.md"
+grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
 
 cd "$TMPDIR"
 node "$CLI"
@@ -433,7 +434,7 @@ mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
 HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude > user-skill-install.log
 grep -q "install-skill only installs the reusable skill files" user-skill-install.log
-grep -q "run \`npx project-wiki-bootstrap\` from the target project root" user-skill-install.log
+grep -q "agents should run the installed local project-wiki-bootstrap runner" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-wiki-bootstrap/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-wiki-bootstrap/SKILL.md"
@@ -441,7 +442,7 @@ test -x "$TMPDIR/home/.claude/skills/project-wiki-bootstrap/dist/init-project-wi
 
 node "$CLI" install-skill --scope project --agents both > project-skill-install.log
 grep -q "install-skill only installs the reusable skill files" project-skill-install.log
-grep -q "run \`npx project-wiki-bootstrap\` from the target project root" project-skill-install.log
+grep -q "agents should run the installed local project-wiki-bootstrap runner" project-skill-install.log
 test -f .codex/skills/project-wiki-bootstrap/SKILL.md
 test -x .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js
 test -f .claude/skills/project-wiki-bootstrap/SKILL.md
