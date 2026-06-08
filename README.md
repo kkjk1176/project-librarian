@@ -120,14 +120,14 @@ For large repositories, the skill can build a disposable SQLite evidence cache:
 npx project-wiki-bootstrap --code-index --code-scope src
 ```
 
-The cache lives under `.project-wiki/` and is regenerated as needed. It is evidence for wiki updates, not canonical wiki content.
+The cache lives under `.project-wiki/` and is regenerated as needed. It is evidence for wiki updates, not canonical wiki content. Code changes are not watched automatically; inspection commands report stale cache counts or warnings so you can rerun `--code-index` intentionally.
 
 Useful commands:
 
 | Purpose | Command |
 | --- | --- |
 | Build or refresh the cache | `npx project-wiki-bootstrap --code-index --code-scope src` |
-| Show counts | `npx project-wiki-bootstrap --code-status` |
+| Show counts and stale cache status | `npx project-wiki-bootstrap --code-status` |
 | List indexed files | `npx project-wiki-bootstrap --code-files` |
 | Search symbols | `npx project-wiki-bootstrap --code-search-symbol Auth` |
 | Run read-only SQL | `npx project-wiki-bootstrap --code-query "select path from files order by path"` |

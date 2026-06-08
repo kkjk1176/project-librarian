@@ -551,6 +551,62 @@ function requireExistingIndex() {
         process.exit(1);
     }
 }
+function readMetaValue(database, key) {
+    const rows = database.prepare("SELECT value FROM meta WHERE key = ?").all(key);
+    const value = rows[0]?.value;
+    return typeof value === "string" ? value : "";
+}
+function indexedScopes(database) {
+    const scopesJson = readMetaValue(database, "scopes_json");
+    if (scopesJson) {
+        try {
+            const parsed = JSON.parse(scopesJson);
+            if (Array.isArray(parsed) && parsed.every((scope) => typeof scope === "string"))
+                return parsed;
+        }
+        catch {
+            // Fall back to the legacy comma-separated scope metadata below.
+        }
+    }
+    return readMetaValue(database, "scopes")
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean);
+}
+function codeIndexStaleness(database) {
+    const scopes = indexedScopes(database);
+    const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
+        const codeFile = readCodeFile(file);
+        return [codeFile.path, codeFile.hash];
+    }));
+    const indexed = new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)]));
+    let changed = 0;
+    let deleted = 0;
+    for (const [filePath, hash] of indexed) {
+        const currentHash = current.get(filePath);
+        if (!currentHash)
+            deleted += 1;
+        else if (currentHash !== hash)
+            changed += 1;
+    }
+    let added = 0;
+    for (const filePath of current.keys()) {
+        if (!indexed.has(filePath))
+            added += 1;
+    }
+    return {
+        added,
+        changed,
+        deleted,
+        stale: added > 0 || changed > 0 || deleted > 0,
+    };
+}
+function warnIfCodeIndexStale(database) {
+    const staleness = codeIndexStaleness(database);
+    if (!staleness.stale)
+        return;
+    console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
+}
 function prepareOutputPath() {
     const databasePath = codeEvidenceDatabasePath();
     (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
@@ -582,6 +638,7 @@ function runCodeIndexMode() {
         statements.insertMeta.run("created_at", new Date().toISOString());
         statements.insertMeta.run("root", workspace_1.root);
         statements.insertMeta.run("scopes", scopes.join(", "));
+        statements.insertMeta.run("scopes_json", JSON.stringify(scopes));
         statements.insertMeta.run("terminology", "code evidence index");
         for (const file of files) {
             statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash);
@@ -625,6 +682,7 @@ function runCodeQueryMode() {
     const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
     try {
         database.exec("PRAGMA query_only = ON");
+        warnIfCodeIndexStale(database);
         printRows(database.prepare(args_1.codeQuerySql).all());
     }
     finally {
@@ -643,6 +701,8 @@ function runCodeStatusMode() {
       UNION ALL SELECT 'edges', count(*) FROM edges
       UNION ALL SELECT 'configs', count(*) FROM configs
     `).all();
+        const staleness = codeIndexStaleness(database);
+        rows.push({ metric: "stale_files", value: staleness.added + staleness.changed + staleness.deleted }, { metric: "stale_changed_files", value: staleness.changed }, { metric: "stale_added_files", value: staleness.added }, { metric: "stale_deleted_files", value: staleness.deleted });
         printRows(rows);
     }
     finally {
@@ -653,6 +713,7 @@ function runCodeFilesMode() {
     requireExistingIndex();
     const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
     try {
+        warnIfCodeIndexStale(database);
         printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
     }
     finally {
@@ -667,6 +728,7 @@ function runCodeSearchSymbolMode() {
     requireExistingIndex();
     const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
     try {
+        warnIfCodeIndexStale(database);
         const like = `%${args_1.codeSearchSymbol}%`;
         printRows(database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like));
     }

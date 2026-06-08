@@ -205,6 +205,7 @@ grep -q ".env.example" code-files.json
 ! grep -q "LOCAL_SECRET" code-files.json
 node "$CLI" --code-status > code-status.json
 grep -q "edges" code-status.json
+grep -q "stale_files" code-status.json
 node "$CLI" --code-search-symbol healthHandler > code-symbols.json
 grep -q "healthHandler" code-symbols.json
 node "$CLI" --code-query "select route from routes where route = '/health'" > code-routes.json
@@ -216,6 +217,17 @@ if node "$CLI" --code-query "with changed as (delete from files returning path) 
   exit 1
 fi
 grep -q "code queries must be read-only SQL" bad-code-query.log
+cat >> src/app.js <<'EOF'
+export const staleSignal = true;
+EOF
+cat > src/new.js <<'EOF'
+export function newHandler() {}
+EOF
+rm .env.example
+node "$CLI" --code-status > stale-status.json
+node -e 'const rows = require("./stale-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 3 || metric.stale_changed_files !== 1 || metric.stale_added_files !== 1 || metric.stale_deleted_files !== 1) process.exit(1)'
+node "$CLI" --code-files > stale-files.json 2> stale-warning.log
+grep -q "code evidence index may be stale" stale-warning.log
 node "$CLI" --code-index --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
 test -f .project-wiki/custom.sqlite
 if node "$CLI" --code-index --code-index-out ../outside.sqlite > bad-code-index-out.log 2>&1; then
