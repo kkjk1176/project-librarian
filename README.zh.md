@@ -32,6 +32,8 @@ Project Wiki Bootstrap 会创建一个仓库本地的规划记忆，让编码代
 
 ## Quick Start
 
+### 1. 安装 Skill
+
 为 Codex 和 Claude Code 安装一次 skill。
 
 ```bash
@@ -44,13 +46,25 @@ npx project-wiki-bootstrap install-skill --scope user --agents both
 npx project-wiki-bootstrap install-skill --scope project --agents both
 ```
 
-在目标项目根目录创建或更新 wiki。
+`install-skill` 只会在 `.codex/skills/` 和/或 `.claude/skills/` 下安装可复用的 skill 文件。它不会创建或更新 `AGENTS.md`、`CLAUDE.md`、`wiki/`、`.codex/hooks.json` 或 `.claude/settings.json`。
+
+安装选项:
+
+| 场景 | 命令 |
+| --- | --- |
+| 为 Codex 和 Claude Code 全局安装 | `npx project-wiki-bootstrap install-skill --scope user --agents both` |
+| 为当前仓库内的 Codex 和 Claude Code 安装 | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
+| 只为一个代理安装 | `npx project-wiki-bootstrap install-skill --agents codex` 或 `--agents claude` |
+
+### 2. 创建、更新和维护 Project Wiki
+
+安装 skill 后，在目标项目根目录运行 wiki 命令。
 
 ```bash
 npx project-wiki-bootstrap
 ```
 
-常用命令:
+Wiki 命令:
 
 | 场景 | 命令 |
 | --- | --- |
@@ -59,7 +73,6 @@ npx project-wiki-bootstrap
 | 检查链接和文档质量 | `npx project-wiki-bootstrap --doctor` |
 | 先安全刷新 routing 再检查 | `npx project-wiki-bootstrap --doctor --fix` |
 | 不修改 git 配置，只安装 hook 文件 | `npx project-wiki-bootstrap --no-git-config` |
-| 只为一个代理安装 | `npx project-wiki-bootstrap install-skill --agents codex` 或 `--agents claude` |
 
 ## Skill Actions
 

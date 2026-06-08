@@ -32,6 +32,8 @@ Project Wiki Bootstrap は、コーディングエージェントが予測可能
 
 ## Quick Start
 
+### 1. Skill をインストール
+
 Codex と Claude Code 用の skill を一度インストールします。
 
 ```bash
@@ -44,13 +46,25 @@ npx project-wiki-bootstrap install-skill --scope user --agents both
 npx project-wiki-bootstrap install-skill --scope project --agents both
 ```
 
-対象プロジェクトのルートで wiki を作成または更新します。
+`install-skill` は `.codex/skills/` および/または `.claude/skills/` の下に再利用可能な skill ファイルだけをインストールします。`AGENTS.md`、`CLAUDE.md`、`wiki/`、`.codex/hooks.json`、`.claude/settings.json` は作成または更新しません。
+
+インストールオプション:
+
+| 状況 | コマンド |
+| --- | --- |
+| Codex と Claude Code にグローバルインストール | `npx project-wiki-bootstrap install-skill --scope user --agents both` |
+| 現在のリポジトリの Codex と Claude Code にインストール | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
+| 1 つのエージェントだけにインストール | `npx project-wiki-bootstrap install-skill --agents codex` または `--agents claude` |
+
+### 2. Project Wiki を作成、更新、保守
+
+skill のインストール後、対象プロジェクトのルートで wiki コマンドを実行します。
 
 ```bash
 npx project-wiki-bootstrap
 ```
 
-よく使うコマンド:
+Wiki コマンド:
 
 | 状況 | コマンド |
 | --- | --- |
@@ -59,7 +73,6 @@ npx project-wiki-bootstrap
 | リンクと文書品質をチェック | `npx project-wiki-bootstrap --doctor` |
 | 安全な routing 更新後にチェック | `npx project-wiki-bootstrap --doctor --fix` |
 | git 設定を変更せず hook ファイルだけをインストール | `npx project-wiki-bootstrap --no-git-config` |
-| 1 つのエージェントだけにインストール | `npx project-wiki-bootstrap install-skill --agents codex` または `--agents claude` |
 
 ## Skill Actions
 

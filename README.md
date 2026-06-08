@@ -32,6 +32,8 @@ The result is less repeated context gathering. Agents can start with the current
 
 ## Quick Start
 
+### 1. Install the Skill
+
 Install the skill once for Codex and Claude Code:
 
 ```bash
@@ -44,13 +46,25 @@ Use `--scope project` to install the skill into the current repository instead:
 npx project-wiki-bootstrap install-skill --scope project --agents both
 ```
 
-Bootstrap or update a project wiki from the target project root:
+`install-skill` only installs reusable skill files under `.codex/skills/` and/or `.claude/skills/`. It does not create or update `AGENTS.md`, `CLAUDE.md`, `wiki/`, `.codex/hooks.json`, or `.claude/settings.json`.
+
+Install options:
+
+| Situation | Command |
+| --- | --- |
+| Install for Codex and Claude Code globally | `npx project-wiki-bootstrap install-skill --scope user --agents both` |
+| Install for Codex and Claude Code in the current repository | `npx project-wiki-bootstrap install-skill --scope project --agents both` |
+| Install for only one agent | `npx project-wiki-bootstrap install-skill --agents codex` or `--agents claude` |
+
+### 2. Bootstrap or Maintain the Project Wiki
+
+After installing the skill, run the wiki command from the target project root:
 
 ```bash
 npx project-wiki-bootstrap
 ```
 
-Common commands:
+Wiki commands:
 
 | Situation | Command |
 | --- | --- |
@@ -59,7 +73,6 @@ Common commands:
 | Check links and document quality | `npx project-wiki-bootstrap --doctor` |
 | Safely refresh generated routing while checking | `npx project-wiki-bootstrap --doctor --fix` |
 | Install hook files without changing git config | `npx project-wiki-bootstrap --no-git-config` |
-| Install for only one agent | `npx project-wiki-bootstrap install-skill --agents codex` or `--agents claude` |
 
 ## Skill Actions
 

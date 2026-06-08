@@ -134,6 +134,8 @@ function runInstallSkillMode() {
     console.log(`Project wiki bootstrap skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
+    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, wiki/, .codex/hooks.json, or .claude/settings.json.");
+    console.log("next: run `npx project-wiki-bootstrap` from the target project root to bootstrap or update the project wiki.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);
     }

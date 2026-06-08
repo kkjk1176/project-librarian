@@ -39,16 +39,23 @@ function upsertSessionStartHookConfig(relativePath: string, command: string, mat
   }
   if (!Array.isArray(config.hooks.SessionStart)) config.hooks.SessionStart = [];
 
-  const unmanaged = config.hooks.SessionStart.flatMap((entry: SessionStartHook) => {
+  const sessionStart = config.hooks.SessionStart.flatMap((entry: SessionStartHook) => {
     if (!Array.isArray(entry?.hooks)) return [entry];
     const hooks = entry.hooks.filter((hook) => hook?.command !== command);
     return hooks.length > 0 ? [{ ...entry, hooks }] : [];
   });
-  const managed = matchers.map((matcher): SessionStartHook => ({
-    matcher,
-    hooks: [buildHookCommand(command, timeout)],
-  }));
-  config.hooks.SessionStart = [...unmanaged, ...managed];
+  for (const matcher of matchers) {
+    const existing = sessionStart.find((entry) => entry?.matcher === matcher && Array.isArray(entry.hooks));
+    if (existing) {
+      existing.hooks = [...existing.hooks, buildHookCommand(command, timeout)];
+    } else {
+      sessionStart.push({
+        matcher,
+        hooks: [buildHookCommand(command, timeout)],
+      });
+    }
+  }
+  config.hooks.SessionStart = sessionStart;
 
   const next = `${JSON.stringify(config, null, 2)}\n`;
   const previous = exists(relativePath) ? read(relativePath) : "";

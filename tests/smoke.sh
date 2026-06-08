@@ -233,7 +233,20 @@ cd "$TMPDIR/existing-instructions"
 mkdir -p .codex .claude
 cat > .codex/hooks.json <<'EOF'
 {
+  "mcpServers": {
+    "existing": {
+      "command": "node existing-mcp.js"
+    }
+  },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "node custom-post-tool-use.js" }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear",
@@ -246,9 +259,27 @@ cat > .codex/hooks.json <<'EOF'
   }
 }
 EOF
+cat > .codex/settings.json <<'EOF'
+{
+  "sandbox": "workspace-write"
+}
+EOF
 cat > .claude/settings.json <<'EOF'
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm test)"
+    ]
+  },
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "node custom-claude-post-tool-use.js" }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup",
@@ -288,6 +319,9 @@ grep -q "Custom Claude content after a heading that matches the bootstrap fallba
 grep -q "PROJECT-WIKI-CLAUDE:START" CLAUDE.md
 node -e 'const c=require("./.codex/hooks.json"); if (!JSON.stringify(c).includes("node custom-codex-hook.js")) process.exit(1)'
 node -e 'const c=require("./.claude/settings.json"); if (!JSON.stringify(c).includes("node custom-claude-hook.js")) process.exit(1)'
+node -e 'const c=require("./.codex/hooks.json"); if (c.mcpServers.existing.command !== "node existing-mcp.js") process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-post-tool-use.js") process.exit(1); const starts = c.hooks.SessionStart.filter(e => e.matcher === "startup|resume|clear"); if (starts.length !== 1) process.exit(1); const commands = starts[0].hooks.map(h => h.command); if (!commands.includes("node custom-codex-hook.js") || !commands.includes("node .codex/hooks/wiki-session-start.js")) process.exit(1)'
+node -e 'const c=require("./.claude/settings.json"); if (!c.permissions.allow.includes("Bash(npm test)")) process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-claude-post-tool-use.js") process.exit(1); const startup = c.hooks.SessionStart.filter(e => e.matcher === "startup"); if (startup.length !== 1) process.exit(1); const commands = startup[0].hooks.map(h => h.command); if (!commands.includes("node custom-claude-hook.js") || !commands.includes("node .claude/hooks/wiki-session-start.js")) process.exit(1); const ms = new Set(c.hooks.SessionStart.filter(e => (e.hooks || []).some(h => h.command === "node .claude/hooks/wiki-session-start.js")).map(e => e.matcher)); for (const m of ["startup","resume","clear","compact"]) if (!ms.has(m)) process.exit(1)'
+node -e 'const c=require("./.codex/settings.json"); if (c.sandbox !== "workspace-write") process.exit(1)'
 
 mkdir "$TMPDIR/code-index"
 cd "$TMPDIR/code-index"
@@ -397,13 +431,17 @@ grep -q "Use one code evidence mode" bad-code-mode.log
 
 mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
-HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude
+HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude > user-skill-install.log
+grep -q "install-skill only installs the reusable skill files" user-skill-install.log
+grep -q "run \`npx project-wiki-bootstrap\` from the target project root" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-wiki-bootstrap/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-wiki-bootstrap/SKILL.md"
 test -x "$TMPDIR/home/.claude/skills/project-wiki-bootstrap/dist/init-project-wiki.js"
 
-node "$CLI" install-skill --scope project --agents both
+node "$CLI" install-skill --scope project --agents both > project-skill-install.log
+grep -q "install-skill only installs the reusable skill files" project-skill-install.log
+grep -q "run \`npx project-wiki-bootstrap\` from the target project root" project-skill-install.log
 test -f .codex/skills/project-wiki-bootstrap/SKILL.md
 test -x .codex/skills/project-wiki-bootstrap/dist/init-project-wiki.js
 test -f .claude/skills/project-wiki-bootstrap/SKILL.md
