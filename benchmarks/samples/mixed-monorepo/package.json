@@ -1,0 +1,14 @@
+{
+  "name": "benchmark-mixed-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "pg": "^8.12.0",
+    "zod": "^3.25.0"
+  }
+}

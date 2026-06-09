@@ -1,0 +1,5 @@
+service: sample
+owner: benchmark
+routes:
+  - /sample/health
+  - /sample/ready

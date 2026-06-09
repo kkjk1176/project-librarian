@@ -1,0 +1,4 @@
+owners:
+  apps/admin: platform-admin
+  packages/audit: governance
+  services/billing: revenue-platform

@@ -4,6 +4,9 @@ node_modules/
 coverage/
 tmp/
 *.log
+benchmarks/reports/*.json
+benchmarks/reports/*.md
+!benchmarks/reports/.gitkeep
 CLAUDE.local.md
 .claude/
 .codex/
