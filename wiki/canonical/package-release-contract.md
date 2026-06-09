@@ -65,7 +65,7 @@ Code-proven behavior:
 
 Verified on 2026-06-08 under the previous package name: npm showed `project-wiki-bootstrap@0.1.2` as the current package version, published `npx --yes project-wiki-bootstrap --help` executed successfully, and the project-scope `install-skill --agents both --dry-run` path executed after the install/bootstrap-order fix.
 
-`project-librarian` publication is not yet verified in this repository state. The rename release has verified package-name availability and local `npm pack --dry-run`; after publication it must still verify `npx --yes project-librarian --help`.
+`project-librarian` publication is not yet verified in this repository state. The rename release has verified package-name availability and local `npm pack --dry-run`; the first publish attempt reached `https://registry.npmjs.org/` but failed with npm `E404` on `PUT https://registry.npmjs.org/project-librarian`. Diagnose npm auth/token/package-name policy before retrying, then verify `npx --yes project-librarian --help` after publication.
 
 ## Maintenance Constraint
 

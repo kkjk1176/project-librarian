@@ -28,24 +28,23 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 ## Project State
 
-- Product: npm CLI source package `project-librarian`; TypeScript source in `src/`, committed runtime output in `dist/`.
-- Source version: `project-librarian@0.2.0` for the rename release; previous published npm package is `project-wiki-bootstrap@0.1.2` until the renamed package is published.
-- GitHub repository remote is `https://github.com/kkjk1176/project-librarian.git`; npm registry lookup for `project-librarian` returned 404 on 2026-06-09, so the package name was available at check time.
+- Product: npm CLI source package `project-librarian`; source in `src/`, committed runtime in `dist/`.
+- Rename release: source `project-librarian@0.2.0`; previous published package `project-wiki-bootstrap@0.1.2`.
+- GitHub remote is `kkjk1176/project-librarian`; npm name was available, but first publish attempt failed with npm `E404` on PUT.
 - Problem: token-efficient planning wiki with compact routing for small repos, large projects, and monorepos.
 - Users: Codex/Claude Code developers and teams, including large-repo teams.
 - Scenario: bootstrap/update `./wiki`, agent instructions, hooks, diagnostics, scoped routing, optional code evidence.
 - Success: idempotent bootstrap, preservation-first edits, compact hooks, diagnostics, migration copy-risk detection, scoped routing, code evidence.
 - Large-project state: incremental indexing, code reports, Tree-sitter, workspace graph/CODEOWNERS, scoped routing, and v9 benchmarks exist.
-- Measurement/README: metrics are release evidence; install via `npx`; agents use local `node`; current values use clean schema-v9 `current-large`; tokens mean Markdown context avoided vs naive full-wiki scan, not actual LLM use.
+- Measurement: metrics are release evidence; install via `npx`; agents use local `node`; token claims are Markdown context avoided, not actual LLM use.
 - Project content language: Korean unless user/project context changes it.
 
-## Recent Project Decisions
+## Recent Decisions
 
-- 2026-06-08: npm publication is official; `0.1.2` is current `latest`. See [[decisions/npm-release-policy]].
-- 2026-06-08: installed skills prefer local `dist/init-project-wiki.js` over network `npx`. See [[decisions/npm-release-policy]].
-- 2026-06-09: large projects/monorepos are first-class targets; metrics are release evidence; approved issue creation uses `--issue-create`; migration rewrites, not copies, legacy markdown. See [[decisions/large-project-roadmap-and-metrics]], [[decisions/log]].
-- 2026-06-09: package minimum Node is `>=22.13` for stable `node:sqlite` across CLI/skill runners. See [[canonical/package-release-contract]], [[decisions/log]].
-- 2026-06-09: product/package/CLI/repository name changed to Project Librarian / `project-librarian` for the `0.2.0` rename release. See [[decisions/npm-release-policy]], [[decisions/log]].
+- npm publication is official; old name `project-wiki-bootstrap@0.1.2` remains latest until `project-librarian` publishes. See [[decisions/npm-release-policy]].
+- Installed skills prefer local `dist/init-project-wiki.js` over network `npx`. See [[decisions/npm-release-policy]].
+- Large projects/monorepos, release-evidence metrics, `--issue-create`, rewrite-not-copy migration, and Node `>=22.13` are adopted. See [[decisions/log]].
+- Product/package/CLI/repository renamed to Project Librarian / `project-librarian` for `0.2.0`. See [[decisions/npm-release-policy]].
 
 ## Wiki Operating Pointers
 
