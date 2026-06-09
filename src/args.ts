@@ -21,6 +21,7 @@ const flagsWithoutValues: Set<string> = new Set([
   "--glossary-init",
   "--doctor",
   "--fix",
+  "--issue-create",
   "--issue-draft",
   "--link-check",
   "--lint",
@@ -44,6 +45,7 @@ const flagsWithValues: Set<string> = new Set([
   "--code-scope",
   "--code-search-symbol",
   "--content",
+  "--issue-body-file",
   "--issue-title",
   "--query",
   "--scope",
@@ -87,6 +89,7 @@ export const qualityCheckMode = args.has("--quality-check");
 export const doctorMode = args.has("--doctor");
 export const fixMode = args.has("--fix");
 export const glossaryMode = args.has("--glossary-init");
+export const issueCreateMode = args.has("--issue-create");
 export const issueDraftMode = args.has("--issue-draft");
 export const refreshIndexMode = args.has("--refresh-index");
 export const captureInboxMode = args.has("--capture-inbox");
@@ -136,4 +139,5 @@ export const codeIndexScopes = [...argValues("--code-scope"), ...argValues("--co
 export const captureTitle = argValue("--title");
 export const captureContent = argValue("--content");
 export const captureCategory = argValue("--category") || "project-candidate";
+export const issueBodyFile = argValue("--issue-body-file");
 export const issueDraftTitle = argValue("--issue-title");

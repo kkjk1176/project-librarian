@@ -38,6 +38,7 @@ exports.runQueryMode = runQueryMode;
 exports.projectCandidatesContent = projectCandidatesContent;
 exports.appendCaptureInbox = appendCaptureInbox;
 exports.runIssueDraftMode = runIssueDraftMode;
+exports.runIssueCreateMode = runIssueCreateMode;
 exports.runPruneCheckMode = runPruneCheckMode;
 exports.collectLinkDiagnostics = collectLinkDiagnostics;
 exports.collectQualityDiagnostics = collectQualityDiagnostics;
@@ -47,6 +48,7 @@ exports.runDoctorMode = runDoctorMode;
 exports.runLintMode = runLintMode;
 const fs = __importStar(require("node:fs"));
 const childProcess = __importStar(require("node:child_process"));
+const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
@@ -65,6 +67,12 @@ function routeAreaForWikiFile(file) {
     const parts = base.split(/[-_]+/).filter(Boolean);
     if (parts.length >= 3 && ["apps", "libs", "packages", "services"].includes(parts[0] ?? ""))
         return slugPart(parts.slice(0, 3).join("-"));
+    const wikiParts = file.replace(/^wiki\//, "").replace(/\.md$/, "").split(/[\\/]+/).filter(Boolean);
+    const routeParts = wikiParts[0] && ["canonical", "decisions", "inbox", "meta", "sources"].includes(wikiParts[0]) ? wikiParts.slice(1) : wikiParts;
+    const monorepoRootIndex = routeParts.findIndex((part) => ["apps", "libs", "packages", "services"].includes(part));
+    if (monorepoRootIndex >= 0 && routeParts[monorepoRootIndex + 1]) {
+        return slugPart(routeParts.slice(monorepoRootIndex, monorepoRootIndex + 2).join("-"));
+    }
     const directory = path.dirname(file).replace(/^wiki\//, "");
     if (directory && directory !== ".")
         return slugPart(directory);
@@ -245,7 +253,7 @@ function issueReportTitle() {
         return title;
     return "Report project-wiki-bootstrap problem or side effect";
 }
-function runIssueDraftMode() {
+function issueDraftMarkdown() {
     const gitRepo = (0, workspace_1.isGitRepository)();
     const statusLines = gitRepo ? gitOutput(["status", "--short"]).split(/\r?\n/).filter(Boolean) : [];
     const branch = gitRepo ? gitOutput(["rev-parse", "--abbrev-ref", "HEAD"]) || "unknown" : "not a git repository";
@@ -279,7 +287,7 @@ function runIssueDraftMode() {
         "If generated wiki links or document quality are involved, run `npx project-wiki-bootstrap --doctor` and paste the output.",
         "If the problem involves code evidence indexing, include the exact `--code-*` command and whether the runtime supports `node:sqlite`.",
     ];
-    console.log(`# ${title}
+    return `# ${title}
 
 ## Summary
 
@@ -330,8 +338,68 @@ ${markdownList(verification, "Add the exact validation commands and results befo
 ## Notes
 
 - This draft is read-only and does not create a GitHub issue.
+- To create a GitHub issue after explicit user approval, use \`project-wiki-bootstrap --issue-create --issue-title "${title.replace(/"/g, "\\\"")}"\` or \`gh issue create --title "${title.replace(/"/g, "\\\"")}" --body-file <draft.md>\`.
 - If local git changes are present, try to reproduce on a clean checkout before filing when practical.
-`);
+`;
+}
+function runIssueDraftMode() {
+    console.log(issueDraftMarkdown());
+}
+function githubRemoteConfigured() {
+    if (!(0, workspace_1.isGitRepository)())
+        return false;
+    const remotes = gitOutput(["remote", "-v"]);
+    return /github\.com[:/]/i.test(remotes);
+}
+function runGh(args) {
+    return childProcess.spawnSync("gh", args, {
+        cwd: workspace_1.root,
+        encoding: "utf8",
+    });
+}
+function printGhFailure(result, action) {
+    if (result.error)
+        console.error(`gh ${action} failed: ${result.error.message}`);
+    if (result.stdout)
+        process.stdout.write(result.stdout);
+    if (result.stderr)
+        process.stderr.write(result.stderr);
+    process.exit(result.status && result.status > 0 ? result.status : 1);
+}
+function issueBodyFilePath() {
+    if (args_1.issueBodyFile.trim())
+        return { file: path.resolve(workspace_1.root, args_1.issueBodyFile), cleanupDir: null };
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "project-wiki-issue-"));
+    const file = path.join(tempDir, "issue-body.md");
+    fs.writeFileSync(file, issueDraftMarkdown(), "utf8");
+    return { file, cleanupDir: tempDir };
+}
+function runIssueCreateMode() {
+    if (!(0, workspace_1.isGitRepository)()) {
+        console.error("--issue-create requires a git repository with a GitHub remote.");
+        process.exit(1);
+    }
+    if (!githubRemoteConfigured()) {
+        console.error("--issue-create requires a GitHub remote so gh can infer the target repository.");
+        process.exit(1);
+    }
+    const auth = runGh(["auth", "status"]);
+    if (auth.status !== 0 || auth.error)
+        printGhFailure(auth, "auth status");
+    const body = issueBodyFilePath();
+    try {
+        const created = runGh(["issue", "create", "--title", issueReportTitle(), "--body-file", body.file]);
+        if (created.status !== 0 || created.error)
+            printGhFailure(created, "issue create");
+        if (created.stdout)
+            process.stdout.write(created.stdout);
+        if (created.stderr)
+            process.stderr.write(created.stderr);
+    }
+    finally {
+        if (body.cleanupDir)
+            fs.rmSync(body.cleanupDir, { recursive: true, force: true });
+    }
 }
 function runPruneCheckMode() {
     const candidates = [];

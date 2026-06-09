@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![Code evidence index](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-Bootstrap a small project planning wiki for humans and LLM coding agents.
+Bootstrap a token-efficient project planning wiki for humans and LLM coding agents, from small repositories to large projects and monorepos.
 
 Languages: [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh.md)
 
@@ -142,6 +142,14 @@ npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki h
 
 The command is read-only. It prints a Markdown problem-report template with reproduction steps, expected vs actual behavior, side effects, affected generated files, environment context, and diagnostics to attach. It does not create a GitHub issue or require network access.
 
+After explicit user approval in a GitHub-backed repository, create the issue with GitHub CLI:
+
+```bash
+npx project-wiki-bootstrap --issue-create --issue-title "Report unexpected wiki hook behavior"
+```
+
+This runs `gh auth status` and then `gh issue create --title ... --body-file ...`. It requires an authenticated `gh`, a GitHub remote, and network access. If any of those fail, the command reports the real error instead of falling back to a draft.
+
 When an LLM using this skill discovers a project-wiki-bootstrap bug, regression, workflow mismatch, confusing generated behavior, or unintended side effect, the LLM runs the read-only issue draft before finishing the work unless the user explicitly says they do not want an issue draft. This does not replace fixing the local problem.
 
 ## What Gets Installed
@@ -198,7 +206,7 @@ Code evidence indexing requires a Node runtime with `node:sqlite`. The base boot
 
 ## Language Support Matrix
 
-The matrix lists only languages with implemented symbol/import extraction. Other recognized extensions are inventory-only and are not counted as language support.
+The matrix lists only languages with implemented symbol/import extraction. Other recognized extensions are inventory-only and are not counted as language support. Treat `typescript-ast` evidence as stronger structural evidence; treat `python-light` and `go-light` rows as fast pointers that should be checked in source before making high-confidence canonical claims.
 
 | Language | Extensions | Extraction profile | Indexed evidence |
 | --- | --- | --- | --- |

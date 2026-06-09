@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![Code evidence index](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-为人类和 LLM 编码代理创建一个小型项目规划 wiki。
+为从小型仓库到大型项目和 monorepo 的场景，创建供人类和 LLM 编码代理共同使用的 token-efficient 项目规划 wiki。
 
 语言: [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh.md)
 
@@ -132,6 +132,8 @@ Review the migrated wiki inbox.
 
 如需为问题或副作用生成 GitHub issue body 草稿，可运行 `npx project-wiki-bootstrap --issue-draft --issue-title "Report unexpected wiki hook behavior"`。该命令是 read-only，会输出包含复现步骤、期望行为与实际行为、受影响生成文件、环境信息和应附加 diagnostics 的模板；不会创建 GitHub issue，也不需要 network access。
 
+在 GitHub 仓库中，如果用户明确批准，可以通过 GitHub CLI 创建真实 issue：`npx project-wiki-bootstrap --issue-create --issue-title "Report unexpected wiki hook behavior"`。该命令会先运行 `gh auth status`，再调用 `gh issue create --title ... --body-file ...`。它需要已认证的 `gh`、GitHub remote 和 network access。失败时会报告真实 error，不会 silently fallback 到 draft。
+
 当使用此 skill 的 LLM 发现 project-wiki-bootstrap 的 bug、regression、workflow mismatch、令人困惑的生成行为或意外 side effect 时，除非用户明确表示不需要 issue draft，否则 LLM 会在完成工作前运行 read-only issue draft。这一步不会替代本地修复。
 
 ## 安装的文件
@@ -187,13 +189,14 @@ Code evidence indexing 需要提供 `node:sqlite` 的 Node runtime。基础 boot
 
 ## Language Support Matrix
 
-下面的 matrix 只包含已实现 symbol/import extraction 的语言。其他可识别扩展名是 inventory-only，不计为语言支持。
+下面的 matrix 只包含已实现 symbol/import extraction 的语言。其他可识别扩展名是 inventory-only，不计为语言支持。`typescript-ast` evidence 可作为更强的结构性证据；`python-light` 和 `go-light` 应作为快速 pointer，在写入高置信 canonical claim 前仍需回到 source 确认。
 
 | 语言 | 扩展名 | Extraction profile | Indexed evidence |
 | --- | --- | --- | --- |
 | TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast` | function, class, method, variable, interface, type, enum, import, export, call, common HTTP route |
 | JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | function, class, method, variable, import, export, `require()` call, call, common HTTP route |
 | Python | `.py` | `python-light` | function, class, `import`, `from ... import` |
+| Go | `.go` | `go-light` | function, method, type, const, var, single import, import block |
 
 Config 文件（`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`）会作为单独的 configuration evidence 被 indexed。
 

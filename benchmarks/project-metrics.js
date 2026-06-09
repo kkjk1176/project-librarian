@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
+const { benchmarkValidation } = require("./lib/validation");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
@@ -39,6 +40,8 @@ function fail(message) {
   console.error(message);
   process.exit(1);
 }
+
+const { expectBenchmark, passedValidation } = benchmarkValidation(fail);
 
 function hasFlag(name) {
   return process.argv.includes(name);
@@ -206,14 +209,6 @@ function parseKeyValueOutput(output) {
     .map((line) => line.match(/^([a-z_]+):\s*(.+)$/))
     .filter(Boolean)
     .map((match) => [match[1], match[2]]));
-}
-
-function expectBenchmark(condition, message) {
-  if (!condition) fail(`benchmark validation failed: ${message}`);
-}
-
-function passedValidation(name) {
-  return { name, status: "passed" };
 }
 
 function writeFile(filePath, content) {

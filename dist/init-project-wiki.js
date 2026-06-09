@@ -24,7 +24,9 @@ Options:
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
   --doctor                         Run lint, link-check, and quality-check together.
   --fix                            With --doctor, safely refresh generated index routing.
+  --issue-create                   Create a GitHub issue with gh issue create after explicit user approval.
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
+  --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
   --issue-title <title>            Override the generated issue draft title.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies.
   --refresh-index                  Update the managed auto-discovered wiki index block.
@@ -63,6 +65,10 @@ if (args_1.fixMode && !args_1.doctorMode) {
     console.error("--fix is only supported with --doctor.");
     process.exit(1);
 }
+if (args_1.issueCreateMode && args_1.issueDraftMode) {
+    console.error("Use one issue mode at a time: --issue-draft or --issue-create.");
+    process.exit(1);
+}
 if (args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);
@@ -98,6 +104,10 @@ if (args_1.codeIndexMode) {
 }
 if (args_1.queryTerm) {
     (0, modes_1.runQueryMode)();
+    process.exit(0);
+}
+if (args_1.issueCreateMode) {
+    (0, modes_1.runIssueCreateMode)();
     process.exit(0);
 }
 if (args_1.issueDraftMode) {

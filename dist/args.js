@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueDraftTitle = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
@@ -25,6 +25,7 @@ const flagsWithoutValues = new Set([
     "--glossary-init",
     "--doctor",
     "--fix",
+    "--issue-create",
     "--issue-draft",
     "--link-check",
     "--lint",
@@ -48,6 +49,7 @@ const flagsWithValues = new Set([
     "--code-scope",
     "--code-search-symbol",
     "--content",
+    "--issue-body-file",
     "--issue-title",
     "--query",
     "--scope",
@@ -88,6 +90,7 @@ exports.qualityCheckMode = exports.args.has("--quality-check");
 exports.doctorMode = exports.args.has("--doctor");
 exports.fixMode = exports.args.has("--fix");
 exports.glossaryMode = exports.args.has("--glossary-init");
+exports.issueCreateMode = exports.args.has("--issue-create");
 exports.issueDraftMode = exports.args.has("--issue-draft");
 exports.refreshIndexMode = exports.args.has("--refresh-index");
 exports.captureInboxMode = exports.args.has("--capture-inbox");
@@ -138,4 +141,5 @@ exports.codeIndexScopes = [...argValues("--code-scope"), ...argValues("--code-ev
 exports.captureTitle = argValue("--title");
 exports.captureContent = argValue("--content");
 exports.captureCategory = argValue("--category") || "project-candidate";
+exports.issueBodyFile = argValue("--issue-body-file");
 exports.issueDraftTitle = argValue("--issue-title");

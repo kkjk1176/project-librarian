@@ -44,6 +44,8 @@ fi
 grep -q "missing value for option: --code-query" missing-code-query.log
 test ! -e AGENTS.md
 grep -q -- "--issue-draft" help.log
+grep -q -- "--issue-create" help.log
+grep -q -- "--issue-body-file" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
 grep -Fq 'run `$PROJECT_WIKI_BOOTSTRAP --issue-draft --issue-title' "$ROOT/SKILL.md"
 grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
@@ -159,6 +161,47 @@ if grep -q "^Injected heading$" issue-draft-sanitized-title.md; then
   echo "issue draft title preserved an unsafe newline" >&2
   exit 1
 fi
+if node "$CLI" --issue-create --issue-draft > issue-mode-conflict.log 2>&1; then
+  echo "expected conflicting issue modes to fail" >&2
+  exit 1
+fi
+grep -q "Use one issue mode at a time" issue-mode-conflict.log
+mkdir "$TMPDIR/issue-create"
+cd "$TMPDIR/issue-create"
+node "$CLI"
+if node "$CLI" --issue-create > issue-create-no-git.log 2>&1; then
+  echo "expected issue create without git repository to fail" >&2
+  exit 1
+fi
+grep -q "requires a git repository with a GitHub remote" issue-create-no-git.log
+git init >/dev/null
+git remote add origin https://github.com/example/project-wiki-bootstrap.git
+mkdir bin
+cat > bin/gh <<'EOF'
+#!/usr/bin/env sh
+printf '%s\n' "$*" >> "$GH_LOG"
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "create" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--body-file" ]; then
+      test -f "$2" || exit 3
+      cp "$2" "$GH_BODY_COPY"
+    fi
+    shift
+  done
+  echo "https://github.com/example/project-wiki-bootstrap/issues/1"
+  exit 0
+fi
+exit 2
+EOF
+chmod +x bin/gh
+GH_LOG="$PWD/gh.log" GH_BODY_COPY="$PWD/body.md" PATH="$PWD/bin:$PATH" node "$CLI" --issue-create --issue-title "Report created issue" > issue-create.log
+grep -q "https://github.com/example/project-wiki-bootstrap/issues/1" issue-create.log
+grep -q "auth status" gh.log
+grep -q "issue create --title Report created issue --body-file" gh.log
+grep -q "## Reproduction Steps" body.md
 
 mkdir "$TMPDIR/wiki-diagnostics"
 cd "$TMPDIR/wiki-diagnostics"
@@ -521,9 +564,9 @@ mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"
 node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --out benchmark.json > benchmark.stdout.json
 test -f benchmark.json
-node -e 'const m=require("./benchmark.json"); if (m.schema_version !== 8 || m.scale !== "quick") process.exit(1); if (!m.environment || !m.environment.node || !m.environment.v8 || !m.environment.os_release || !m.environment.cpu_model || m.environment.cpu_count < 1 || m.environment.total_memory_mb < 1) process.exit(1); if (!m.source_control || m.source_control.available !== true || !m.source_control.commit || !m.source_control.short_commit || typeof m.source_control.dirty !== "boolean") process.exit(1); if (!m.benchmark_configuration || m.benchmark_configuration.sample_repo_count !== 3 || m.benchmark_configuration.measurement_protocol !== "median" || !Array.isArray(m.benchmark_configuration.sample_repo_fingerprints) || m.benchmark_configuration.sample_repo_fingerprints.length !== 3 || !m.benchmark_configuration.sample_repo_fingerprints.every((item)=>item.algorithm==="sha256" && item.value && item.file_count > 0)) process.exit(1); if (m.measurement.runs !== 1 || m.measurement.warmup_runs !== 0 || m.measurement.measurement_protocol !== "median" || m.measurement.timing_status !== "single-run") process.exit(1); if (!Array.isArray(m.measurement.claims) || !m.measurement.claims.some((claim) => claim.id === "code.architecture_report_ms") || !m.measurement.claims.some((claim) => claim.id === "docs.targeted_context.avg_read_ms") || !m.measurement.claims.some((claim) => claim.id === "scoped.refresh_index_ms") || m.measurement.claims.filter((claim) => claim.id.startsWith("sample_repo.")).length !== 6) process.exit(1); if (!Array.isArray(m.measurement.claimable_metrics) || !Array.isArray(m.measurement.unstable_metrics)) process.exit(1); if (m.scenarios.length !== 7) process.exit(1); if (!m.scenarios.every((s) => Array.isArray(s.validations) && s.validations.every((v) => v.status === "passed"))) process.exit(1); if (!m.scenarios.every((s) => s.measurement && s.measurement.runs === 1)) process.exit(1); if (m.large_project_assumptions.monorepo_workspaces < 5 || m.large_project_assumptions.scoped_route_pages < 50 || m.large_project_assumptions.scoped_route_areas < 1 || m.large_project_assumptions.sample_repo_paths.length !== 3) process.exit(1); for (const kind of ["tsx","go","python","package-lock"]) if (!m.large_project_assumptions.code_heavy_mixed_file_kinds.includes(kind)) process.exit(1); if (m.summary.min_estimated_token_avoidance_percent <= 0 || m.summary.retrieval_correctness_checks < 2 || m.summary.retrieval_correctness_passed !== m.summary.retrieval_correctness_checks || m.summary.targeted_context_evidence_missing !== 0 || m.summary.startup_index_only_evidence_missing <= 0 || m.summary.code_evidence_correctness_passed !== 1) process.exit(1); const docs=m.scenarios.find((s)=>s.fixture_kind==="docs-heavy-large-project"); if (!docs || docs.savings.basis !== "targeted_context_vs_full_wiki_scan" || !docs.targeted_context || docs.targeted_context.file_count !== 3 || docs.targeted_context.estimated_tokens <= docs.compact_context.estimated_tokens || docs.startup_index_only_upper_bound.estimated_token_avoidance_percent <= docs.savings.estimated_token_avoidance_percent) process.exit(1); if (!docs.retrieval_correctness || docs.retrieval_correctness.correctness_status !== "passed" || docs.retrieval_correctness.query_returned_expected_file !== true || !Array.isArray(docs.retrieval_strategy_comparison)) process.exit(1); const docsStartup=docs.retrieval_strategy_comparison.find((item)=>item.strategy==="startup_index_only"); const docsTargeted=docs.retrieval_strategy_comparison.find((item)=>item.strategy==="targeted_query_result"); if (!docsStartup || docsStartup.correctness_status !== "evidence-missing-without-followup" || docsStartup.expected_evidence_files_missing < 1 || !docsTargeted || docsTargeted.correctness_status !== "evidence-present" || docsTargeted.expected_evidence_files_missing !== 0) process.exit(1); if (m.summary.scoped_refresh_index_ms <= 0 || m.summary.scoped_router_count < 1 || m.summary.scoped_main_index_chars <= 0 || m.summary.scoped_target_router_chars <= 0 || m.summary.code_index_ms <= 0 || m.summary.code_index_files <= 0 || m.summary.code_index_files_per_second <= 0) process.exit(1); if (typeof m.summary.code_index_incremental_reindexed_files !== "number" || m.summary.code_index_incremental_ms <= 0) process.exit(1); if (m.summary.architecture_report_ms <= 0 || m.summary.architecture_report_sections < 7 || m.summary.architecture_report_evidence_tables < 6 || m.summary.architecture_report_routes <= 0 || m.summary.architecture_report_dependencies <= 0) process.exit(1); if (m.summary.sample_repo_count !== 3 || m.summary.sample_repo_code_files <= 1 || m.summary.sample_repo_code_index_ms <= 0 || m.summary.sample_repo_architecture_report_ms <= 0 || m.summary.sample_repo_architecture_report_routes <= 0 || m.summary.sample_repo_architecture_report_dependencies <= 0 || !Array.isArray(m.summary.sample_repo_profiles) || m.summary.sample_repo_profiles.length !== 3) process.exit(1); const scoped=m.scenarios.find((s)=>s.fixture_kind==="scoped-routing-large-project"); if (!scoped || scoped.scoped_router_count < 1 || scoped.main_index_chars > 4500 || scoped.refresh_index_ms <= 0 || scoped.link_check_ms <= 0 || scoped.targeted_context.file_count !== 4 || scoped.retrieval_correctness.correctness_status !== "passed" || !scoped.scoped_router_files.some((file)=>file==="wiki/indexes/auto-apps-app-0.md")) process.exit(1); const code=m.scenarios.find((s)=>s.fixture_kind==="code-heavy-large-project"); if (!code || code.incremental_index_mode !== "incremental" || !code.assumptions.generated_js_files || !code.assumptions.generated_tsx_files || !code.assumptions.generated_config_files || !code.assumptions.generated_go_files || !code.assumptions.generated_python_files || !code.assumptions.generated_ignored_files) process.exit(1); if (code.architecture_report_schema_version !== 1 || code.architecture_report_stale_files !== 0 || code.architecture_report_language_profiles < 3 || code.node_subprocess_overhead_ms <= 0 || code.code_index_operation_estimated_ms < 0 || code.architecture_report_operation_estimated_ms < 0) process.exit(1); if (!code.evidence_correctness || code.evidence_correctness.correctness_status !== "passed" || code.evidence_correctness.route_query_returned_expected_file !== true || code.evidence_correctness.dependency_query_returned_expected_file !== true) process.exit(1); const samples=m.scenarios.filter((s)=>s.fixture_kind.startsWith("sample-repo-validation-")); if (samples.length !== 3 || !samples.every((s)=>s.confidence === "observational-for-the-explicit-local-repo-only" && s.sample_repo_id && s.sample_repo_profile && s.sample_repo_fingerprint && s.sample_repo_fingerprint_algorithm === "sha256" && Array.isArray(s.sample_repo_profile_traits) && s.sample_repo_architecture_report_stale_files === 0 && s.node_subprocess_overhead_ms > 0 && s.sample_repo_code_index_operation_estimated_ms >= 0 && s.sample_repo_architecture_report_operation_estimated_ms >= 0)) process.exit(1); if (!samples.some((s)=>s.sample_repo_profile_traits.includes("web-routes")) || !samples.some((s)=>s.sample_repo_profile_traits.includes("library-or-tooling")) || !samples.some((s)=>s.sample_repo_profile_traits.includes("monorepo-shaped"))) process.exit(1); if (!m.notes.some((note) => note.includes("release evidence")) || !m.notes.some((note) => note.includes("repeated --sample-repo")) || !m.notes.some((note) => note.includes("benchmarks/samples")) || !m.notes.some((note) => note.includes("allow-dirty-baseline")) || !m.notes.some((note) => note.includes("not a model-tokenizer measurement"))) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" full benchmark.json
 node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --baseline benchmark.json --out benchmark-comparison.json > benchmark-comparison.stdout.json
-node -e 'const m=require("./benchmark-comparison.json"); if (!m.comparison) process.exit(1); if (m.comparison.baseline_package_version !== m.package_version) process.exit(1); if (typeof m.comparison.summary_min_estimated_token_avoidance_delta_percent !== "number" || typeof m.comparison.scoped_refresh_index_ms_delta_percent !== "number" || typeof m.comparison.scoped_main_index_chars_delta_percent !== "number") process.exit(1); if (!["passed","failed","unstable","not_comparable"].includes(m.comparison.regression_status)) process.exit(1); if (!m.comparison.compatibility || !m.comparison.compatibility.comparable) process.exit(1); if (!m.comparison.regression_thresholds || !m.comparison.regression_thresholds.scoped_refresh_index_ms_delta_percent) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" comparison benchmark-comparison.json
 if node "$ROOT/benchmarks/project-metrics.js" --quick --fail-on-regression --out missing-baseline-gate.json > missing-baseline-gate.log 2>&1; then
   echo "benchmark release gate should require --baseline" >&2
   exit 1
@@ -531,13 +574,13 @@ fi
 grep -q "requires --baseline" missing-baseline-gate.log
 node -e 'const fs=require("fs"); const m=require("./benchmark.json"); m.measurement.runs=2; fs.writeFileSync("not-comparable-baseline.json", `${JSON.stringify(m,null,2)}\n`);'
 node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --baseline not-comparable-baseline.json --out not-comparable-comparison.json > not-comparable-comparison.stdout.json
-node -e 'const m=require("./not-comparable-comparison.json"); if (m.comparison.regression_status !== "not_comparable") process.exit(1); if (!m.comparison.compatibility.issues.includes("benchmark.runs")) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" status not-comparable-comparison.json not_comparable benchmark.runs
 node -e 'const fs=require("fs"); const m=require("./benchmark.json"); const sample=m.scenarios.find((s)=>s.fixture_kind==="sample-repo-validation-01"); sample.sample_repo_fingerprint="changed"; fs.writeFileSync("sample-mismatch-baseline.json", `${JSON.stringify(m,null,2)}\n`);'
 node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --baseline sample-mismatch-baseline.json --out sample-mismatch-comparison.json > sample-mismatch-comparison.stdout.json
-node -e 'const m=require("./sample-mismatch-comparison.json"); if (m.comparison.regression_status !== "not_comparable") process.exit(1); if (!m.comparison.compatibility.issues.includes("benchmark.scenarios")) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" status sample-mismatch-comparison.json not_comparable benchmark.scenarios
 node -e 'const fs=require("fs"); const m=require("./benchmark.json"); const sample=m.scenarios.find((s)=>s.fixture_kind==="sample-repo-validation-01"); sample.sample_repo_code_index_ms=sample.sample_repo_code_index_ms / 10; sample.sample_repo_architecture_report_ms=sample.sample_repo_architecture_report_ms / 10; fs.writeFileSync("sample-masked-regression-baseline.json", `${JSON.stringify(m,null,2)}\n`);'
 node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --baseline sample-masked-regression-baseline.json --out sample-masked-regression-comparison.json > sample-masked-regression-comparison.stdout.json
-node -e 'const m=require("./sample-masked-regression-comparison.json"); if (m.comparison.regression_status !== "failed") process.exit(1); if (!Array.isArray(m.comparison.sample_repo_deltas) || m.comparison.sample_repo_deltas.length !== 3) process.exit(1); if (!m.comparison.regressions.some((item)=>item.metric==="sample_repo_worst_code_index_ms_delta_percent")) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" masked-regression sample-masked-regression-comparison.json
 node -e 'const fs=require("fs"); const m=require("./benchmark.json"); const docs=m.scenarios.find((s)=>s.fixture_kind==="docs-heavy-large-project"); const monorepo=m.scenarios.find((s)=>s.fixture_kind==="monorepo-large-project"); const scoped=m.scenarios.find((s)=>s.fixture_kind==="scoped-routing-large-project"); if (!scoped || scoped.scoped_router_count < 1 || scoped.main_index_chars > 4500 || scoped.refresh_index_ms <= 0 || scoped.link_check_ms <= 0 || scoped.targeted_context.file_count !== 4 || scoped.retrieval_correctness.correctness_status !== "passed" || !scoped.scoped_router_files.some((file)=>file==="wiki/indexes/auto-apps-app-0.md")) process.exit(1); const code=m.scenarios.find((s)=>s.fixture_kind==="code-heavy-large-project"); docs.query_ms=100000; monorepo.doctor_ms=100000; code.code_index_ms=100000; code.incremental_index_ms=100000; code.architecture_report_ms=100000; code.code_index_files_per_second=1; for (const sample of m.scenarios.filter((s)=>s.fixture_kind.startsWith("sample-repo-validation-"))) { sample.sample_repo_code_index_ms=100000; sample.sample_repo_architecture_report_ms=100000; } m.summary.sample_repo_code_index_ms=100000; m.summary.sample_repo_architecture_report_ms=100000; m.summary.min_estimated_token_avoidance_percent=0; fs.writeFileSync("unstable-gate-baseline.json", `${JSON.stringify(m,null,2)}\n`);'
 if node "$ROOT/benchmarks/project-metrics.js" --quick --sample-repo "$ROOT/benchmarks/samples/web-service" --sample-repo "$ROOT/benchmarks/samples/python-cli" --sample-repo "$ROOT/benchmarks/samples/mixed-monorepo" --baseline unstable-gate-baseline.json --fail-on-regression --out unstable-gate-comparison.json > unstable-gate-comparison.log 2>&1; then
   echo "benchmark release gate should reject single-run unstable timing" >&2
@@ -558,6 +601,6 @@ node "$ROOT/benchmarks/project-metrics.js" --trend benchmark.json --trend benchm
 test -f trend.json
 test -f trend.md
 grep -q "Benchmark Trend" trend.md
-node -e 'const t=require("./trend.json"); if (t.schema_version !== 1 || t.benchmark_schema_version !== 8 || t.report_count !== 2 || !t.baseline_input.endsWith("benchmark.json") || !t.metrics || !t.metrics.code_index_ms || !t.metrics.scoped_refresh_index_ms || !t.metrics.scoped_main_index_chars || !Array.isArray(t.points) || t.points.length !== 2 || t.points[0].order !== 1) process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" trend trend.json
 node "$ROOT/benchmarks/project-metrics.js" --trend benchmark.json --trend sample-mismatch-baseline.json --trend-out incompatible-trend.json > incompatible-trend.stdout.json
-node -e 'const t=require("./incompatible-trend.json"); if (t.report_count !== 2 || t.comparable_report_count !== 1 || t.metrics.code_index_ms.status !== "n/a") process.exit(1)'
+node "$ROOT/tests/validators/benchmark-smoke.js" incompatible-trend incompatible-trend.json
