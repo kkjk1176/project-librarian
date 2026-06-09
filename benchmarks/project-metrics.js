@@ -9,7 +9,7 @@ const { benchmarkValidation } = require("./lib/validation");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
-const schemaVersion = 8;
+const schemaVersion = 9;
 
 const scales = {
   quick: {
@@ -545,6 +545,114 @@ def audit_workspace_${packageIndex}(root: Path):
 `;
 }
 
+function generatedRustFile(packageIndex) {
+  return `use std::collections::HashMap;
+
+pub struct Workspace${packageIndex}RustWorker {
+    pub id: String,
+}
+
+pub fn workspace_${packageIndex}_rust_health() -> HashMap<String, String> {
+    HashMap::new()
+}
+`;
+}
+
+function generatedJavaFile(packageIndex) {
+  return `package benchmark.workspace${packageIndex};
+
+import java.util.Map;
+
+public class Workspace${packageIndex}Controller {
+  public Map<String, String> health() {
+    return Map.of("status", "ok");
+  }
+}
+`;
+}
+
+function generatedPhpFile(packageIndex) {
+  return `<?php
+namespace Benchmark\\Workspace${packageIndex};
+
+use DateTimeImmutable;
+
+class Workspace${packageIndex}Action {
+  public function handle(): DateTimeImmutable {
+    return new DateTimeImmutable();
+  }
+}
+`;
+}
+
+function generatedKotlinFile(packageIndex) {
+  return `package benchmark.workspace${packageIndex}
+
+import java.time.Instant
+
+class Workspace${packageIndex}Job {
+  fun run(): Instant {
+    return Instant.now()
+  }
+}
+`;
+}
+
+function generatedSwiftFile(packageIndex) {
+  return `import Foundation
+
+struct Workspace${packageIndex}Event {
+  let id: String
+}
+
+func workspace${packageIndex}Event() -> Workspace${packageIndex}Event {
+  return Workspace${packageIndex}Event(id: "ok")
+}
+`;
+}
+
+function generatedCFile(packageIndex) {
+  return `#include <stdio.h>
+
+struct workspace_${packageIndex}_state {
+  int ready;
+};
+
+int workspace_${packageIndex}_health(void) {
+  return 1;
+}
+`;
+}
+
+function generatedCppFile(packageIndex) {
+  return `#include <string>
+
+namespace benchmark {
+class Workspace${packageIndex}Engine {
+ public:
+  std::string health() const {
+    return "ok";
+  }
+};
+}
+`;
+}
+
+function generatedCSharpFile(packageIndex) {
+  return `using System;
+
+namespace Benchmark.Workspace${packageIndex};
+
+public class Workspace${packageIndex}Service
+{
+    public string Health()
+    {
+        return "ok";
+    }
+}
+`;
+}
+
 function docsHeavyLineCount(index) {
   if (index % 17 === 0) return 96;
   if (index % 11 === 0) return 62;
@@ -865,6 +973,14 @@ function codeHeavyScenario(baseDir, scale) {
     writeFile(path.join(packageDir, "src", `service-${packageIndex}.test.ts`), generatedTestFile(packageIndex));
     writeFile(path.join(packageDir, "workers", `worker-${packageIndex}.go`), generatedGoFile(packageIndex));
     writeFile(path.join(packageDir, "scripts", `audit-${packageIndex}.py`), generatedPythonFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `worker-${packageIndex}.rs`), generatedRustFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `Controller${packageIndex}.java`), generatedJavaFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `Action${packageIndex}.php`), generatedPhpFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `Job${packageIndex}.kt`), generatedKotlinFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `Event${packageIndex}.swift`), generatedSwiftFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `health-${packageIndex}.c`), generatedCFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `engine-${packageIndex}.cpp`), generatedCppFile(packageIndex));
+    writeFile(path.join(packageDir, "polyglot", `Service${packageIndex}.cs`), generatedCSharpFile(packageIndex));
     writeFile(path.join(packageDir, "config", `service-${packageIndex}.yaml`), generatedYamlFile(packageIndex));
     writeFile(path.join(packageDir, "config", `workflow-${packageIndex}.json`), generatedWorkflowJsonFile(packageIndex));
     writeFile(path.join(packageDir, "config", "service-token.yaml"), "SERVICE_TOKEN: do-not-index\n");
@@ -889,6 +1005,14 @@ function codeHeavyScenario(baseDir, scale) {
   const dependencyEvidenceQuery = runNode([cli, "--code-query", "SELECT key, value, file_path FROM configs WHERE key = 'dependency:express' ORDER BY file_path LIMIT 5"], cwd);
   const codeReport = runNode([cli, "--code-report"], cwd);
   const architectureReport = JSON.parse(codeReport.value);
+  const treeSitterIndex = runNode([cli, "--code-index", "--code-parser", "tree-sitter", "--code-index-out", ".project-wiki/tree-sitter-code-evidence.sqlite", "--code-scope", "packages"], cwd);
+  const treeSitterStatus = JSON.parse(runNode([cli, "--code-status", "--code-index-out", ".project-wiki/tree-sitter-code-evidence.sqlite"], cwd).value);
+  const treeSitterStatusMap = Object.fromEntries(treeSitterStatus.map((row) => [row.metric, row.value]));
+  const treeSitterReportRun = runNode([cli, "--code-report", "--code-index-out", ".project-wiki/tree-sitter-code-evidence.sqlite"], cwd);
+  const treeSitterReport = JSON.parse(treeSitterReportRun.value);
+  const treeSitterProfiles = Array.isArray(treeSitterReport.language_profile_summary)
+    ? treeSitterReport.language_profile_summary.map((row) => row.profile).sort()
+    : [];
   const routeEvidenceRows = JSON.parse(routeEvidenceQuery.value);
   const dependencyEvidenceRows = JSON.parse(dependencyEvidenceQuery.value);
   const incrementalMode = incrementalOutput.mode || "unsupported";
@@ -900,6 +1024,14 @@ function codeHeavyScenario(baseDir, scale) {
   const generatedTestFiles = scale.codePackages;
   const generatedGoFiles = scale.codePackages;
   const generatedPythonFiles = scale.codePackages;
+  const generatedRustFiles = scale.codePackages;
+  const generatedJavaFiles = scale.codePackages;
+  const generatedPhpFiles = scale.codePackages;
+  const generatedKotlinFiles = scale.codePackages;
+  const generatedSwiftFiles = scale.codePackages;
+  const generatedCFiles = scale.codePackages;
+  const generatedCppFiles = scale.codePackages;
+  const generatedCSharpFiles = scale.codePackages;
   const generatedConfigFiles = scale.codePackages * 2;
   const generatedPackageJsonFiles = scale.codePackages;
   const generatedLockFiles = scale.codePackages;
@@ -910,6 +1042,14 @@ function codeHeavyScenario(baseDir, scale) {
     + generatedTestFiles
     + generatedGoFiles
     + generatedPythonFiles
+    + generatedRustFiles
+    + generatedJavaFiles
+    + generatedPhpFiles
+    + generatedKotlinFiles
+    + generatedSwiftFiles
+    + generatedCFiles
+    + generatedCppFiles
+    + generatedCSharpFiles
     + generatedConfigFiles
     + generatedPackageJsonFiles
     + generatedLockFiles;
@@ -936,6 +1076,11 @@ function codeHeavyScenario(baseDir, scale) {
   expectBenchmark(Array.isArray(edgeKinds) && edgeKinds.some((row) => row.kind === "route_to_handler"), "code-heavy architecture report had no route_to_handler edge summary");
   expectBenchmark(routeEvidenceRows.some((row) => row.file_path === "packages/workspace-00/src/route-0.js"), "code-heavy route evidence query did not return workspace-00 route file");
   expectBenchmark(dependencyEvidenceRows.some((row) => row.file_path === "packages/workspace-00/package.json" && row.value === "^4.0.0"), "code-heavy dependency evidence query did not return workspace-00 express dependency");
+  expectBenchmark(treeSitterReport.parser_mode === "tree-sitter", `tree-sitter code report parser mode was ${treeSitterReport.parser_mode}; expected tree-sitter`);
+  expectBenchmark(Number(treeSitterStatusMap.files || 0) === expectedIndexedFiles, `tree-sitter code index file count was ${treeSitterStatusMap.files}; expected ${expectedIndexedFiles}`);
+  for (const profile of ["tree-sitter-c", "tree-sitter-cpp", "tree-sitter-csharp", "tree-sitter-go", "tree-sitter-java", "tree-sitter-javascript", "tree-sitter-kotlin", "tree-sitter-php", "tree-sitter-python", "tree-sitter-rust", "tree-sitter-swift", "tree-sitter-tsx", "tree-sitter-typescript"]) {
+    expectBenchmark(treeSitterProfiles.includes(profile), `tree-sitter code report missed profile ${profile}`);
+  }
   return {
     fixture_kind: "code-heavy-large-project",
     confidence: "high-for-js-ts-tsx-config-code-index-throughput-claims",
@@ -948,6 +1093,14 @@ function codeHeavyScenario(baseDir, scale) {
       generated_test_files: generatedTestFiles,
       generated_go_files: generatedGoFiles,
       generated_python_files: generatedPythonFiles,
+      generated_rust_files: generatedRustFiles,
+      generated_java_files: generatedJavaFiles,
+      generated_php_files: generatedPhpFiles,
+      generated_kotlin_files: generatedKotlinFiles,
+      generated_swift_files: generatedSwiftFiles,
+      generated_c_files: generatedCFiles,
+      generated_cpp_files: generatedCppFiles,
+      generated_csharp_files: generatedCSharpFiles,
       generated_config_files: generatedConfigFiles,
       generated_package_json_files: generatedPackageJsonFiles,
       generated_lock_files: generatedLockFiles,
@@ -984,6 +1137,19 @@ function codeHeavyScenario(baseDir, scale) {
     architecture_report_configs: Number(evidenceCoverage.configs || 0),
     architecture_report_edges: Number(evidenceCoverage.edges || 0),
     architecture_report_stale_files: Number(architectureReport.stale?.files || 0),
+    tree_sitter_code_index_ms: treeSitterIndex.elapsed_ms,
+    tree_sitter_code_index_operation_estimated_ms: estimatedOperationMs(treeSitterIndex.elapsed_ms, subprocessOverheadMs),
+    tree_sitter_code_files: Number(treeSitterStatusMap.files || 0),
+    tree_sitter_code_symbols: Number(treeSitterStatusMap.symbols || 0),
+    tree_sitter_code_imports: Number(treeSitterStatusMap.imports || 0),
+    tree_sitter_code_edges: Number(treeSitterStatusMap.edges || 0),
+    tree_sitter_code_files_per_second: round(Number(treeSitterStatusMap.files || 0) / (treeSitterIndex.elapsed_ms / 1000)),
+    tree_sitter_architecture_report_ms: treeSitterReportRun.elapsed_ms,
+    tree_sitter_architecture_report_operation_estimated_ms: estimatedOperationMs(treeSitterReportRun.elapsed_ms, subprocessOverheadMs),
+    tree_sitter_parser_profiles: treeSitterProfiles.length,
+    tree_sitter_parser_profile_names: treeSitterProfiles,
+    tree_sitter_vs_default_index_ms_delta_percent: compareNumber(codeIndex.elapsed_ms, treeSitterIndex.elapsed_ms),
+    tree_sitter_vs_default_symbol_delta_percent: compareNumber(Number(statusMap.symbols || 0), Number(treeSitterStatusMap.symbols || 0)),
     evidence_correctness: {
       route_query_returned_expected_file: routeEvidenceRows.some((row) => row.file_path === "packages/workspace-00/src/route-0.js"),
       dependency_query_returned_expected_file: dependencyEvidenceRows.some((row) => row.file_path === "packages/workspace-00/package.json" && row.value === "^4.0.0"),
@@ -1003,6 +1169,7 @@ function codeHeavyScenario(baseDir, scale) {
       passedValidation(`architecture report listed ${packageDependencies.length} package dependencies`),
       passedValidation("code evidence query returned expected route file"),
       passedValidation("code evidence query returned expected dependency file"),
+      passedValidation(`tree-sitter index covered ${treeSitterProfiles.length} parser profiles`),
     ],
   };
 }
@@ -1141,6 +1308,8 @@ const regressionThresholds = {
   code_index_throughput_delta_percent: { direction: "min", threshold: -10 },
   incremental_index_ms_delta_percent: { direction: "max", threshold: 15 },
   architecture_report_ms_delta_percent: { direction: "max", threshold: 15 },
+  tree_sitter_code_index_ms_delta_percent: { direction: "max", threshold: 20 },
+  tree_sitter_architecture_report_ms_delta_percent: { direction: "max", threshold: 20 },
   sample_repo_code_index_ms_delta_percent: { direction: "max", threshold: 20 },
   sample_repo_architecture_report_ms_delta_percent: { direction: "max", threshold: 20 },
   sample_repo_worst_code_index_ms_delta_percent: { direction: "max", threshold: 20 },
@@ -1162,6 +1331,8 @@ const claimMetricRules = [
   { id: "code.code_index_ms", scenario: "code-heavy-large-project", path: ["code_index_ms"], max_cv_percent: 12, max_range_ms: 75, claim: "full code-index latency" },
   { id: "code.incremental_index_ms", scenario: "code-heavy-large-project", path: ["incremental_index_ms"], max_cv_percent: 15, max_range_ms: 35, claim: "incremental code-index latency" },
   { id: "code.architecture_report_ms", scenario: "code-heavy-large-project", path: ["architecture_report_ms"], max_cv_percent: 15, max_range_ms: 35, claim: "architecture report latency" },
+  { id: "code.tree_sitter_code_index_ms", scenario: "code-heavy-large-project", path: ["tree_sitter_code_index_ms"], max_cv_percent: 18, max_range_ms: 125, claim: "Tree-sitter code-index latency" },
+  { id: "code.tree_sitter_architecture_report_ms", scenario: "code-heavy-large-project", path: ["tree_sitter_architecture_report_ms"], max_cv_percent: 18, max_range_ms: 50, claim: "Tree-sitter architecture report latency" },
 ];
 
 function claimMetricRulesForScenarios(scenarios) {
@@ -1339,6 +1510,8 @@ function compareReport(current, baseline, options = {}) {
     code_index_throughput_delta_percent: compareNumber(codeBaseline.code_index_files_per_second, codeCurrent.code_index_files_per_second),
     incremental_index_ms_delta_percent: compareNumber(codeBaseline.incremental_index_ms, codeCurrent.incremental_index_ms),
     architecture_report_ms_delta_percent: compareNumber(codeBaseline.architecture_report_ms, codeCurrent.architecture_report_ms),
+    tree_sitter_code_index_ms_delta_percent: compareNumber(codeBaseline.tree_sitter_code_index_ms, codeCurrent.tree_sitter_code_index_ms),
+    tree_sitter_architecture_report_ms_delta_percent: compareNumber(codeBaseline.tree_sitter_architecture_report_ms, codeCurrent.tree_sitter_architecture_report_ms),
     sample_repo_code_index_ms_delta_percent: compareNumber(baseline.summary?.sample_repo_code_index_ms, current.summary?.sample_repo_code_index_ms),
     sample_repo_architecture_report_ms_delta_percent: compareNumber(baseline.summary?.sample_repo_architecture_report_ms, current.summary?.sample_repo_architecture_report_ms),
     sample_repo_worst_code_index_ms_delta_percent: maxNumber(sampleRepoDeltas.map((item) => item.code_index_ms_delta_percent)),
@@ -1445,6 +1618,8 @@ ${sampleDeltaRows}
 | Code index throughput | ${formatDelta(comparison.code_index_throughput_delta_percent)} |
 | Incremental index time | ${formatDelta(comparison.incremental_index_ms_delta_percent)} |
 | Architecture report time | ${formatDelta(comparison.architecture_report_ms_delta_percent)} |
+| Tree-sitter code index time | ${formatDelta(comparison.tree_sitter_code_index_ms_delta_percent)} |
+| Tree-sitter architecture report time | ${formatDelta(comparison.tree_sitter_architecture_report_ms_delta_percent)} |
 ${sampleComparisonRows}| Full-to-incremental reduction | ${formatDelta(comparison.full_to_incremental_time_reduction_delta_percent)} |
 | Minimum targeted-context token estimate | ${formatDelta(comparison.summary_min_estimated_token_avoidance_delta_percent)} |
 
@@ -1481,6 +1656,9 @@ Generated: ${report.generated_at}
 | Architecture report time | ${report.summary.architecture_report_ms}ms |
 | Architecture report evidence tables | ${report.summary.architecture_report_evidence_tables} |
 | Architecture report routes | ${report.summary.architecture_report_routes} |
+| Tree-sitter code-index time | ${report.summary.tree_sitter_code_index_ms}ms |
+| Tree-sitter code-index files | ${report.summary.tree_sitter_code_files} |
+| Tree-sitter parser profiles | ${report.summary.tree_sitter_parser_profiles} |
 ${sampleSummaryRows}| Benchmark runs | ${report.measurement.runs} |
 | Warmup runs | ${report.measurement.warmup_runs} |
 | Timing status | ${report.measurement.timing_status} |
@@ -1494,7 +1672,7 @@ ${sampleSummaryRows}| Benchmark runs | ${report.measurement.runs} |
 | Docs-heavy wiki | ${docs.assumptions?.generated_wiki_pages || 0} pages | ${docs.savings?.estimated_token_avoidance_percent || 0}% | ${docs.savings?.read_time_reduction_percent || 0}% | query ${docs.query_ms || 0}ms |
 | Monorepo wiki | ${monorepo.assumptions?.generated_wiki_pages || 0} pages | ${monorepo.savings?.estimated_token_avoidance_percent || 0}% | ${monorepo.savings?.read_time_reduction_percent || 0}% | doctor ${monorepo.doctor_ms || 0}ms |
 | Scoped router wiki | ${scoped.assumptions?.generated_wiki_pages || 0} pages | ${scoped.savings?.estimated_token_avoidance_percent || 0}% | ${scoped.savings?.read_time_reduction_percent || 0}% | refresh ${scoped.refresh_index_ms || 0}ms, routers ${scoped.scoped_router_count || 0}, index ${scoped.main_index_chars || 0} chars |
-| Code-heavy mixed index | ${code.code_index_files || 0} files | n/a | n/a | full ${code.code_index_ms || 0}ms, incremental ${code.incremental_index_ms || 0}ms, report ${code.architecture_report_ms || 0}ms |
+| Code-heavy mixed index | ${code.code_index_files || 0} files | n/a | n/a | full ${code.code_index_ms || 0}ms, incremental ${code.incremental_index_ms || 0}ms, report ${code.architecture_report_ms || 0}ms, tree-sitter ${code.tree_sitter_code_index_ms || 0}ms |
 ${sampleScenarioRows}
 ${comparisonRows}
 ## Claim Boundaries
@@ -1505,7 +1683,7 @@ ${comparisonRows}
 - Context efficiency compares full-wiki markdown scanning against startup/index plus the query-returned target document, while startup/index-only savings are recorded only as an upper bound.
 - Local filesystem timings should be compared only when environment, scale, and run count are compatible.
 - Timing claims require stable claim metrics; unstable metrics must be rerun before release claims.
-- Code-index throughput covers generated JS, TS, TSX, test TS, Go, Python, YAML, JSON, package metadata, package-lock, and ignored-directory fixture files, not every parser profile.
+- Code-index throughput covers generated JS, TS, TSX, test TS, Go, Python, Rust, Java, PHP, Kotlin, Swift, C, C++, C#, YAML, JSON, package metadata, package-lock, and ignored-directory fixture files.
 - Sample repo metrics are observational evidence for the explicit local repository paths only.
 `;
 }
@@ -1536,6 +1714,8 @@ const trendMetricRules = [
   { id: "code_index_files_per_second", path: ["summary", "code_index_files_per_second"], direction: "higher" },
   { id: "incremental_index_ms", path: ["summary", "code_index_incremental_ms"], direction: "lower" },
   { id: "architecture_report_ms", path: ["summary", "architecture_report_ms"], direction: "lower" },
+  { id: "tree_sitter_code_index_ms", path: ["summary", "tree_sitter_code_index_ms"], direction: "lower" },
+  { id: "tree_sitter_architecture_report_ms", path: ["summary", "tree_sitter_architecture_report_ms"], direction: "lower" },
   { id: "sample_repo_code_index_ms", path: ["summary", "sample_repo_code_index_ms"], direction: "lower" },
   { id: "sample_repo_architecture_report_ms", path: ["summary", "sample_repo_architecture_report_ms"], direction: "lower" },
 ];
@@ -1661,6 +1841,10 @@ const scenarioTimingPaths = [
   ["incremental_index_operation_estimated_ms"],
   ["architecture_report_ms"],
   ["architecture_report_operation_estimated_ms"],
+  ["tree_sitter_code_index_ms"],
+  ["tree_sitter_code_index_operation_estimated_ms"],
+  ["tree_sitter_architecture_report_ms"],
+  ["tree_sitter_architecture_report_operation_estimated_ms"],
   ["code_evidence_query_ms"],
   ["code_evidence_query_operation_estimated_ms"],
   ["sample_repo_code_index_ms"],
@@ -1783,6 +1967,11 @@ function suiteSummary(scenarios) {
     architecture_report_evidence_tables: codeScenario.architecture_report_evidence_tables || 0,
     architecture_report_routes: codeScenario.architecture_report_routes || 0,
     architecture_report_dependencies: codeScenario.architecture_report_dependencies || 0,
+    tree_sitter_code_index_ms: codeScenario.tree_sitter_code_index_ms || 0,
+    tree_sitter_code_files: codeScenario.tree_sitter_code_files || 0,
+    tree_sitter_code_files_per_second: codeScenario.tree_sitter_code_files_per_second || 0,
+    tree_sitter_architecture_report_ms: codeScenario.tree_sitter_architecture_report_ms || 0,
+    tree_sitter_parser_profiles: codeScenario.tree_sitter_parser_profiles || 0,
     retrieval_correctness_checks: retrievalCorrectnessStatuses.length,
     retrieval_correctness_passed: retrievalCorrectnessStatuses.filter((status) => status === "passed").length,
     targeted_context_evidence_missing: targetedRetrievalStrategies.reduce((sum, item) => sum + Number(item.expected_evidence_files_missing || 0), 0),
@@ -1868,9 +2057,9 @@ function runBenchmark() {
         scoped_route_pages: scale.scopedRouteAreas * scale.scopedPagesPerArea,
         scoped_route_areas: scale.scopedRouteAreas,
         scoped_pages_per_area: scale.scopedPagesPerArea,
-        code_heavy_files: scale.codePackages * (scale.filesPerCodePackage + 9),
+        code_heavy_files: scale.codePackages * (scale.filesPerCodePackage + 17),
         code_heavy_ts_files: scale.codePackages * scale.filesPerCodePackage,
-        code_heavy_mixed_file_kinds: ["ts", "test-ts", "js", "tsx", "go", "python", "yaml", "json", "package-json", "package-lock"],
+        code_heavy_mixed_file_kinds: ["ts", "test-ts", "js", "tsx", "go", "python", "rust", "java", "php", "kotlin", "swift", "c", "cpp", "csharp", "yaml", "json", "package-json", "package-lock"],
         sample_repo_paths: sampleRepos.map((sampleRepo) => sampleRepo.sourcePath),
         sample_repo_path: sampleRepos[0]?.sourcePath || "",
         curated_startup_index: true,
@@ -1883,9 +2072,9 @@ function runBenchmark() {
         "Maintainer benchmark for release evidence, not a public CLI user workflow.",
         "Default scale is large; smoke tests use --quick only to validate report shape.",
         "Large scale uses one discarded warmup run and repeated measured runs by default; scenario metrics are medians and include timing dispersion statistics.",
-        "Large scale covers docs-heavy wiki, monorepo wiki, scoped-router wiki, and code-heavy mixed JS/TS/TSX/config index scenarios.",
+        "Large scale covers docs-heavy wiki, monorepo wiki, scoped-router wiki, and code-heavy mixed JS/TS/TSX/Go/Python/polyglot/config index scenarios.",
         "Scoped routing scenario measures refresh-index generation of wiki/indexes/auto-*.md routers and compact main-index size.",
-        "Code-heavy scenario also measures architecture and ownership report generation from the code evidence index.",
+        "Code-heavy scenario also measures architecture, ownership, workspace graph, and optional Tree-sitter report generation from the code evidence index.",
         "Use repeated --sample-repo <path> arguments to add explicit local repository copies as observational validation evidence.",
         "Standard repo-local sample paths live under benchmarks/samples and are used by CI benchmark gates.",
         "Release claims require stable claim metrics; reports list claimable_metrics and unstable_metrics explicitly.",

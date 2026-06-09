@@ -196,24 +196,39 @@ Useful commands:
 | Purpose | Command |
 | --- | --- |
 | Build or refresh the cache | `npx project-wiki-bootstrap --code-index --code-scope src` |
+| Build with the optional Tree-sitter parser backend | `npx project-wiki-bootstrap --code-index --code-parser tree-sitter --code-scope src` |
+| Require an incremental cache update | `npx project-wiki-bootstrap --code-index --incremental --code-scope src` |
+| Force a full cache rebuild | `npx project-wiki-bootstrap --code-index --code-index-full --code-scope src` |
 | Show counts and stale cache status | `npx project-wiki-bootstrap --code-status` |
 | List indexed files | `npx project-wiki-bootstrap --code-files` |
-| Summarize architecture, ownership, routes, dependencies, and evidence coverage | `npx project-wiki-bootstrap --code-report` |
+| Summarize architecture, ownership, parser backends, workspace graph, routes, dependencies, and evidence coverage | `npx project-wiki-bootstrap --code-report` |
+| Print one bounded report section | `npx project-wiki-bootstrap --code-report --code-report-section routes` |
+| Inspect workspace and CODEOWNERS signals | `npx project-wiki-bootstrap --code-report --code-report-section workspaces` |
+| Inspect workspace package-manager, lockfile, and internal dependency graph signals | `npx project-wiki-bootstrap --code-report --code-report-section workspace-graph` |
+| Inspect impact evidence for a file, symbol, route, or module | `npx project-wiki-bootstrap --code-impact healthHandler` |
 | Search symbols | `npx project-wiki-bootstrap --code-search-symbol Auth` |
 | Run read-only SQL | `npx project-wiki-bootstrap --code-query "select path from files order by path"` |
 
-Code evidence indexing requires a Node runtime with `node:sqlite`. The base bootstrap command supports Node 18+, but the evidence index currently needs a newer Node release that includes `node:sqlite`.
+Code evidence indexing requires a Node runtime with `node:sqlite`. The base bootstrap command supports Node 18+, but the evidence index recommends Node 22.13+ or Node 24+ because `node:sqlite` was added in Node 22.5.0 and became available without `--experimental-sqlite` in Node 22.13.0. `--code-parser tree-sitter` uses optional `@sengac/tree-sitter*` packages and fails with a package error if those optional dependencies are not installed.
 
 ## Language Support Matrix
 
-The matrix lists only languages with implemented symbol/import extraction. Other recognized extensions are inventory-only and are not counted as language support. Treat `typescript-ast` evidence as stronger structural evidence; treat `python-light` and `go-light` rows as fast pointers that should be checked in source before making high-confidence canonical claims.
+The matrix lists only languages with implemented symbol/import extraction. Other recognized extensions are inventory-only and are not counted as language support. Default mode uses `typescript-ast`, `python-light`, and `go-light`; `--code-parser tree-sitter` switches supported source files to `tree-sitter-*` profiles. Ruby remains inventory-only until a compatible grammar package is selected. Treat structural parser evidence as stronger evidence, and check lightweight rows in source before making high-confidence canonical claims.
 
 | Language | Extensions | Extraction profile | Indexed evidence |
 | --- | --- | --- | --- |
-| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast` | functions, classes, methods, variables, interfaces, types, enums, imports, exports, calls, common HTTP routes |
-| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | functions, classes, methods, variables, imports, exports, `require()` calls, calls, common HTTP routes |
-| Python | `.py` | `python-light` | functions, classes, `import`, `from ... import` |
-| Go | `.go` | `go-light` | functions, methods, types, consts, vars, single imports, import blocks |
+| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast`; optional `tree-sitter-typescript` / `tree-sitter-tsx` | functions, classes, methods, variables, interfaces, types, enums, imports, exports, calls, common HTTP routes |
+| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast`; optional `tree-sitter-javascript` | functions, classes, methods, variables, imports, exports, `require()` calls, calls, common HTTP routes |
+| Python | `.py` | `python-light`; optional `tree-sitter-python` | functions, classes, `import`, `from ... import` |
+| Go | `.go` | `go-light`; optional `tree-sitter-go` | functions, methods, types, consts, vars, single imports, import blocks |
+| Rust | `.rs` | inventory-only by default; optional `tree-sitter-rust` | functions, structs, enums, traits, impls, `use` imports |
+| Java | `.java` | inventory-only by default; optional `tree-sitter-java` | classes, interfaces, enums, methods, imports |
+| PHP | `.php` | inventory-only by default; optional `tree-sitter-php` | functions, classes, interfaces, traits, methods, namespace uses |
+| Kotlin | `.kt`, `.kts` | inventory-only by default; optional `tree-sitter-kotlin` | functions, classes, objects, imports |
+| Swift | `.swift` | inventory-only by default; optional `tree-sitter-swift` | functions, classes, structs, protocols, enums, imports |
+| C | `.c`, `.h` | inventory-only by default; optional `tree-sitter-c` | functions, structs, enums, includes |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | inventory-only by default; optional `tree-sitter-cpp` | functions, classes/structs, namespaces, enums, includes/usings |
+| C# | `.cs` | inventory-only by default; optional `tree-sitter-csharp` | classes, interfaces, structs, enums, methods, usings |
 
 Config files (`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`) are indexed separately as configuration evidence.
 
@@ -262,7 +277,7 @@ npm pack --dry-run
 
 When editing TypeScript files under `src/`, rebuild before committing so `dist/` stays current.
 
-`npm run benchmark` is a maintainer benchmark, not a public user workflow. Its default large-project suite covers docs-heavy wiki, monorepo wiki, and code-heavy TypeScript index scenarios, then reports objective release metrics such as compact startup token savings, wiki read-time reduction, bootstrap/doctor/query timing, full and incremental code-index timing, code-index throughput, and optional comparison against a saved baseline JSON. Use `npm run benchmark:baseline` when preparing release evidence; it writes a versioned JSON baseline and Markdown summary under `benchmarks/`. Smoke tests use `--quick` only to validate the benchmark report shape.
+`npm run benchmark` is a maintainer benchmark, not a public user workflow. Its default large-project suite covers docs-heavy wiki, monorepo wiki, scoped routing, default mixed-language code indexing, and optional Tree-sitter indexing across JS/TS/TSX/Python/Go/Rust/Java/PHP/Kotlin/Swift/C/C++/C# fixtures. It reports objective release metrics such as compact startup token savings, wiki read-time reduction, bootstrap/doctor/query timing, full and incremental code-index timing, code-index throughput, architecture report timing, Tree-sitter timing/profile coverage, and optional comparison against a saved baseline JSON. Use `npm run benchmark:baseline` when preparing release evidence; it writes a versioned JSON baseline and Markdown summary under `benchmarks/`. Smoke tests use `--quick` only to validate the benchmark report shape.
 
 ## License
 

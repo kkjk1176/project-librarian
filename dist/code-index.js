@@ -38,6 +38,7 @@ exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
 exports.runCodeStatusMode = runCodeStatusMode;
 exports.runCodeFilesMode = runCodeFilesMode;
+exports.runCodeImpactMode = runCodeImpactMode;
 exports.runCodeSearchSymbolMode = runCodeSearchSymbolMode;
 exports.isCodeEvidenceMode = isCodeEvidenceMode;
 const crypto = __importStar(require("node:crypto"));
@@ -87,9 +88,58 @@ const languageByExtension = {
 };
 const codeEvidenceDirectory = ".project-wiki";
 const codeIndexSchemaVersion = "3";
+const codeEvidenceNodeRuntimeRequirement = "Node.js 22.13+ or 24+ recommended; node:sqlite was added in Node.js 22.5.0 and became available without --experimental-sqlite in Node.js 22.13.0";
 const configExtensions = new Set([".json", ".yaml", ".yml", ".toml"]);
 const maxIndexedBytes = 1024 * 1024;
 const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
+const treeSitterGrammarPackages = {
+    "tree-sitter-c": "@sengac/tree-sitter-c",
+    "tree-sitter-cpp": "@sengac/tree-sitter-cpp",
+    "tree-sitter-csharp": "@sengac/tree-sitter-c-sharp",
+    "tree-sitter-go": "@sengac/tree-sitter-go",
+    "tree-sitter-java": "@sengac/tree-sitter-java",
+    "tree-sitter-javascript": "@sengac/tree-sitter-javascript",
+    "tree-sitter-kotlin": "@sengac/tree-sitter-kotlin",
+    "tree-sitter-php": "@sengac/tree-sitter-php",
+    "tree-sitter-python": "@sengac/tree-sitter-python",
+    "tree-sitter-rust": "@sengac/tree-sitter-rust",
+    "tree-sitter-swift": "@sengac/tree-sitter-swift",
+};
+const codeReportSectionAliases = {
+    config: "configs",
+    configs: "configs",
+    coverage: "coverage",
+    dependencies: "hotspots",
+    dependency: "hotspots",
+    dependency_hotspots: "hotspots",
+    edge: "edges",
+    edge_summary: "edges",
+    edges: "edges",
+    evidence: "coverage",
+    evidence_coverage: "coverage",
+    hotspot: "hotspots",
+    hotspots: "hotspots",
+    language: "languages",
+    language_profile_summary: "languages",
+    languages: "languages",
+    ownership: "ownership",
+    ownership_summary: "ownership",
+    parser: "parsers",
+    parser_backend_summary: "parsers",
+    parser_backends: "parsers",
+    parsers: "parsers",
+    route: "routes",
+    route_inventory: "routes",
+    routes: "routes",
+    workspace: "workspaces",
+    workspace_graph: "workspace-graph",
+    "workspace-graph": "workspace-graph",
+    workspacegraph: "workspace-graph",
+    monorepo: "workspace-graph",
+    monorepo_graph: "workspace-graph",
+    workspace_summary: "workspaces",
+    workspaces: "workspaces",
+};
 function loadDatabaseSync() {
     const previousListeners = process.listeners("warning");
     const suppressExperimentalSqliteWarning = (warning) => {
@@ -106,7 +156,7 @@ function loadDatabaseSync() {
     }
     catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return fail(`code evidence index requires Node.js with node:sqlite support; current Node is ${process.version}. Error: ${message}`);
+        return fail(`code evidence index requires a Node.js runtime with node:sqlite support; current Node is ${process.version}. Runtime policy: ${codeEvidenceNodeRuntimeRequirement}. Error: ${message}`);
     }
     finally {
         process.removeAllListeners("warning");
@@ -160,7 +210,50 @@ function isBlockedSensitiveConfigFile(relativePath) {
 function isJavaScriptLike(relativePath) {
     return [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"].includes(path.extname(relativePath).toLowerCase());
 }
-function extractionProfile(relativePath) {
+function selectedCodeParserMode() {
+    const requested = args_1.codeParser.trim().toLowerCase();
+    if (!requested || requested === "default")
+        return "default";
+    if (requested === "tree-sitter" || requested === "treesitter")
+        return "tree-sitter";
+    fail(`invalid --code-parser: ${args_1.codeParser}; expected one of: default, tree-sitter`);
+}
+function treeSitterProfile(relativePath) {
+    const extension = path.extname(relativePath).toLowerCase();
+    const language = fileLanguage(relativePath);
+    if (language === "c")
+        return "tree-sitter-c";
+    if (language === "cpp")
+        return "tree-sitter-cpp";
+    if (language === "csharp")
+        return "tree-sitter-csharp";
+    if ([".js", ".jsx", ".cjs", ".mjs"].includes(extension))
+        return "tree-sitter-javascript";
+    if ([".ts", ".mts", ".cts"].includes(extension))
+        return "tree-sitter-typescript";
+    if (extension === ".tsx")
+        return "tree-sitter-tsx";
+    if (language === "java")
+        return "tree-sitter-java";
+    if (language === "kotlin")
+        return "tree-sitter-kotlin";
+    if (language === "php")
+        return "tree-sitter-php";
+    if (language === "python")
+        return "tree-sitter-python";
+    if (language === "go")
+        return "tree-sitter-go";
+    if (language === "rust")
+        return "tree-sitter-rust";
+    if (language === "swift")
+        return "tree-sitter-swift";
+    if (language === "config")
+        return "config";
+    return "inventory-only";
+}
+function extractionProfile(relativePath, parserMode) {
+    if (parserMode === "tree-sitter")
+        return treeSitterProfile(relativePath);
     if (isJavaScriptLike(relativePath))
         return "typescript-ast";
     if (fileLanguage(relativePath) === "python")
@@ -229,7 +322,7 @@ function discoverCodeFiles(scopes) {
         .filter((file) => fs.statSync((0, workspace_1.abs)(file)).size <= maxIndexedBytes)
         .sort();
 }
-function readCodeFile(relativePath) {
+function readCodeFile(relativePath, parserMode = "default") {
     const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
     return {
         bytes: Buffer.byteLength(text),
@@ -237,7 +330,7 @@ function readCodeFile(relativePath) {
         language: fileLanguage(relativePath) || "config",
         lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
         path: relativePath,
-        profile: extractionProfile(relativePath),
+        profile: extractionProfile(relativePath, parserMode),
         text,
     };
 }
@@ -352,24 +445,477 @@ function removeIndexedFile(filePath, statements) {
     statements.deleteFileFts.run(filePath);
     statements.deleteFile.run(filePath);
 }
+const treeSitterParsers = new Map();
+function requireTreeSitterPackage(packageName) {
+    try {
+        return require(packageName);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        fail(`--code-parser tree-sitter requires optional package ${packageName}; install project optional dependencies with npm install. Error: ${message}`);
+    }
+}
+function treeSitterGrammarForProfile(profile) {
+    if (profile === "tree-sitter-typescript" || profile === "tree-sitter-tsx") {
+        const grammars = requireTreeSitterPackage("@sengac/tree-sitter-typescript");
+        const grammar = profile === "tree-sitter-tsx" ? grammars.tsx : grammars.typescript;
+        if (!grammar)
+            fail(`tree-sitter-typescript did not expose the expected ${profile === "tree-sitter-tsx" ? "tsx" : "typescript"} grammar`);
+        return grammar;
+    }
+    const packageName = treeSitterGrammarPackages[profile];
+    if (packageName) {
+        const grammarModule = requireTreeSitterPackage(packageName);
+        const grammar = profile === "tree-sitter-php"
+            ? grammarModule.php ?? grammarModule.php_only
+            : grammarModule;
+        if (!grammar)
+            fail(`${packageName} did not expose a Tree-sitter grammar for ${profile}`);
+        return grammar;
+    }
+    fail(`missing Tree-sitter grammar for profile: ${profile}`);
+}
+function treeSitterParserForProfile(profile) {
+    const cached = treeSitterParsers.get(profile);
+    if (cached)
+        return cached;
+    const Parser = requireTreeSitterPackage("@sengac/tree-sitter");
+    const parser = new Parser();
+    parser.setLanguage(treeSitterGrammarForProfile(profile));
+    treeSitterParsers.set(profile, parser);
+    return parser;
+}
+function treeSitterLine(node) {
+    return node.startPosition.row + 1;
+}
+function treeSitterFieldText(node, fieldName) {
+    return node.childForFieldName(fieldName)?.text ?? "";
+}
+function treeSitterSignature(node) {
+    return oneLine(node.text);
+}
+function unquoteLiteral(text) {
+    const trimmed = text.trim();
+    if (trimmed.length >= 2) {
+        const first = trimmed[0];
+        const last = trimmed[trimmed.length - 1];
+        if ((first === "\"" && last === "\"") || (first === "'" && last === "'") || (first === "`" && last === "`"))
+            return trimmed.slice(1, -1);
+    }
+    return trimmed;
+}
+function forEachNamedTreeSitterNode(node, visit) {
+    visit(node);
+    for (let index = 0; index < node.namedChildCount; index += 1) {
+        const child = node.namedChild(index);
+        if (child)
+            forEachNamedTreeSitterNode(child, visit);
+    }
+}
+function firstNamedChildOfType(node, type) {
+    for (let index = 0; index < node.namedChildCount; index += 1) {
+        const child = node.namedChild(index);
+        if (child?.type === type)
+            return child;
+    }
+    return null;
+}
+function treeSitterModuleSpecifier(node) {
+    const source = treeSitterFieldText(node, "source");
+    if (source)
+        return unquoteLiteral(source);
+    const raw = node.text;
+    return raw.match(/\bfrom\s*["'`]([^"'`]+)["'`]/)?.[1]
+        ?? raw.match(/^\s*import\s*["'`]([^"'`]+)["'`]/)?.[1]
+        ?? raw.match(/\brequire\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/)?.[1]
+        ?? "";
+}
+function indexTreeSitterJavaScriptLike(file, statements) {
+    const tree = treeSitterParserForProfile(file.profile).parse(file.text);
+    function visit(node, context) {
+        let nextContext = context;
+        if (node.type === "function_declaration") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "function", file, treeSitterLine(node), treeSitterSignature(node));
+            if (name)
+                nextContext = name;
+        }
+        else if (node.type === "class_declaration") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "class", file, treeSitterLine(node), treeSitterSignature(node));
+            if (name)
+                nextContext = name;
+        }
+        else if (node.type === "method_definition" || node.type === "method_signature") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "method", file, treeSitterLine(node), treeSitterSignature(node));
+            if (name)
+                nextContext = name;
+        }
+        else if (node.type === "interface_declaration") {
+            insertSymbol(statements, treeSitterFieldText(node, "name"), "interface", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "type_alias_declaration") {
+            insertSymbol(statements, treeSitterFieldText(node, "name"), "type", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "enum_declaration") {
+            insertSymbol(statements, treeSitterFieldText(node, "name"), "enum", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "variable_declarator") {
+            const name = treeSitterFieldText(node, "name");
+            const valueType = node.childForFieldName("value")?.type ?? "";
+            const symbolKind = ["arrow_function", "function", "function_expression"].includes(valueType) ? "function" : "variable";
+            insertSymbol(statements, name, symbolKind, file, treeSitterLine(node), treeSitterSignature(node));
+            if (symbolKind === "function" && name)
+                nextContext = name;
+        }
+        else if (node.type === "import_statement" || node.type === "export_statement") {
+            const toRef = treeSitterModuleSpecifier(node);
+            if (toRef) {
+                const imported = node.text.match(/^\s*import\s+(.+?)\s+from\s*["'`]/)?.[1] ?? node.text.match(/^\s*export\s+(.+?)\s+from\s*["'`]/)?.[1] ?? "";
+                statements.insertImport.run(file.path, toRef, oneLine(imported), treeSitterLine(node), treeSitterSignature(node));
+                insertEdge(statements, node.type === "export_statement" ? "export" : "import", "file", file.path, "module", toRef, file, treeSitterLine(node), treeSitterSignature(node));
+            }
+        }
+        else if (node.type === "call_expression") {
+            const raw = node.text;
+            const routeMatch = raw.match(/^(?:app|router|server)\.(get|post|put|patch|delete|all)\s*\(\s*["'`]([^"'`]+)["'`]\s*,\s*([^,)]+)/);
+            if (routeMatch) {
+                const method = (routeMatch[1] ?? "").toUpperCase();
+                const route = routeMatch[2] ?? "";
+                const handler = oneLine(routeMatch[3] ?? "");
+                statements.insertRoute.run(method, route, file.path, treeSitterLine(node), handler);
+                insertEdge(statements, "route_to_handler", "route", `${method} ${route}`, "symbol", handler, file, treeSitterLine(node), treeSitterSignature(node));
+            }
+            const requireRef = treeSitterModuleSpecifier(node);
+            if (requireRef) {
+                statements.insertImport.run(file.path, requireRef, "", treeSitterLine(node), treeSitterSignature(node));
+                insertEdge(statements, "import", "file", file.path, "module", requireRef, file, treeSitterLine(node), treeSitterSignature(node));
+            }
+            else {
+                const target = treeSitterFieldText(node, "function");
+                insertEdge(statements, "call", context ? "symbol" : "file", context || file.path, "symbol", target, file, treeSitterLine(node), treeSitterSignature(node));
+            }
+        }
+        for (let index = 0; index < node.namedChildCount; index += 1) {
+            const child = node.namedChild(index);
+            if (child)
+                visit(child, nextContext);
+        }
+    }
+    visit(tree.rootNode, "");
+}
+function indexTreeSitterPython(file, statements) {
+    const tree = treeSitterParserForProfile(file.profile).parse(file.text);
+    forEachNamedTreeSitterNode(tree.rootNode, (node) => {
+        if (node.type === "function_definition") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "function", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "class_definition") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "class", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "import_statement" || node.type === "import_from_statement") {
+            const raw = node.text.trim();
+            const fromMatch = raw.match(/^from\s+([A-Za-z0-9_.$]+)\s+import\s+(.+)$/);
+            const importMatch = raw.match(/^import\s+(.+)$/);
+            const toRef = fromMatch?.[1] ?? importMatch?.[1] ?? "";
+            const imported = fromMatch?.[2] ?? "";
+            if (toRef) {
+                statements.insertImport.run(file.path, toRef, imported.trim(), treeSitterLine(node), raw);
+                insertEdge(statements, "import", "file", file.path, "module", toRef, file, treeSitterLine(node), raw);
+            }
+        }
+    });
+}
+function indexTreeSitterGo(file, statements) {
+    const tree = treeSitterParserForProfile(file.profile).parse(file.text);
+    forEachNamedTreeSitterNode(tree.rootNode, (node) => {
+        if (node.type === "function_declaration") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "function", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "method_declaration") {
+            const name = treeSitterFieldText(node, "name");
+            insertSymbol(statements, name, "method", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "type_declaration") {
+            const spec = firstNamedChildOfType(node, "type_spec");
+            const name = spec ? treeSitterFieldText(spec, "name") : "";
+            insertSymbol(statements, name, "type", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "const_declaration" || node.type === "var_declaration") {
+            const spec = firstNamedChildOfType(node, node.type === "const_declaration" ? "const_spec" : "var_spec");
+            const name = spec ? treeSitterFieldText(spec, "name") : "";
+            insertSymbol(statements, name, node.type === "const_declaration" ? "constant" : "variable", file, treeSitterLine(node), treeSitterSignature(node));
+        }
+        else if (node.type === "import_spec") {
+            const toRef = unquoteLiteral(treeSitterFieldText(node, "path") || (node.text.match(/"([^"]+)"/)?.[1] ?? ""));
+            const imported = treeSitterFieldText(node, "name");
+            insertGoImport(file, statements, toRef, imported, treeSitterLine(node), treeSitterSignature(node));
+        }
+    });
+}
+function treeSitterGenericLanguage(file) {
+    const normalized = file.profile.replace(/^tree-sitter-/, "");
+    if (["c", "cpp", "csharp", "java", "kotlin", "php", "rust", "swift"].includes(normalized))
+        return normalized;
+    fail(`unsupported generic Tree-sitter profile: ${file.profile}`);
+}
+function symbolNameFromPatterns(text, patterns) {
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match?.[1])
+            return match[1];
+    }
+    return "";
+}
+function treeSitterGenericSymbol(node, language) {
+    const raw = node.text;
+    const fieldName = treeSitterFieldText(node, "name");
+    const patterns = {
+        c: [
+            [["function_definition"], "function", [/\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*\{/]],
+            [["struct_specifier"], "struct", [/\bstruct\s+([A-Za-z_]\w*)/]],
+            [["enum_specifier"], "enum", [/\benum\s+([A-Za-z_]\w*)/]],
+        ],
+        cpp: [
+            [["function_definition"], "function", [/\b([A-Za-z_]\w*)\s*\([^;{}]*\)\s*(?:const\s*)?\{/]],
+            [["class_specifier"], "class", [/\bclass\s+([A-Za-z_]\w*)/, /\bstruct\s+([A-Za-z_]\w*)/]],
+            [["namespace_definition"], "namespace", [/\bnamespace\s+([A-Za-z_]\w*)/]],
+            [["enum_specifier"], "enum", [/\benum(?:\s+class)?\s+([A-Za-z_]\w*)/]],
+        ],
+        csharp: [
+            [["method_declaration", "constructor_declaration"], "method", [/\b([A-Za-z_]\w*)\s*\(/]],
+            [["class_declaration"], "class", [/\bclass\s+([A-Za-z_]\w*)/]],
+            [["interface_declaration"], "interface", [/\binterface\s+([A-Za-z_]\w*)/]],
+            [["struct_declaration"], "struct", [/\bstruct\s+([A-Za-z_]\w*)/]],
+            [["enum_declaration"], "enum", [/\benum\s+([A-Za-z_]\w*)/]],
+        ],
+        java: [
+            [["method_declaration", "constructor_declaration"], "method", [/\b([A-Za-z_]\w*)\s*\(/]],
+            [["class_declaration"], "class", [/\bclass\s+([A-Za-z_]\w*)/]],
+            [["interface_declaration"], "interface", [/\binterface\s+([A-Za-z_]\w*)/]],
+            [["enum_declaration"], "enum", [/\benum\s+([A-Za-z_]\w*)/]],
+        ],
+        kotlin: [
+            [["function_declaration"], "function", [/\bfun\s+([A-Za-z_]\w*)/]],
+            [["class_declaration"], "class", [/\bclass\s+([A-Za-z_]\w*)/, /\binterface\s+([A-Za-z_]\w*)/]],
+            [["object_declaration"], "object", [/\bobject\s+([A-Za-z_]\w*)/]],
+        ],
+        php: [
+            [["function_definition"], "function", [/\bfunction\s+([A-Za-z_]\w*)/]],
+            [["method_declaration"], "method", [/\bfunction\s+([A-Za-z_]\w*)/]],
+            [["class_declaration"], "class", [/\bclass\s+([A-Za-z_]\w*)/]],
+            [["interface_declaration"], "interface", [/\binterface\s+([A-Za-z_]\w*)/]],
+            [["trait_declaration"], "trait", [/\btrait\s+([A-Za-z_]\w*)/]],
+        ],
+        rust: [
+            [["function_item"], "function", [/\bfn\s+([A-Za-z_]\w*)/]],
+            [["struct_item"], "struct", [/\bstruct\s+([A-Za-z_]\w*)/]],
+            [["enum_item"], "enum", [/\benum\s+([A-Za-z_]\w*)/]],
+            [["trait_item"], "trait", [/\btrait\s+([A-Za-z_]\w*)/]],
+            [["impl_item"], "impl", [/\bimpl(?:\s*<[^>]+>)?\s+([A-Za-z_]\w*)/]],
+        ],
+        swift: [
+            [["function_declaration"], "function", [/\bfunc\s+([A-Za-z_]\w*)/]],
+            [["class_declaration"], "class", [/\bclass\s+([A-Za-z_]\w*)/]],
+            [["struct_declaration"], "struct", [/\bstruct\s+([A-Za-z_]\w*)/]],
+            [["protocol_declaration"], "protocol", [/\bprotocol\s+([A-Za-z_]\w*)/]],
+            [["enum_declaration"], "enum", [/\benum\s+([A-Za-z_]\w*)/]],
+        ],
+    };
+    for (const [types, kind, regexes] of patterns[language] ?? []) {
+        if (!types.includes(node.type))
+            continue;
+        const name = fieldName || symbolNameFromPatterns(raw, regexes);
+        return name ? { kind, name } : null;
+    }
+    return null;
+}
+function treeSitterGenericImport(node, language) {
+    const raw = node.text.trim();
+    const importTypes = {
+        c: ["preproc_include"],
+        cpp: ["preproc_include", "using_declaration", "namespace_alias_definition"],
+        csharp: ["using_directive"],
+        java: ["import_declaration"],
+        kotlin: ["import_header"],
+        php: ["namespace_use_declaration"],
+        rust: ["use_declaration"],
+        swift: ["import_declaration"],
+    };
+    if (!(importTypes[language] ?? []).includes(node.type))
+        return null;
+    const toRef = raw.match(/#include\s*[<"]([^>"]+)[>"]/)?.[1]
+        ?? raw.match(/\bimport\s+([A-Za-z0-9_.*.$\\/-]+)/)?.[1]
+        ?? raw.match(/\busing\s+([A-Za-z0-9_.*.$\\/-]+)/)?.[1]
+        ?? raw.match(/\buse\s+([A-Za-z0-9_:{}*,\s]+);?/)?.[1]?.replace(/\s+/g, " ").trim()
+        ?? "";
+    return toRef ? { imported: "", kind: language === "rust" ? "use" : "import", toRef } : null;
+}
+function indexTreeSitterGeneric(file, statements) {
+    const language = treeSitterGenericLanguage(file);
+    const tree = treeSitterParserForProfile(file.profile).parse(file.text);
+    forEachNamedTreeSitterNode(tree.rootNode, (node) => {
+        const symbol = treeSitterGenericSymbol(node, language);
+        if (symbol)
+            insertSymbol(statements, symbol.name, symbol.kind, file, treeSitterLine(node), treeSitterSignature(node));
+        const imported = treeSitterGenericImport(node, language);
+        if (imported) {
+            statements.insertImport.run(file.path, imported.toRef, imported.imported, treeSitterLine(node), treeSitterSignature(node));
+            insertEdge(statements, imported.kind, "file", file.path, "module", imported.toRef, file, treeSitterLine(node), treeSitterSignature(node));
+        }
+    });
+}
+const extractionBackends = [
+    {
+        id: "typescript-compiler",
+        index: indexJavaScriptLike,
+        label: "TypeScript compiler API",
+        profile: "typescript-ast",
+        strength: "structural",
+    },
+    {
+        id: "regex-light",
+        index: indexPythonLight,
+        label: "Python lightweight regex",
+        profile: "python-light",
+        strength: "light",
+    },
+    {
+        id: "regex-light",
+        index: indexGoLight,
+        label: "Go lightweight regex",
+        profile: "go-light",
+        strength: "light",
+    },
+    {
+        id: "tree-sitter-javascript",
+        index: indexTreeSitterJavaScriptLike,
+        label: "Tree-sitter JavaScript grammar",
+        profile: "tree-sitter-javascript",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-typescript",
+        index: indexTreeSitterJavaScriptLike,
+        label: "Tree-sitter TypeScript grammar",
+        profile: "tree-sitter-typescript",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-typescript",
+        index: indexTreeSitterJavaScriptLike,
+        label: "Tree-sitter TSX grammar",
+        profile: "tree-sitter-tsx",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-python",
+        index: indexTreeSitterPython,
+        label: "Tree-sitter Python grammar",
+        profile: "tree-sitter-python",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-go",
+        index: indexTreeSitterGo,
+        label: "Tree-sitter Go grammar",
+        profile: "tree-sitter-go",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-c",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter C grammar",
+        profile: "tree-sitter-c",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-cpp",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter C++ grammar",
+        profile: "tree-sitter-cpp",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-csharp",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter C# grammar",
+        profile: "tree-sitter-csharp",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-java",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter Java grammar",
+        profile: "tree-sitter-java",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-kotlin",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter Kotlin grammar",
+        profile: "tree-sitter-kotlin",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-php",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter PHP grammar",
+        profile: "tree-sitter-php",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-rust",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter Rust grammar",
+        profile: "tree-sitter-rust",
+        strength: "structural",
+    },
+    {
+        id: "tree-sitter-swift",
+        index: indexTreeSitterGeneric,
+        label: "Tree-sitter Swift grammar",
+        profile: "tree-sitter-swift",
+        strength: "structural",
+    },
+    {
+        id: "config-key-value",
+        index: (file, statements) => indexConfigs(file, statements.insertConfig),
+        label: "Configuration key/value extractor",
+        profile: "config",
+        strength: "config",
+    },
+    {
+        id: "inventory-only",
+        index: () => undefined,
+        label: "Inventory-only file listing",
+        profile: "inventory-only",
+        strength: "inventory",
+    },
+];
+const extractionBackendsByProfile = new Map(extractionBackends.map((backend) => [backend.profile, backend]));
+function extractionBackendForProfile(profile) {
+    const backend = extractionBackendsByProfile.get(profile);
+    if (!backend)
+        fail(`missing extraction backend for profile: ${profile}`);
+    return backend;
+}
 function indexCodeFile(file, statements) {
     statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash);
     statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
-    if (file.profile === "typescript-ast")
-        indexJavaScriptLike(file, statements);
-    else if (file.profile === "python-light")
-        indexPythonLight(file, statements);
-    else if (file.profile === "go-light")
-        indexGoLight(file, statements);
-    if (file.language === "config")
-        indexConfigs(file, statements.insertConfig);
+    extractionBackendForProfile(file.profile).index(file, statements);
 }
-function writeIndexMetadata(scopes, statements) {
+function writeIndexMetadata(scopes, parserMode, statements) {
     statements.insertMeta.run("schema_version", codeIndexSchemaVersion);
     statements.insertMeta.run("updated_at", new Date().toISOString());
     statements.insertMeta.run("root", workspace_1.root);
     statements.insertMeta.run("scopes", scopes.join(", "));
     statements.insertMeta.run("scopes_json", JSON.stringify(scopes));
+    statements.insertMeta.run("parser_mode", parserMode);
     statements.insertMeta.run("terminology", "code evidence index");
 }
 function oneLine(text) {
@@ -674,11 +1220,36 @@ function indexedScopes(database) {
         .map((scope) => scope.trim())
         .filter(Boolean);
 }
+function indexedParserMode(database) {
+    const mode = readMetaValue(database, "parser_mode");
+    return mode === "tree-sitter" ? "tree-sitter" : "default";
+}
 function scopesMatch(left, right) {
     return left.length === right.length && left.every((scope, index) => scope === right[index]);
 }
-function canIncrementallyUpdate(database, scopes) {
-    return readMetaValue(database, "schema_version") === codeIndexSchemaVersion && scopesMatch(indexedScopes(database), scopes);
+function incrementalCompatibility(database, scopes, parserMode) {
+    const existingSchemaVersion = readMetaValue(database, "schema_version");
+    if (existingSchemaVersion !== codeIndexSchemaVersion) {
+        return {
+            compatible: false,
+            reason: `existing schema version ${existingSchemaVersion || "(missing)"} does not match ${codeIndexSchemaVersion}`,
+        };
+    }
+    const existingScopes = indexedScopes(database);
+    if (!scopesMatch(existingScopes, scopes)) {
+        return {
+            compatible: false,
+            reason: `indexed scopes do not match requested scopes: indexed [${existingScopes.join(", ")}], requested [${scopes.join(", ")}]`,
+        };
+    }
+    const existingParserMode = indexedParserMode(database);
+    if (existingParserMode !== parserMode) {
+        return {
+            compatible: false,
+            reason: `indexed parser mode ${existingParserMode} does not match requested parser mode ${parserMode}`,
+        };
+    }
+    return { compatible: true, reason: "" };
 }
 function removeDatabaseFiles(databasePath) {
     for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
@@ -688,8 +1259,9 @@ function removeDatabaseFiles(databasePath) {
 }
 function codeIndexStaleness(database) {
     const scopes = indexedScopes(database);
+    const parserMode = indexedParserMode(database);
     const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
-        const codeFile = readCodeFile(file);
+        const codeFile = readCodeFile(file, parserMode);
         return [codeFile.path, codeFile.hash];
     }));
     const indexed = new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)]));
@@ -720,7 +1292,7 @@ function warnIfCodeIndexStale(database) {
         return;
     console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
 }
-function ownerKey(filePath) {
+function pathOwnerKey(filePath) {
     const parts = (0, workspace_1.normalizePath)(filePath).split("/").filter(Boolean);
     if (parts.length === 0)
         return ".";
@@ -728,26 +1300,152 @@ function ownerKey(filePath) {
         return `${parts[0]}/${parts[1]}`;
     return parts[0] ?? ".";
 }
-function incrementOwnerField(owners, filePath, field, increment = 1) {
-    const key = ownerKey(filePath);
+function readJsonObject(relativePath) {
+    try {
+        const parsed = JSON.parse(fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8"));
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    }
+    catch {
+        return null;
+    }
+}
+function workspacePatternsFromRootPackage() {
+    const rootPackage = readJsonObject("package.json");
+    const workspaces = rootPackage?.workspaces;
+    if (Array.isArray(workspaces))
+        return workspaces.filter((value) => typeof value === "string");
+    if (workspaces && typeof workspaces === "object" && !Array.isArray(workspaces)) {
+        const packages = workspaces.packages;
+        if (Array.isArray(packages))
+            return packages.filter((value) => typeof value === "string");
+    }
+    return [];
+}
+function workspacePatternCandidates(pattern) {
+    const normalized = (0, workspace_1.normalizePath)(pattern).replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!normalized || normalized.includes(".."))
+        return [];
+    if (!normalized.includes("*"))
+        return [normalized];
+    const starIndex = normalized.indexOf("*");
+    const prefix = normalized.slice(0, starIndex).replace(/\/+$/, "");
+    const suffix = normalized.slice(starIndex + 1).replace(/^\/+/, "");
+    const base = prefix || ".";
+    const basePath = (0, workspace_1.abs)(base);
+    if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory())
+        return [];
+    return fs.readdirSync(basePath, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => (0, workspace_1.normalizePath)(path.join(base, entry.name, suffix)))
+        .filter((candidate) => fs.existsSync((0, workspace_1.abs)(candidate)) && fs.statSync((0, workspace_1.abs)(candidate)).isDirectory());
+}
+function workspacePackages() {
+    const packages = new Map();
+    for (const pattern of workspacePatternsFromRootPackage()) {
+        for (const candidate of workspacePatternCandidates(pattern)) {
+            const packageJsonPath = (0, workspace_1.normalizePath)(path.join(candidate, "package.json"));
+            if (!fs.existsSync((0, workspace_1.abs)(packageJsonPath)))
+                continue;
+            const packageJson = readJsonObject(packageJsonPath);
+            const packageName = typeof packageJson?.name === "string" ? packageJson.name : candidate;
+            packages.set(candidate, {
+                name: packageName,
+                root: candidate,
+                source: "package.json workspaces",
+                workspace_pattern: pattern,
+            });
+        }
+    }
+    return Array.from(packages.values()).sort((left, right) => left.root.localeCompare(right.root));
+}
+function matchingWorkspace(filePath, workspaces) {
+    const normalized = (0, workspace_1.normalizePath)(filePath);
+    return workspaces
+        .filter((workspace) => normalized === workspace.root || normalized.startsWith(`${workspace.root}/`))
+        .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
+}
+function codeownerRules() {
+    const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
+    const rules = [];
+    for (const filePath of files) {
+        if (!fs.existsSync((0, workspace_1.abs)(filePath)))
+            continue;
+        const lines = fs.readFileSync((0, workspace_1.abs)(filePath), "utf8").split(/\r?\n/);
+        lines.forEach((lineText, index) => {
+            const trimmed = lineText.trim();
+            if (!trimmed || trimmed.startsWith("#"))
+                return;
+            const parts = trimmed.split(/\s+/);
+            const pattern = parts[0] ?? "";
+            const owners = parts.slice(1);
+            if (!pattern || owners.length === 0)
+                return;
+            rules.push({ file_path: filePath, line: index + 1, owners, pattern });
+        });
+    }
+    return rules;
+}
+function codeownerPatternRegex(pattern) {
+    const normalized = (0, workspace_1.normalizePath)(pattern).replace(/^\/+/, "");
+    const source = normalized
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*\*/g, ".*")
+        .replace(/\*/g, "[^/]*");
+    if (normalized.endsWith("/"))
+        return new RegExp(`^${source}.*$`);
+    return new RegExp(`^${source}(?:/.*)?$`);
+}
+function codeownerPatternMatches(pattern, filePath) {
+    const normalized = (0, workspace_1.normalizePath)(pattern).replace(/^\/+/, "");
+    const target = (0, workspace_1.normalizePath)(filePath);
+    if (normalized === "*")
+        return true;
+    if (normalized.startsWith("*."))
+        return path.basename(target).endsWith(normalized.slice(1));
+    return codeownerPatternRegex(normalized).test(target);
+}
+function matchingCodeowners(filePath, rules) {
+    const matches = rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
+    return matches[matches.length - 1]?.owners ?? [];
+}
+function ownershipContext() {
+    return {
+        codeownerRules: codeownerRules(),
+        workspaces: workspacePackages(),
+    };
+}
+function ownershipInfo(filePath, context) {
+    const workspace = matchingWorkspace(filePath, context.workspaces);
+    const owners = matchingCodeowners(filePath, context.codeownerRules);
+    return {
+        codeowners: owners.join(", "),
+        owner: workspace?.root ?? pathOwnerKey(filePath),
+        owner_source: workspace ? "workspace" : "path",
+    };
+}
+function incrementOwnerField(owners, context, filePath, field, increment = 1) {
+    const info = ownershipInfo(filePath, context);
+    const key = info.owner;
     const current = owners.get(key) ?? {
         bytes: 0,
+        codeowners: info.codeowners,
         configs: 0,
         file_count: 0,
         imports: 0,
         languages: "",
         lines: 0,
         owner: key,
+        owner_source: info.owner_source,
         routes: 0,
         symbols: 0,
     };
+    if (info.codeowners && !current.codeowners.split(", ").includes(info.codeowners))
+        current.codeowners = current.codeowners ? `${current.codeowners}; ${info.codeowners}` : info.codeowners;
     current[field] += increment;
     owners.set(key, current);
 }
-function codeReport(database) {
-    const databasePath = codeEvidenceDatabasePath();
-    const staleness = codeIndexStaleness(database);
-    const coverageRows = database.prepare(`
+function evidenceCoverage(database) {
+    const rows = database.prepare(`
     SELECT 'files' AS table_name, count(*) AS rows FROM files
     UNION ALL SELECT 'symbols', count(*) FROM symbols
     UNION ALL SELECT 'imports', count(*) FROM imports
@@ -755,56 +1453,318 @@ function codeReport(database) {
     UNION ALL SELECT 'configs', count(*) FROM configs
     UNION ALL SELECT 'edges', count(*) FROM edges
   `).all();
+    return Object.fromEntries(rows.map((row) => [String(row.table_name), Number(row.rows ?? 0)]));
+}
+function ownershipSummary(database) {
     const files = database.prepare("SELECT path, language, profile, lines, bytes FROM files ORDER BY path").all();
+    const context = ownershipContext();
     const owners = new Map();
     const ownerLanguages = new Map();
     for (const row of files) {
         const filePath = String(row.path);
-        const key = ownerKey(filePath);
-        incrementOwnerField(owners, filePath, "file_count");
-        incrementOwnerField(owners, filePath, "lines", Number(row.lines ?? 0));
-        incrementOwnerField(owners, filePath, "bytes", Number(row.bytes ?? 0));
+        const key = ownershipInfo(filePath, context).owner;
+        incrementOwnerField(owners, context, filePath, "file_count");
+        incrementOwnerField(owners, context, filePath, "lines", Number(row.lines ?? 0));
+        incrementOwnerField(owners, context, filePath, "bytes", Number(row.bytes ?? 0));
         const languages = ownerLanguages.get(key) ?? new Set();
         languages.add(String(row.language));
         ownerLanguages.set(key, languages);
     }
     for (const row of database.prepare("SELECT file_path, count(*) AS count FROM symbols GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "symbols", Number(row.count ?? 0));
+        incrementOwnerField(owners, context, String(row.file_path), "symbols", Number(row.count ?? 0));
     for (const row of database.prepare("SELECT file_path, count(*) AS count FROM routes GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "routes", Number(row.count ?? 0));
+        incrementOwnerField(owners, context, String(row.file_path), "routes", Number(row.count ?? 0));
     for (const row of database.prepare("SELECT from_file, count(*) AS count FROM imports GROUP BY from_file").all())
-        incrementOwnerField(owners, String(row.from_file), "imports", Number(row.count ?? 0));
+        incrementOwnerField(owners, context, String(row.from_file), "imports", Number(row.count ?? 0));
     for (const row of database.prepare("SELECT file_path, count(*) AS count FROM configs GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "configs", Number(row.count ?? 0));
-    const ownershipSummary = Array.from(owners.values()).map((owner) => ({
+        incrementOwnerField(owners, context, String(row.file_path), "configs", Number(row.count ?? 0));
+    return Array.from(owners.values()).map((owner) => ({
         ...owner,
         languages: Array.from(ownerLanguages.get(String(owner.owner)) ?? []).sort().join(", "),
     })).sort((left, right) => right.file_count - left.file_count || left.owner.localeCompare(right.owner)).slice(0, 25);
+}
+function languageProfileSummary(database) {
+    return database.prepare("SELECT language, profile, count(*) AS files, sum(lines) AS lines, sum(bytes) AS bytes FROM files GROUP BY language, profile ORDER BY files DESC, language").all();
+}
+function parserBackendSummary(database) {
+    return database.prepare("SELECT language, profile, count(*) AS files, sum(lines) AS lines, sum(bytes) AS bytes FROM files GROUP BY language, profile ORDER BY files DESC, language").all().map((row) => {
+        const profile = String(row.profile);
+        const backend = extractionBackendForProfile(profile);
+        return {
+            language: row.language,
+            profile,
+            backend: backend.id,
+            label: backend.label,
+            extraction_strength: backend.strength,
+            files: row.files,
+            lines: row.lines,
+            bytes: row.bytes,
+        };
+    });
+}
+function workspaceSummary(database) {
+    const context = ownershipContext();
+    const counts = new Map();
+    for (const workspace of context.workspaces) {
+        counts.set(workspace.root, { ...workspace, bytes: 0, files: 0, lines: 0 });
+    }
+    for (const row of database.prepare("SELECT path, lines, bytes FROM files ORDER BY path").all()) {
+        const workspace = matchingWorkspace(String(row.path), context.workspaces);
+        if (!workspace)
+            continue;
+        const current = counts.get(workspace.root) ?? { ...workspace, bytes: 0, files: 0, lines: 0 };
+        current.files += 1;
+        current.lines += Number(row.lines ?? 0);
+        current.bytes += Number(row.bytes ?? 0);
+        counts.set(workspace.root, current);
+    }
+    return {
+        workspace_packages: Array.from(counts.values()).sort((left, right) => left.root.localeCompare(right.root)),
+        codeowners: context.codeownerRules.map((rule) => ({
+            file_path: rule.file_path,
+            line: rule.line,
+            pattern: rule.pattern,
+            owners: rule.owners.join(", "),
+        })),
+    };
+}
+function packageManagerFromLockfile(filePath) {
+    const base = path.basename(filePath);
+    if (base === "package-lock.json" || base === "npm-shrinkwrap.json")
+        return "npm";
+    if (base === "pnpm-lock.yaml")
+        return "pnpm";
+    if (base === "yarn.lock")
+        return "yarn";
+    if (base === "bun.lockb" || base === "bun.lock")
+        return "bun";
+    return "unknown";
+}
+function workspaceDependencyGraph() {
+    const workspaces = workspacePackages();
+    const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
+    const lockfiles = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]
+        .filter((filePath) => fs.existsSync((0, workspace_1.abs)(filePath)))
+        .map((filePath) => ({ file_path: filePath, package_manager: packageManagerFromLockfile(filePath), scope: "root" }));
+    const workspaceRows = [];
+    const internalEdges = [];
+    const externalDependencies = new Map();
+    for (const workspace of workspaces) {
+        const packageJsonPath = (0, workspace_1.normalizePath)(path.join(workspace.root, "package.json"));
+        const packageJson = readJsonObject(packageJsonPath);
+        const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+        const dependencyCounts = {};
+        const workspaceInternalEdges = [];
+        for (const field of dependencyFields) {
+            const dependencies = packageJson?.[field];
+            if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies))
+                continue;
+            for (const [dependencyName, version] of Object.entries(dependencies)) {
+                dependencyCounts[field] = (dependencyCounts[field] ?? 0) + 1;
+                const target = byName.get(dependencyName);
+                if (target) {
+                    const edge = {
+                        from_workspace: workspace.root,
+                        from_package: workspace.name,
+                        to_workspace: target.root,
+                        to_package: target.name,
+                        dependency_type: field,
+                        version: typeof version === "string" ? version : String(version),
+                    };
+                    internalEdges.push(edge);
+                    workspaceInternalEdges.push(edge);
+                }
+                else {
+                    const key = `${dependencyName}\0${field}`;
+                    const current = externalDependencies.get(key) ?? { dependency: dependencyName, dependency_type: field, workspaces: new Set() };
+                    current.workspaces.add(workspace.root);
+                    externalDependencies.set(key, current);
+                }
+            }
+        }
+        for (const lockfileName of ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]) {
+            const lockfilePath = (0, workspace_1.normalizePath)(path.join(workspace.root, lockfileName));
+            if (fs.existsSync((0, workspace_1.abs)(lockfilePath))) {
+                lockfiles.push({ file_path: lockfilePath, package_manager: packageManagerFromLockfile(lockfilePath), scope: workspace.root });
+            }
+        }
+        workspaceRows.push({
+            name: workspace.name,
+            root: workspace.root,
+            dependency_counts: dependencyCounts,
+            internal_dependency_count: workspaceInternalEdges.length,
+        });
+    }
+    return {
+        workspace_count: workspaces.length,
+        package_managers: Array.from(new Set(lockfiles.map((lockfile) => lockfile.package_manager))).sort(),
+        lockfiles,
+        workspaces: workspaceRows.sort((left, right) => String(left.root).localeCompare(String(right.root))),
+        internal_dependencies: internalEdges.sort((left, right) => String(left.from_workspace).localeCompare(String(right.from_workspace)) || String(left.to_workspace).localeCompare(String(right.to_workspace))),
+        external_dependency_hotspots: Array.from(externalDependencies.values()).map((entry) => ({
+            dependency: entry.dependency,
+            dependency_type: entry.dependency_type,
+            workspace_count: entry.workspaces.size,
+            workspaces: Array.from(entry.workspaces).sort().join(", "),
+        })).sort((left, right) => right.workspace_count - left.workspace_count || left.dependency.localeCompare(right.dependency)).slice(0, 100),
+    };
+}
+function routeInventory(database) {
+    return database.prepare("SELECT method, route, file_path, line, handler FROM routes ORDER BY file_path, line LIMIT 100").all();
+}
+function dependencyHotspots(database) {
+    return {
+        imports: database.prepare("SELECT to_ref, count(DISTINCT from_file) AS importing_files, count(*) AS reference_count FROM imports GROUP BY to_ref ORDER BY importing_files DESC, reference_count DESC, to_ref LIMIT 50").all(),
+        package_dependencies: database.prepare("SELECT substr(key, 12) AS package, value AS version, file_path FROM configs WHERE key LIKE 'dependency:%' ORDER BY file_path, package LIMIT 100").all(),
+    };
+}
+function configInventory(database) {
+    return database.prepare("SELECT key, value, file_path, line FROM configs WHERE key LIKE 'script:%' OR key LIKE 'dependency:%' OR key LIKE 'devDependency:%' ORDER BY file_path, key LIMIT 150").all();
+}
+function edgeSummary(database) {
+    return {
+        by_kind: database.prepare("SELECT kind, count(*) AS edges FROM edges GROUP BY kind ORDER BY edges DESC, kind").all(),
+        fanout: database.prepare("SELECT source_kind, source, kind, count(DISTINCT target) AS targets, file_path FROM edges GROUP BY source_kind, source, kind, file_path ORDER BY targets DESC, source LIMIT 50").all(),
+    };
+}
+function codeReportSectionData(database, section) {
+    switch (section) {
+        case "coverage":
+            return evidenceCoverage(database);
+        case "ownership":
+            return ownershipSummary(database);
+        case "languages":
+            return languageProfileSummary(database);
+        case "parsers":
+            return parserBackendSummary(database);
+        case "workspaces":
+            return workspaceSummary(database);
+        case "workspace-graph":
+            return workspaceDependencyGraph();
+        case "routes":
+            return routeInventory(database);
+        case "hotspots":
+            return dependencyHotspots(database);
+        case "configs":
+            return configInventory(database);
+        case "edges":
+            return edgeSummary(database);
+    }
+}
+function codeReportMetadata(database) {
+    const databasePath = codeEvidenceDatabasePath();
+    const staleness = codeIndexStaleness(database);
     return {
         schema_version: 1,
         generated_at: new Date().toISOString(),
         database: databasePath.relativePath,
         scopes: indexedScopes(database),
+        parser_mode: indexedParserMode(database),
         stale: {
             files: staleness.added + staleness.changed + staleness.deleted,
             changed: staleness.changed,
             added: staleness.added,
             deleted: staleness.deleted,
         },
-        report_sections: ["evidence_coverage", "ownership_summary", "language_profile_summary", "route_inventory", "dependency_hotspots", "config_inventory", "edge_summary"],
-        evidence_coverage: Object.fromEntries(coverageRows.map((row) => [String(row.table_name), Number(row.rows ?? 0)])),
-        ownership_summary: ownershipSummary,
-        language_profile_summary: database.prepare("SELECT language, profile, count(*) AS files, sum(lines) AS lines, sum(bytes) AS bytes FROM files GROUP BY language, profile ORDER BY files DESC, language").all(),
-        route_inventory: database.prepare("SELECT method, route, file_path, line, handler FROM routes ORDER BY file_path, line LIMIT 100").all(),
-        dependency_hotspots: {
-            imports: database.prepare("SELECT to_ref, count(DISTINCT from_file) AS importing_files, count(*) AS reference_count FROM imports GROUP BY to_ref ORDER BY importing_files DESC, reference_count DESC, to_ref LIMIT 50").all(),
-            package_dependencies: database.prepare("SELECT substr(key, 12) AS package, value AS version, file_path FROM configs WHERE key LIKE 'dependency:%' ORDER BY file_path, package LIMIT 100").all(),
+    };
+}
+function codeReport(database) {
+    return {
+        ...codeReportMetadata(database),
+        report_sections: ["evidence_coverage", "ownership_summary", "language_profile_summary", "parser_backend_summary", "workspace_summary", "workspace_dependency_graph", "route_inventory", "dependency_hotspots", "config_inventory", "edge_summary"],
+        evidence_coverage: evidenceCoverage(database),
+        ownership_summary: ownershipSummary(database),
+        language_profile_summary: languageProfileSummary(database),
+        parser_backend_summary: parserBackendSummary(database),
+        workspace_summary: workspaceSummary(database),
+        workspace_dependency_graph: workspaceDependencyGraph(),
+        route_inventory: routeInventory(database),
+        dependency_hotspots: dependencyHotspots(database),
+        config_inventory: configInventory(database),
+        edge_summary: edgeSummary(database),
+    };
+}
+function selectedCodeReportSection() {
+    const requested = args_1.codeReportSection.trim().toLowerCase();
+    if (!requested || requested === "all" || requested === "full")
+        return "";
+    const section = codeReportSectionAliases[requested];
+    if (!section) {
+        const valid = ["coverage", "ownership", "languages", "parsers", "workspaces", "workspace-graph", "routes", "hotspots", "configs", "edges"].join(", ");
+        fail(`invalid --code-report-section: ${args_1.codeReportSection}; expected one of: ${valid}`);
+    }
+    return section;
+}
+function codeReportForRequestedSection(database) {
+    const section = selectedCodeReportSection();
+    if (!section)
+        return codeReport(database);
+    return {
+        ...codeReportMetadata(database),
+        section,
+        data: codeReportSectionData(database, section),
+    };
+}
+function codeImpact(database, target) {
+    const like = `%${target}%`;
+    const fileMatches = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ORDER BY path LIMIT 25").all(like);
+    const symbolMatches = database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
+    const routeMatches = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? OR handler LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
+    const importMatches = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? OR to_ref LIKE ? OR imported LIKE ? ORDER BY from_file, line LIMIT 75").all(like, like, like);
+    const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? OR source LIKE ? ORDER BY file_path, line LIMIT 100").all(like, like);
+    const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ORDER BY file_path, line LIMIT 100").all(like);
+    const routeTargets = routeMatches.map((row) => `${String(row.method)} ${String(row.route)}`);
+    const routeEdges = routeTargets.length === 0 ? [] : database.prepare(`SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE source IN (${routeTargets.map(() => "?").join(", ")}) ORDER BY file_path, line LIMIT 100`).all(...routeTargets);
+    const relatedFilePaths = Array.from(new Set([
+        ...fileMatches.map((row) => String(row.path)),
+        ...symbolMatches.map((row) => String(row.file_path)),
+        ...routeMatches.map((row) => String(row.file_path)),
+        ...importMatches.map((row) => String(row.from_file)),
+        ...outgoingEdges.map((row) => String(row.file_path)),
+        ...incomingEdges.map((row) => String(row.file_path)),
+        ...routeEdges.map((row) => String(row.file_path)),
+    ].filter(Boolean))).sort();
+    const ownership = ownershipContext();
+    const impactedOwners = new Map();
+    for (const filePath of relatedFilePaths) {
+        const info = ownershipInfo(filePath, ownership);
+        const current = impactedOwners.get(info.owner) ?? {
+            codeowners: new Set(),
+            files: 0,
+            owner: info.owner,
+            owner_source: info.owner_source,
+            sample_files: [],
+        };
+        current.files += 1;
+        if (current.sample_files.length < 10)
+            current.sample_files.push(filePath);
+        if (info.codeowners) {
+            for (const owner of info.codeowners.split(", ").filter(Boolean))
+                current.codeowners.add(owner);
+        }
+        impactedOwners.set(info.owner, current);
+    }
+    return {
+        ...codeReportMetadata(database),
+        target,
+        matches: {
+            files: fileMatches,
+            symbols: symbolMatches,
+            routes: routeMatches,
+            imports: importMatches,
         },
-        config_inventory: database.prepare("SELECT key, value, file_path, line FROM configs WHERE key LIKE 'script:%' OR key LIKE 'dependency:%' OR key LIKE 'devDependency:%' ORDER BY file_path, key LIMIT 150").all(),
-        edge_summary: {
-            by_kind: database.prepare("SELECT kind, count(*) AS edges FROM edges GROUP BY kind ORDER BY edges DESC, kind").all(),
-            fanout: database.prepare("SELECT source_kind, source, kind, count(DISTINCT target) AS targets, file_path FROM edges GROUP BY source_kind, source, kind, file_path ORDER BY targets DESC, source LIMIT 50").all(),
+        edges: {
+            outgoing: outgoingEdges,
+            incoming: incomingEdges,
+            routes: routeEdges,
         },
+        impacted_owners: Array.from(impactedOwners.values()).map((owner) => ({
+            owner: owner.owner,
+            owner_source: owner.owner_source,
+            files: owner.files,
+            codeowners: Array.from(owner.codeowners).sort().join(", "),
+            sample_files: owner.sample_files,
+        })).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner)),
     };
 }
 function prepareOutputPath() {
@@ -814,20 +1774,28 @@ function prepareOutputPath() {
     fs.writeFileSync((0, workspace_1.abs)(`${codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
 }
 function runCodeIndexMode() {
-    prepareOutputPath();
     const databasePath = codeEvidenceDatabasePath();
     const scopes = codeScopes();
+    const parserMode = selectedCodeParserMode();
     const existingIndex = fs.existsSync(databasePath.absolutePath);
+    if (args_1.codeIndexIncrementalMode && !existingIndex) {
+        fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
+    }
     let incremental = false;
-    if (existingIndex) {
+    if (existingIndex && !args_1.codeIndexFullMode) {
+        let compatibility = { compatible: false, reason: "compatibility was not checked" };
         const existingDatabase = openDatabase(databasePath.absolutePath);
         try {
-            incremental = canIncrementallyUpdate(existingDatabase, scopes);
+            compatibility = incrementalCompatibility(existingDatabase, scopes, parserMode);
         }
         finally {
             existingDatabase.close();
         }
+        incremental = !args_1.codeIndexFullMode && compatibility.compatible;
+        if (args_1.codeIndexIncrementalMode && !compatibility.compatible)
+            fail(`--incremental cannot update ${databasePath.relativePath}: ${compatibility.reason}`);
     }
+    prepareOutputPath();
     if (!incremental)
         removeDatabaseFiles(databasePath.absolutePath);
     const database = openDatabase(databasePath.absolutePath);
@@ -835,7 +1803,7 @@ function runCodeIndexMode() {
         if (!incremental)
             setupDatabase(database);
         const statements = createIndexStatements(database);
-        const currentFiles = discoverCodeFiles(scopes).map(readCodeFile);
+        const currentFiles = discoverCodeFiles(scopes).map((filePath) => readCodeFile(filePath, parserMode));
         const currentByPath = new Map(currentFiles.map((file) => [file.path, file]));
         const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)])) : new Map();
         const deletedPaths = incremental ? Array.from(indexed.keys()).filter((filePath) => !currentByPath.has(filePath)) : [];
@@ -846,7 +1814,7 @@ function runCodeIndexMode() {
         database.exec("BEGIN");
         if (!incremental)
             statements.insertMeta.run("created_at", new Date().toISOString());
-        writeIndexMetadata(scopes, statements);
+        writeIndexMetadata(scopes, parserMode, statements);
         for (const filePath of deletedPaths)
             removeIndexedFile(filePath, statements);
         for (const file of reindexedFiles) {
@@ -858,6 +1826,7 @@ function runCodeIndexMode() {
         console.log("Project wiki code evidence index complete.");
         console.log(`database: ${databasePath.relativePath}`);
         console.log(`mode: ${incremental ? "incremental" : "full"}`);
+        console.log(`parser_mode: ${parserMode}`);
         console.log(`scopes: ${scopes.join(", ")}`);
         console.log(`files: ${currentFiles.length}`);
         console.log(`reindexed_files: ${reindexedFiles.length}`);
@@ -902,7 +1871,7 @@ function runCodeReportMode() {
     const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
     try {
         warnIfCodeIndexStale(database);
-        printJson(codeReport(database));
+        printJson(codeReportForRequestedSection(database));
     }
     finally {
         database.close();
@@ -934,6 +1903,21 @@ function runCodeFilesMode() {
     try {
         warnIfCodeIndexStale(database);
         printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
+    }
+    finally {
+        database.close();
+    }
+}
+function runCodeImpactMode() {
+    if (!args_1.codeImpactTarget.trim()) {
+        console.error("missing impact target: use --code-impact \"path-or-symbol-or-module\"");
+        process.exit(1);
+    }
+    requireExistingIndex();
+    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
+    try {
+        warnIfCodeIndexStale(database);
+        printJson(codeImpact(database, args_1.codeImpactTarget.trim()));
     }
     finally {
         database.close();

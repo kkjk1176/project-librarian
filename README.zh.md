@@ -180,23 +180,39 @@ cache 会创建在 `.project-wiki/` 下，并可按需重新生成。它是 wiki
 | 目的 | 命令 |
 | --- | --- |
 | 创建或刷新 cache | `npx project-wiki-bootstrap --code-index --code-scope src` |
+| 使用可选 Tree-sitter parser backend 创建 cache | `npx project-wiki-bootstrap --code-index --code-parser tree-sitter --code-scope src` |
+| 要求增量 cache 更新 | `npx project-wiki-bootstrap --code-index --incremental --code-scope src` |
+| 强制完整重建 cache | `npx project-wiki-bootstrap --code-index --code-index-full --code-scope src` |
 | 查看汇总 | `npx project-wiki-bootstrap --code-status` |
 | 列出 indexed file | `npx project-wiki-bootstrap --code-files` |
+| 汇总 architecture/ownership/parser backend/routes/dependencies/evidence coverage | `npx project-wiki-bootstrap --code-report` |
+| 只输出需要的 report section | `npx project-wiki-bootstrap --code-report --code-report-section routes` |
+| 查看 workspace 和 CODEOWNERS signal | `npx project-wiki-bootstrap --code-report --code-report-section workspaces` |
+| 查看 workspace package manager、lockfile 和 internal dependency graph signal | `npx project-wiki-bootstrap --code-report --code-report-section workspace-graph` |
+| 查看 file/symbol/route/module 的 impact evidence | `npx project-wiki-bootstrap --code-impact healthHandler` |
 | 搜索 symbol | `npx project-wiki-bootstrap --code-search-symbol Auth` |
 | 执行 read-only SQL | `npx project-wiki-bootstrap --code-query "select path from files order by path"` |
 
-Code evidence indexing 需要提供 `node:sqlite` 的 Node runtime。基础 bootstrap 命令支持 Node 18+，但 evidence index 目前需要包含 `node:sqlite` 的更新 Node release。
+Code evidence indexing 需要提供 `node:sqlite` 的 Node runtime。基础 bootstrap 命令支持 Node 18+，但 evidence index 建议使用 Node 22.13+ 或 Node 24+，因为 `node:sqlite` 在 Node 22.5.0 加入，并从 Node 22.13.0 起无需 `--experimental-sqlite` 即可使用。`--code-parser tree-sitter` 使用可选 `@sengac/tree-sitter*` packages；如果这些 optional dependencies 未安装，会以 package error 失败。
 
 ## Language Support Matrix
 
-下面的 matrix 只包含已实现 symbol/import extraction 的语言。其他可识别扩展名是 inventory-only，不计为语言支持。`typescript-ast` evidence 可作为更强的结构性证据；`python-light` 和 `go-light` 应作为快速 pointer，在写入高置信 canonical claim 前仍需回到 source 确认。
+下面的 matrix 只包含已实现 symbol/import extraction 的语言。其他可识别扩展名是 inventory-only，不计为语言支持。default mode 使用 `typescript-ast`, `python-light`, `go-light`；`--code-parser tree-sitter` 会把支持的 source file 切到 `tree-sitter-*` profiles。Ruby 在选择兼容 grammar package 前仍是 inventory-only。结构性 parser evidence 可作为更强证据；lightweight row 在写入高置信 canonical claim 前仍需回到 source 确认。
 
 | 语言 | 扩展名 | Extraction profile | Indexed evidence |
 | --- | --- | --- | --- |
-| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast` | function, class, method, variable, interface, type, enum, import, export, call, common HTTP route |
-| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | function, class, method, variable, import, export, `require()` call, call, common HTTP route |
-| Python | `.py` | `python-light` | function, class, `import`, `from ... import` |
-| Go | `.go` | `go-light` | function, method, type, const, var, single import, import block |
+| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast`; optional `tree-sitter-typescript` / `tree-sitter-tsx` | function, class, method, variable, interface, type, enum, import, export, call, common HTTP route |
+| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast`; optional `tree-sitter-javascript` | function, class, method, variable, import, export, `require()` call, call, common HTTP route |
+| Python | `.py` | `python-light`; optional `tree-sitter-python` | function, class, `import`, `from ... import` |
+| Go | `.go` | `go-light`; optional `tree-sitter-go` | function, method, type, const, var, single import, import block |
+| Rust | `.rs` | default inventory-only; optional `tree-sitter-rust` | function, struct, enum, trait, impl, `use` import |
+| Java | `.java` | default inventory-only; optional `tree-sitter-java` | class, interface, enum, method, import |
+| PHP | `.php` | default inventory-only; optional `tree-sitter-php` | function, class, interface, trait, method, namespace use |
+| Kotlin | `.kt`, `.kts` | default inventory-only; optional `tree-sitter-kotlin` | function, class, object, import |
+| Swift | `.swift` | default inventory-only; optional `tree-sitter-swift` | function, class, struct, protocol, enum, import |
+| C | `.c`, `.h` | default inventory-only; optional `tree-sitter-c` | function, struct, enum, include |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | default inventory-only; optional `tree-sitter-cpp` | function, class/struct, namespace, enum, include/using |
+| C# | `.cs` | default inventory-only; optional `tree-sitter-csharp` | class, interface, struct, enum, method, using |
 
 Config 文件（`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`）会作为单独的 configuration evidence 被 indexed。
 

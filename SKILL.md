@@ -134,6 +134,18 @@ Pass user-requested code scopes internally with `--code-scope`:
 $PROJECT_WIKI_BOOTSTRAP --code-index --code-scope src --code-scope packages/api
 ```
 
+Use the optional Tree-sitter backend only when stronger multi-language structural extraction is intended and optional packages are installed:
+
+```bash
+$PROJECT_WIKI_BOOTSTRAP --code-index --code-parser tree-sitter --code-scope src
+```
+
+Require a compatible existing cache for changed-file-only updates with `--incremental`:
+
+```bash
+$PROJECT_WIKI_BOOTSTRAP --code-index --incremental --code-scope src
+```
+
 Run read-only SQL over the cache with `--code-query`:
 
 ```bash
@@ -145,6 +157,11 @@ Use the built-in inspection surfaces before writing custom SQL when they are eno
 ```bash
 $PROJECT_WIKI_BOOTSTRAP --code-status
 $PROJECT_WIKI_BOOTSTRAP --code-files
+$PROJECT_WIKI_BOOTSTRAP --code-report --code-report-section parsers
+$PROJECT_WIKI_BOOTSTRAP --code-report --code-report-section workspaces
+$PROJECT_WIKI_BOOTSTRAP --code-report --code-report-section workspace-graph
+$PROJECT_WIKI_BOOTSTRAP --code-report --code-report-section routes
+$PROJECT_WIKI_BOOTSTRAP --code-impact Auth
 $PROJECT_WIKI_BOOTSTRAP --code-search-symbol Auth
 ```
 
@@ -159,7 +176,8 @@ Safety and runtime boundaries:
 - In git repositories, the indexer respects `.gitignore` through `git ls-files --cached --others --exclude-standard`.
 - `.env*` files are excluded from the index, except `.env.example`.
 - Obvious sensitive config filenames containing secret, credential, token, private, or key terms are excluded from the index.
-- Code evidence indexing requires a Node runtime that provides `node:sqlite`; if unavailable, report the runtime requirement and continue with normal repository inspection.
+- Code evidence indexing requires a Node runtime that provides `node:sqlite`; recommend Node 22.13+ or Node 24+ for code evidence modes, and continue with normal repository inspection if unavailable.
+- `--code-parser tree-sitter` requires the optional `@sengac/tree-sitter*` package family for JS/TS/TSX/Python/Go/Rust/Java/PHP/Kotlin/Swift/C/C++/C# extraction; if unavailable, report the package error instead of silently using the default backend.
 
 Scope selection is handled through the user's natural-language request:
 

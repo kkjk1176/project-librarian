@@ -13,7 +13,12 @@ const flagsWithoutValues: Set<string> = new Set([
   "--code-evidence-index",
   "--code-evidence-status",
   "--code-files",
+  "--code-incremental",
   "--code-index",
+  "--code-index-full",
+  "--code-index-incremental",
+  "--code-evidence-index-full",
+  "--code-evidence-index-incremental",
   "--code-report",
   "--code-status",
   "--code-evidence-report",
@@ -23,6 +28,7 @@ const flagsWithoutValues: Set<string> = new Set([
   "--fix",
   "--issue-create",
   "--issue-draft",
+  "--incremental",
   "--link-check",
   "--lint",
   "--migrate",
@@ -36,12 +42,18 @@ const flagsWithoutValues: Set<string> = new Set([
 const flagsWithValues: Set<string> = new Set([
   "--agents",
   "--category",
+  "--code-evidence-impact",
   "--code-evidence-out",
+  "--code-evidence-parser",
   "--code-evidence-query",
+  "--code-evidence-report-section",
   "--code-evidence-scope",
   "--code-evidence-symbol",
+  "--code-impact",
   "--code-index-out",
+  "--code-parser",
   "--code-query",
+  "--code-report-section",
   "--code-scope",
   "--code-search-symbol",
   "--content",
@@ -97,9 +109,13 @@ export const pruneCheckMode = args.has("--prune-check");
 export const reviewMigrationMode = args.has("--review-migration") || args.has("--semantic-migrate");
 export const noGitConfigMode = args.has("--no-git-config");
 export const codeIndexMode = args.has("--code-index") || args.has("--code-evidence-index");
+export const codeIndexIncrementalMode = args.has("--incremental") || args.has("--code-incremental") || args.has("--code-index-incremental") || args.has("--code-evidence-index-incremental");
+export const codeIndexFullMode = args.has("--code-index-full") || args.has("--code-evidence-index-full");
 export const codeReportMode = args.has("--code-report") || args.has("--code-evidence-report");
 export const codeStatusMode = args.has("--code-status") || args.has("--code-evidence-status");
 export const codeFilesMode = args.has("--code-files") || args.has("--code-evidence-files");
+export const codeParserMode = hasFlag("--code-parser") || hasFlag("--code-evidence-parser");
+export const codeImpactMode = hasFlag("--code-impact") || hasFlag("--code-evidence-impact");
 export const codeQueryMode = hasFlag("--code-query") || hasFlag("--code-evidence-query");
 export const codeSearchSymbolMode = hasFlag("--code-search-symbol") || hasFlag("--code-evidence-symbol");
 
@@ -132,9 +148,12 @@ export function argValues(name: string): string[] {
 }
 
 export const queryTerm = argValue("--query");
+export const codeImpactTarget = argValue("--code-impact") || argValue("--code-evidence-impact");
 export const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
+export const codeReportSection = argValue("--code-report-section") || argValue("--code-evidence-report-section");
 export const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
 export const codeIndexOutput = argValue("--code-index-out") || argValue("--code-evidence-out") || ".project-wiki/code-evidence.sqlite";
+export const codeParser = argValue("--code-parser") || argValue("--code-evidence-parser") || "default";
 export const codeIndexScopes = [...argValues("--code-scope"), ...argValues("--code-evidence-scope")];
 export const captureTitle = argValue("--title");
 export const captureContent = argValue("--content");

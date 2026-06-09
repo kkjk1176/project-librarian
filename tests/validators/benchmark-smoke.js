@@ -19,7 +19,7 @@ function scenario(report, kind) {
 
 function validateFullReport(file) {
   const m = readJson(file);
-  assert(m.schema_version === 8 && m.scale === "quick", "unexpected benchmark schema or scale");
+  assert(m.schema_version === 9 && m.scale === "quick", "unexpected benchmark schema or scale");
   assert(m.environment && m.environment.node && m.environment.v8 && m.environment.os_release && m.environment.cpu_model && m.environment.cpu_count < 1 === false && m.environment.total_memory_mb < 1 === false, "missing environment fingerprint");
   assert(m.source_control && m.source_control.available === true && m.source_control.commit && m.source_control.short_commit && typeof m.source_control.dirty === "boolean", "missing source-control fingerprint");
   assert(m.benchmark_configuration && m.benchmark_configuration.sample_repo_count === 3 && m.benchmark_configuration.measurement_protocol === "median", "missing benchmark configuration");
@@ -36,7 +36,7 @@ function validateFullReport(file) {
   assert(m.scenarios.every((s) => s.measurement && s.measurement.runs === 1), "missing scenario measurement metadata");
   assert(m.large_project_assumptions.monorepo_workspaces >= 5 && m.large_project_assumptions.scoped_route_pages >= 50 && m.large_project_assumptions.scoped_route_areas >= 1, "large-project assumptions too small");
   assert(m.large_project_assumptions.sample_repo_paths.length === 3, "unexpected sample repo path count");
-  for (const kind of ["tsx", "go", "python", "package-lock"]) assert(m.large_project_assumptions.code_heavy_mixed_file_kinds.includes(kind), `missing mixed file kind ${kind}`);
+  for (const kind of ["tsx", "go", "python", "rust", "java", "php", "kotlin", "swift", "c", "cpp", "csharp", "package-lock"]) assert(m.large_project_assumptions.code_heavy_mixed_file_kinds.includes(kind), `missing mixed file kind ${kind}`);
   assert(m.summary.min_estimated_token_avoidance_percent > 0, "missing token avoidance");
   assert(m.summary.retrieval_correctness_checks >= 2 && m.summary.retrieval_correctness_passed === m.summary.retrieval_correctness_checks, "retrieval correctness failed");
   assert(m.summary.targeted_context_evidence_missing === 0 && m.summary.startup_index_only_evidence_missing > 0, "unexpected evidence missing counts");
@@ -59,6 +59,7 @@ function validateFullReport(file) {
   assert(typeof m.summary.code_index_incremental_reindexed_files === "number" && m.summary.code_index_incremental_ms > 0, "missing incremental code index summary");
   assert(m.summary.architecture_report_ms > 0 && m.summary.architecture_report_sections >= 7 && m.summary.architecture_report_evidence_tables >= 6, "missing architecture report summary");
   assert(m.summary.architecture_report_routes > 0 && m.summary.architecture_report_dependencies > 0, "missing architecture report evidence");
+  assert(m.summary.tree_sitter_code_index_ms > 0 && m.summary.tree_sitter_code_files === m.summary.code_index_files && m.summary.tree_sitter_parser_profiles >= 13, "missing tree-sitter benchmark summary");
   assert(m.summary.sample_repo_count === 3 && m.summary.sample_repo_code_files > 1 && m.summary.sample_repo_code_index_ms > 0, "missing sample repo summary");
   assert(m.summary.sample_repo_architecture_report_ms > 0 && m.summary.sample_repo_architecture_report_routes > 0 && m.summary.sample_repo_architecture_report_dependencies > 0, "missing sample repo architecture summary");
   assert(Array.isArray(m.summary.sample_repo_profiles) && m.summary.sample_repo_profiles.length === 3, "missing sample repo profiles");
@@ -70,8 +71,9 @@ function validateFullReport(file) {
 
   const code = scenario(m, "code-heavy-large-project");
   assert(code && code.incremental_index_mode === "incremental", "missing code-heavy scenario");
-  assert(code.assumptions.generated_js_files && code.assumptions.generated_tsx_files && code.assumptions.generated_config_files && code.assumptions.generated_go_files && code.assumptions.generated_python_files && code.assumptions.generated_ignored_files, "missing code-heavy assumptions");
+  assert(code.assumptions.generated_js_files && code.assumptions.generated_tsx_files && code.assumptions.generated_config_files && code.assumptions.generated_go_files && code.assumptions.generated_python_files && code.assumptions.generated_rust_files && code.assumptions.generated_java_files && code.assumptions.generated_php_files && code.assumptions.generated_kotlin_files && code.assumptions.generated_swift_files && code.assumptions.generated_c_files && code.assumptions.generated_cpp_files && code.assumptions.generated_csharp_files && code.assumptions.generated_ignored_files, "missing code-heavy assumptions");
   assert(code.architecture_report_schema_version === 1 && code.architecture_report_stale_files === 0 && code.architecture_report_language_profiles >= 3, "invalid code-heavy architecture report");
+  assert(code.tree_sitter_code_index_ms > 0 && code.tree_sitter_parser_profiles >= 13 && code.tree_sitter_parser_profile_names.includes("tree-sitter-rust") && code.tree_sitter_parser_profile_names.includes("tree-sitter-csharp"), "invalid tree-sitter architecture report");
   assert(code.node_subprocess_overhead_ms > 0 && code.code_index_operation_estimated_ms >= 0 && code.architecture_report_operation_estimated_ms >= 0, "invalid code-heavy timing");
   assert(code.evidence_correctness && code.evidence_correctness.correctness_status === "passed" && code.evidence_correctness.route_query_returned_expected_file === true && code.evidence_correctness.dependency_query_returned_expected_file === true, "code-heavy evidence correctness failed");
 
@@ -114,7 +116,7 @@ function validateMaskedRegression(file) {
 
 function validateTrend(file) {
   const t = readJson(file);
-  assert(t.schema_version === 1 && t.benchmark_schema_version === 8 && t.report_count === 2, "invalid trend report");
+  assert(t.schema_version === 1 && t.benchmark_schema_version === 9 && t.report_count === 2, "invalid trend report");
   assert(t.baseline_input.endsWith("benchmark.json"), "invalid trend baseline");
   assert(t.metrics && t.metrics.code_index_ms && t.metrics.scoped_refresh_index_ms && t.metrics.scoped_main_index_chars, "missing trend metrics");
   assert(Array.isArray(t.points) && t.points.length === 2 && t.points[0].order === 1, "invalid trend points");

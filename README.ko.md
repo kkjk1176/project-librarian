@@ -194,23 +194,39 @@ cache는 `.project-wiki/` 아래에 생성되며 필요할 때 다시 만들 수
 | 목적 | 명령 |
 | --- | --- |
 | cache 생성 또는 갱신 | `npx project-wiki-bootstrap --code-index --code-scope src` |
+| 선택형 Tree-sitter parser backend로 cache 생성 | `npx project-wiki-bootstrap --code-index --code-parser tree-sitter --code-scope src` |
+| 증분 cache 갱신 강제 | `npx project-wiki-bootstrap --code-index --incremental --code-scope src` |
+| 전체 cache 재생성 강제 | `npx project-wiki-bootstrap --code-index --code-index-full --code-scope src` |
 | 집계 보기 | `npx project-wiki-bootstrap --code-status` |
 | indexed file 목록 | `npx project-wiki-bootstrap --code-files` |
+| architecture/ownership/parser backend/workspace graph/routes/dependencies/evidence coverage 요약 | `npx project-wiki-bootstrap --code-report` |
+| 필요한 report section만 출력 | `npx project-wiki-bootstrap --code-report --code-report-section routes` |
+| workspace 및 CODEOWNERS signal 확인 | `npx project-wiki-bootstrap --code-report --code-report-section workspaces` |
+| workspace package manager, lockfile, 내부 dependency graph signal 확인 | `npx project-wiki-bootstrap --code-report --code-report-section workspace-graph` |
+| file/symbol/route/module 영향 근거 확인 | `npx project-wiki-bootstrap --code-impact healthHandler` |
 | symbol 검색 | `npx project-wiki-bootstrap --code-search-symbol Auth` |
 | read-only SQL 실행 | `npx project-wiki-bootstrap --code-query "select path from files order by path"` |
 
-Code evidence indexing은 `node:sqlite`를 제공하는 Node runtime이 필요합니다. 기본 bootstrap 명령은 Node 18+를 지원하지만, evidence index는 현재 `node:sqlite`가 포함된 더 최신 Node 릴리스가 필요합니다.
+Code evidence indexing은 `node:sqlite`를 제공하는 Node runtime이 필요합니다. 기본 bootstrap 명령은 Node 18+를 지원하지만, evidence index는 `node:sqlite`가 Node 22.5.0에 추가되고 Node 22.13.0부터 `--experimental-sqlite` 없이 사용할 수 있으므로 Node 22.13+ 또는 Node 24+를 권장합니다. `--code-parser tree-sitter`는 선택형 `@sengac/tree-sitter*` package를 사용하며, optional dependency가 설치되어 있지 않으면 package error로 실패합니다.
 
 ## Language Support Matrix
 
-아래 matrix는 symbol/import 추출이 구현된 언어만 포함합니다. 그 외 인식되는 확장자는 inventory-only이며 언어 지원으로 보지 않습니다. `typescript-ast` evidence는 더 강한 구조적 근거로 다루고, `python-light`와 `go-light` row는 canonical claim을 쓰기 전에 source에서 재확인해야 하는 빠른 pointer로 다룹니다.
+아래 matrix는 symbol/import 추출이 구현된 언어만 포함합니다. 그 외 인식되는 확장자는 inventory-only이며 언어 지원으로 보지 않습니다. 기본 모드는 `typescript-ast`, `python-light`, `go-light`를 사용하고, `--code-parser tree-sitter`는 지원되는 source file을 `tree-sitter-*` profile로 전환합니다. Ruby는 호환 grammar package를 선택하기 전까지 inventory-only입니다. 구조적 parser evidence는 더 강한 근거로 다루고, lightweight row는 canonical claim 전에 source에서 재확인해야 합니다.
 
 | 언어 | 확장자 | Extraction profile | Indexed evidence |
 | --- | --- | --- | --- |
-| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast` | function, class, method, variable, interface, type, enum, import, export, call, common HTTP route |
-| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | function, class, method, variable, import, export, `require()` call, call, common HTTP route |
-| Python | `.py` | `python-light` | function, class, `import`, `from ... import` |
-| Go | `.go` | `go-light` | function, method, type, const, var, single import, import block |
+| TypeScript | `.ts`, `.tsx`, `.cts`, `.mts` | `typescript-ast`; optional `tree-sitter-typescript` / `tree-sitter-tsx` | function, class, method, variable, interface, type, enum, import, export, call, common HTTP route |
+| JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast`; optional `tree-sitter-javascript` | function, class, method, variable, import, export, `require()` call, call, common HTTP route |
+| Python | `.py` | `python-light`; optional `tree-sitter-python` | function, class, `import`, `from ... import` |
+| Go | `.go` | `go-light`; optional `tree-sitter-go` | function, method, type, const, var, single import, import block |
+| Rust | `.rs` | 기본 inventory-only; optional `tree-sitter-rust` | function, struct, enum, trait, impl, `use` import |
+| Java | `.java` | 기본 inventory-only; optional `tree-sitter-java` | class, interface, enum, method, import |
+| PHP | `.php` | 기본 inventory-only; optional `tree-sitter-php` | function, class, interface, trait, method, namespace use |
+| Kotlin | `.kt`, `.kts` | 기본 inventory-only; optional `tree-sitter-kotlin` | function, class, object, import |
+| Swift | `.swift` | 기본 inventory-only; optional `tree-sitter-swift` | function, class, struct, protocol, enum, import |
+| C | `.c`, `.h` | 기본 inventory-only; optional `tree-sitter-c` | function, struct, enum, include |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | 기본 inventory-only; optional `tree-sitter-cpp` | function, class/struct, namespace, enum, include/using |
+| C# | `.cs` | 기본 inventory-only; optional `tree-sitter-csharp` | class, interface, struct, enum, method, using |
 
 Config 파일(`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`)은 별도의 configuration evidence로 indexed 됩니다.
 

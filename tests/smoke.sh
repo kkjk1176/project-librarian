@@ -46,9 +46,60 @@ test ! -e AGENTS.md
 grep -q -- "--issue-draft" help.log
 grep -q -- "--issue-create" help.log
 grep -q -- "--issue-body-file" help.log
+grep -q -- "--incremental" help.log
+grep -q -- "--code-index-full" help.log
+grep -q -- "--code-impact" help.log
+grep -q -- "--code-parser" help.log
+grep -q -- "--code-report-section" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
 grep -Fq 'run `$PROJECT_WIKI_BOOTSTRAP --issue-draft --issue-title' "$ROOT/SKILL.md"
 grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
+if node "$CLI" --incremental > lone-incremental.log 2>&1; then
+  echo "expected --incremental without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--incremental is only supported with --code-index" lone-incremental.log
+if node "$CLI" --code-index-full > lone-code-index-full.log 2>&1; then
+  echo "expected --code-index-full without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--code-index-full is only supported with --code-index" lone-code-index-full.log
+if node "$CLI" --code-index --incremental --code-index-full > mixed-code-index-update-mode.log 2>&1; then
+  echo "expected mixed code index update modes to fail" >&2
+  exit 1
+fi
+grep -q "Use one code index update mode" mixed-code-index-update-mode.log
+if node "$CLI" --code-impact > missing-code-impact.log 2>&1; then
+  echo "expected missing --code-impact value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-impact" missing-code-impact.log
+if node "$CLI" --code-parser > missing-code-parser.log 2>&1; then
+  echo "expected missing --code-parser value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-parser" missing-code-parser.log
+if node "$CLI" --code-parser tree-sitter > lone-code-parser.log 2>&1; then
+  echo "expected --code-parser without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--code-parser is only supported with --code-index" lone-code-parser.log
+if node "$CLI" --code-parser default > lone-default-code-parser.log 2>&1; then
+  echo "expected --code-parser default without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--code-parser is only supported with --code-index" lone-default-code-parser.log
+if node "$CLI" --code-report --code-report-section > missing-code-report-section.log 2>&1; then
+  echo "expected missing --code-report-section value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-report-section" missing-code-report-section.log
+if node "$CLI" --code-report-section routes > lone-code-report-section.log 2>&1; then
+  echo "expected --code-report-section without --code-report to fail" >&2
+  exit 1
+fi
+grep -q -- "--code-report-section is only supported with --code-report" lone-code-report-section.log
+test ! -e AGENTS.md
 
 cd "$TMPDIR"
 node "$CLI"
@@ -405,16 +456,60 @@ mkdir "$TMPDIR/code-index"
 cd "$TMPDIR/code-index"
 git init -q
 mkdir -p src
+mkdir -p apps/web
+mkdir -p .github
 mkdir -p ignored
 printf "ignored/\n.env\n.env.local\n" > .gitignore
 cat > package.json <<'EOF'
 {
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "node src/app.js"
   },
   "dependencies": {
     "express": "^4.18.0"
   }
+}
+EOF
+cat > package-lock.json <<'EOF'
+{
+  "name": "code-index-smoke",
+  "lockfileVersion": 3,
+  "packages": {}
+}
+EOF
+cat > .github/CODEOWNERS <<'EOF'
+src/ @platform-team
+*.go @go-team
+/apps/web/ @web-team
+EOF
+cat > apps/web/package.json <<'EOF'
+{
+  "name": "@example/web",
+  "dependencies": {
+    "@example/api": "workspace:*",
+    "express": "^4.18.0"
+  },
+  "scripts": {
+    "dev": "node route.js"
+  }
+}
+EOF
+mkdir -p packages/api
+cat > packages/api/package.json <<'EOF'
+{
+  "name": "@example/api",
+  "dependencies": {
+    "zod": "^3.22.0"
+  }
+}
+EOF
+cat > apps/web/route.js <<'EOF'
+export function webRoute() {
+  return "ok";
 }
 EOF
 cat > src/app.js <<'EOF'
@@ -463,12 +558,24 @@ EOF
 cat > service-token.yaml <<'EOF'
 SERVICE_TOKEN: do-not-index
 EOF
-node "$CLI" --code-index --code-scope src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
+if node "$CLI" --code-index --incremental --code-scope src --code-scope package.json > missing-incremental-code-index.log 2>&1; then
+  echo "expected --code-index --incremental without existing index to fail" >&2
+  exit 1
+fi
+grep -q -- "--incremental requires an existing compatible code evidence index" missing-incremental-code-index.log
+test ! -f .project-wiki/code-evidence.sqlite
+node "$CLI" --code-index --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
 test -f .project-wiki/code-evidence.sqlite
-grep -q "files: 4" code-index.log
+grep -q "files: 6" code-index.log
+if node "$CLI" --code-index --incremental --code-scope package.json > mismatched-incremental-code-index.log 2>&1; then
+  echo "expected --code-index --incremental with mismatched scopes to fail" >&2
+  exit 1
+fi
+grep -q "indexed scopes do not match requested scopes" mismatched-incremental-code-index.log
 node "$CLI" --code-query "select path from files order by path" > code-query.json
 grep -q "src/app.js" code-query.json
 grep -q "src/server.go" code-query.json
+grep -q "apps/web/route.js" code-query.json
 node "$CLI" --code-files > code-files.json
 grep -q "typescript-ast" code-files.json
 grep -q "go-light" code-files.json
@@ -494,13 +601,195 @@ node "$CLI" --code-query "select route from routes where route = '/health'" > co
 grep -q "/health" code-routes.json
 node "$CLI" --code-query "select kind from edges where kind = 'route_to_handler'" > code-edges.json
 grep -q "route_to_handler" code-edges.json
+node "$CLI" --code-impact healthHandler > code-impact-health.json
+node -e 'const r=require("./code-impact-health.json"); if (r.target !== "healthHandler") process.exit(1); if (!r.matches.symbols.some((row) => row.name === "healthHandler")) process.exit(1); if (!r.matches.routes.some((row) => row.route === "/health")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "route_to_handler" && row.target === "healthHandler")) process.exit(1); if (!r.impacted_owners.some((row) => row.owner === "src" && row.codeowners.includes("@platform-team"))) process.exit(1)'
+node "$CLI" --code-impact express > code-impact-express.json
+node -e 'const r=require("./code-impact-express.json"); if (r.target !== "express") process.exit(1); if (!r.matches.imports.some((row) => row.to_ref === "express")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "import" && row.target === "express")) process.exit(1)'
 node "$CLI" --code-report > code-report.json
-node -e 'const r=require("./code-report.json"); if (r.schema_version !== 1) process.exit(1); if (!r.report_sections.includes("ownership_summary")) process.exit(1); if (!r.evidence_coverage || r.evidence_coverage.files !== 4 || r.evidence_coverage.routes < 1) process.exit(1); if (!r.language_profile_summary.some((row) => row.language === "go" && row.profile === "go-light")) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "src" && row.routes >= 1)) process.exit(1); if (!r.route_inventory.some((row) => row.route === "/health")) process.exit(1); if (!r.dependency_hotspots.package_dependencies.some((row) => row.package === "express")) process.exit(1); if (!r.edge_summary.by_kind.some((row) => row.kind === "route_to_handler")) process.exit(1)'
+node -e 'const r=require("./code-report.json"); if (r.schema_version !== 1) process.exit(1); if (!r.report_sections.includes("ownership_summary") || !r.report_sections.includes("parser_backend_summary") || !r.report_sections.includes("workspace_summary") || !r.report_sections.includes("workspace_dependency_graph")) process.exit(1); if (!r.evidence_coverage || r.evidence_coverage.files !== 6 || r.evidence_coverage.routes < 1) process.exit(1); if (!r.language_profile_summary.some((row) => row.language === "go" && row.profile === "go-light")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "typescript-ast" && row.backend === "typescript-compiler" && row.extraction_strength === "structural")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "go-light" && row.backend === "regex-light")) process.exit(1); if (!r.workspace_summary.workspace_packages.some((row) => row.root === "apps/web" && row.name === "@example/web" && row.files === 2)) process.exit(1); if (!r.workspace_summary.codeowners.some((row) => row.pattern === "/apps/web/" && row.owners === "@web-team")) process.exit(1); if (!r.workspace_dependency_graph.workspaces.some((row) => row.root === "apps/web" && row.name === "@example/web")) process.exit(1); if (!r.workspace_dependency_graph.lockfiles.some((row) => row.file_path === "package-lock.json" && row.package_manager === "npm")) process.exit(1); if (!r.workspace_dependency_graph.internal_dependencies.some((row) => row.from_package === "@example/web" && row.to_package === "@example/api")) process.exit(1); if (!r.workspace_dependency_graph.external_dependency_hotspots.some((row) => row.dependency === "express" && row.workspace_count >= 1)) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "apps/web" && row.owner_source === "workspace" && row.codeowners.includes("@web-team"))) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "src" && row.routes >= 1 && row.codeowners.includes("@platform-team"))) process.exit(1); if (!r.route_inventory.some((row) => row.route === "/health")) process.exit(1); if (!r.dependency_hotspots.package_dependencies.some((row) => row.package === "express")) process.exit(1); if (!r.edge_summary.by_kind.some((row) => row.kind === "route_to_handler")) process.exit(1)'
+node "$CLI" --code-report --code-report-section routes > code-report-routes.json
+node -e 'const r=require("./code-report-routes.json"); if (r.schema_version !== 1 || r.section !== "routes") process.exit(1); if (!Array.isArray(r.data) || !r.data.some((row) => row.route === "/health")) process.exit(1); if ("ownership_summary" in r || "dependency_hotspots" in r) process.exit(1)'
+node "$CLI" --code-report --code-report-section dependency_hotspots > code-report-hotspots.json
+node -e 'const r=require("./code-report-hotspots.json"); if (r.section !== "hotspots") process.exit(1); if (!r.data.package_dependencies.some((row) => row.package === "express")) process.exit(1)'
+node "$CLI" --code-report --code-report-section evidence_coverage > code-report-coverage.json
+node -e 'const r=require("./code-report-coverage.json"); if (r.section !== "coverage" || r.data.files !== 6 || r.data.routes < 1) process.exit(1)'
+node "$CLI" --code-report --code-report-section parsers > code-report-parsers.json
+node -e 'const r=require("./code-report-parsers.json"); if (r.section !== "parsers") process.exit(1); if (!r.data.some((row) => row.profile === "typescript-ast" && row.backend === "typescript-compiler")) process.exit(1); if (!r.data.some((row) => row.profile === "go-light" && row.backend === "regex-light" && row.extraction_strength === "light")) process.exit(1); if (!r.data.some((row) => row.profile === "config" && row.backend === "config-key-value")) process.exit(1)'
+node "$CLI" --code-report --code-report-section workspaces > code-report-workspaces.json
+node -e 'const r=require("./code-report-workspaces.json"); if (r.section !== "workspaces") process.exit(1); if (!r.data.workspace_packages.some((row) => row.root === "apps/web" && row.files === 2)) process.exit(1); if (!r.data.codeowners.some((row) => row.pattern === "*.go" && row.owners === "@go-team")) process.exit(1)'
+node "$CLI" --code-report --code-report-section workspace-graph > code-report-workspace-graph.json
+node -e 'const r=require("./code-report-workspace-graph.json"); if (r.section !== "workspace-graph") process.exit(1); if (!r.data.workspaces.some((row) => row.root === "apps/web" && row.name === "@example/web")) process.exit(1); if (!r.data.internal_dependencies.some((row) => row.from_workspace === "apps/web" && row.to_workspace === "packages/api")) process.exit(1); if (!r.data.external_dependency_hotspots.some((row) => row.dependency === "express")) process.exit(1)'
+if node "$CLI" --code-report --code-report-section everything > bad-code-report-section.log 2>&1; then
+  echo "expected invalid --code-report-section to fail" >&2
+  exit 1
+fi
+grep -q "invalid --code-report-section" bad-code-report-section.log
+if node "$CLI" --code-index --code-parser made-up --code-scope src > bad-code-parser.log 2>&1; then
+  echo "expected invalid --code-parser to fail" >&2
+  exit 1
+fi
+grep -q "invalid --code-parser" bad-code-parser.log
 if node "$CLI" --code-query "with changed as (delete from files returning path) select path from changed" > bad-code-query.log 2>&1; then
   echo "expected writable-looking --code-query to fail" >&2
   exit 1
 fi
 grep -q "code queries must be read-only SQL" bad-code-query.log
+mkdir -p tree-sitter-src
+cat > tree-sitter-src/task.py <<'EOF'
+import os
+
+def py_handler():
+  return os.getcwd()
+EOF
+cat > tree-sitter-src/types.ts <<'EOF'
+export interface RouteConfig {
+  path: string;
+}
+
+export const typedRoute = () => true;
+EOF
+cat > tree-sitter-src/worker.rs <<'EOF'
+use std::collections::HashMap;
+
+pub struct RustWorker {
+    pub id: String,
+}
+
+pub fn rust_health() -> HashMap<String, String> {
+    HashMap::new()
+}
+EOF
+cat > tree-sitter-src/Controller.java <<'EOF'
+package smoke;
+
+import java.util.Map;
+
+public class SmokeController {
+  public Map<String, String> health() {
+    return Map.of("status", "ok");
+  }
+}
+EOF
+cat > tree-sitter-src/Action.php <<'EOF'
+<?php
+namespace Smoke;
+
+use DateTimeImmutable;
+
+class SmokeAction {
+  public function handle(): DateTimeImmutable {
+    return new DateTimeImmutable();
+  }
+}
+EOF
+cat > tree-sitter-src/Job.kt <<'EOF'
+package smoke
+
+import java.time.Instant
+
+class SmokeJob {
+  fun run(): Instant {
+    return Instant.now()
+  }
+}
+EOF
+cat > tree-sitter-src/Event.swift <<'EOF'
+import Foundation
+
+struct SmokeEvent {
+  let id: String
+}
+
+func smokeEvent() -> SmokeEvent {
+  return SmokeEvent(id: "ok")
+}
+EOF
+cat > tree-sitter-src/health.c <<'EOF'
+#include <stdio.h>
+
+struct smoke_state {
+  int ready;
+};
+
+int smoke_health(void) {
+  return 1;
+}
+EOF
+cat > tree-sitter-src/engine.cpp <<'EOF'
+#include <string>
+
+namespace smoke {
+class SmokeEngine {
+ public:
+  std::string health() const {
+    return "ok";
+  }
+};
+}
+EOF
+cat > tree-sitter-src/Service.cs <<'EOF'
+using System;
+
+namespace Smoke;
+
+public class SmokeService
+{
+    public string Health()
+    {
+        return "ok";
+    }
+}
+EOF
+node "$CLI" --code-index --code-parser tree-sitter --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > tree-sitter-code-index.log
+grep -q "parser_mode: tree-sitter" tree-sitter-code-index.log
+node "$CLI" --code-files --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-files.json
+grep -q "tree-sitter-c" tree-sitter-files.json
+grep -q "tree-sitter-cpp" tree-sitter-files.json
+grep -q "tree-sitter-csharp" tree-sitter-files.json
+grep -q "tree-sitter-javascript" tree-sitter-files.json
+grep -q "tree-sitter-go" tree-sitter-files.json
+grep -q "tree-sitter-java" tree-sitter-files.json
+grep -q "tree-sitter-kotlin" tree-sitter-files.json
+grep -q "tree-sitter-php" tree-sitter-files.json
+grep -q "tree-sitter-python" tree-sitter-files.json
+grep -q "tree-sitter-rust" tree-sitter-files.json
+grep -q "tree-sitter-swift" tree-sitter-files.json
+grep -q "tree-sitter-typescript" tree-sitter-files.json
+node "$CLI" --code-search-symbol healthHandler --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-symbols.json
+grep -q "healthHandler" tree-sitter-symbols.json
+node "$CLI" --code-search-symbol GoHandler --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-go-symbols.json
+grep -q "GoHandler" tree-sitter-go-symbols.json
+node "$CLI" --code-search-symbol py_handler --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-python-symbols.json
+grep -q "py_handler" tree-sitter-python-symbols.json
+node "$CLI" --code-search-symbol typedRoute --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-typescript-symbols.json
+grep -q "typedRoute" tree-sitter-typescript-symbols.json
+node "$CLI" --code-search-symbol RustWorker --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-rust-symbols.json
+grep -q "RustWorker" tree-sitter-rust-symbols.json
+node "$CLI" --code-search-symbol SmokeController --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-java-symbols.json
+grep -q "SmokeController" tree-sitter-java-symbols.json
+node "$CLI" --code-search-symbol SmokeAction --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-php-symbols.json
+grep -q "SmokeAction" tree-sitter-php-symbols.json
+node "$CLI" --code-search-symbol SmokeJob --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-kotlin-symbols.json
+grep -q "SmokeJob" tree-sitter-kotlin-symbols.json
+node "$CLI" --code-search-symbol SmokeEvent --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-swift-symbols.json
+grep -q "SmokeEvent" tree-sitter-swift-symbols.json
+node "$CLI" --code-search-symbol smoke_state --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-c-symbols.json
+grep -q "smoke_state" tree-sitter-c-symbols.json
+node "$CLI" --code-search-symbol SmokeEngine --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-cpp-symbols.json
+grep -q "SmokeEngine" tree-sitter-cpp-symbols.json
+node "$CLI" --code-search-symbol SmokeService --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-csharp-symbols.json
+grep -q "SmokeService" tree-sitter-csharp-symbols.json
+node "$CLI" --code-query "select route from routes where route = '/health'" --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-routes.json
+grep -q "/health" tree-sitter-routes.json
+node "$CLI" --code-query "select to_ref from imports where to_ref = 'net/http'" --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-go-imports.json
+grep -q "net/http" tree-sitter-go-imports.json
+node "$CLI" --code-report --code-report-section parsers --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-parsers.json
+node -e 'const r=require("./tree-sitter-parsers.json"); if (r.parser_mode !== "tree-sitter" || r.section !== "parsers") process.exit(1); for (const profile of ["tree-sitter-c", "tree-sitter-cpp", "tree-sitter-csharp", "tree-sitter-javascript", "tree-sitter-go", "tree-sitter-java", "tree-sitter-kotlin", "tree-sitter-php", "tree-sitter-python", "tree-sitter-rust", "tree-sitter-swift", "tree-sitter-typescript"]) if (!r.data.some((row) => row.profile === profile && row.backend === profile && row.extraction_strength === "structural")) process.exit(1)'
+if node "$CLI" --code-index --incremental --code-parser default --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > mismatched-parser-mode-code-index.log 2>&1; then
+  echo "expected --code-index --incremental with mismatched parser mode to fail" >&2
+  exit 1
+fi
+grep -q "indexed parser mode tree-sitter does not match requested parser mode default" mismatched-parser-mode-code-index.log
 cat >> src/app.js <<'EOF'
 export const staleSignal = true;
 EOF
@@ -512,17 +801,26 @@ node "$CLI" --code-status > stale-status.json
 node -e 'const rows = require("./stale-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 3 || metric.stale_changed_files !== 1 || metric.stale_added_files !== 1 || metric.stale_deleted_files !== 1) process.exit(1)'
 node "$CLI" --code-files > stale-files.json 2> stale-warning.log
 grep -q "code evidence index may be stale" stale-warning.log
-node "$CLI" --code-index --code-scope src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
+node "$CLI" --code-index --incremental --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
 grep -q "mode: incremental" incremental-code-index.log
-grep -q "files: 4" incremental-code-index.log
+grep -q "files: 6" incremental-code-index.log
 grep -q "reindexed_files: 2" incremental-code-index.log
 grep -q "deleted_files: 1" incremental-code-index.log
 node "$CLI" --code-status > fresh-status.json
-node -e 'const rows = require("./fresh-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 0 || metric.files !== 4) process.exit(1)'
+node -e 'const rows = require("./fresh-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 0 || metric.files !== 6) process.exit(1)'
 node "$CLI" --code-search-symbol newHandler > incremental-symbols.json
 grep -q "newHandler" incremental-symbols.json
 node "$CLI" --code-files > fresh-files.json
 ! grep -q ".env.example" fresh-files.json
+node "$CLI" --code-index --code-index-full --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > full-code-index.log
+grep -q "mode: full" full-code-index.log
+grep -q "files: 6" full-code-index.log
+grep -q "reindexed_files: 6" full-code-index.log
+grep -q "unchanged_files: 0" full-code-index.log
+printf "not sqlite" > .project-wiki/broken.sqlite
+node "$CLI" --code-index --code-index-full --code-index-out .project-wiki/broken.sqlite --code-scope src > broken-full-code-index.log
+grep -q "mode: full" broken-full-code-index.log
+grep -q "files: 3" broken-full-code-index.log
 node "$CLI" --code-index --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
 test -f .project-wiki/custom.sqlite
 if node "$CLI" --code-index --code-index-out ../outside.sqlite > bad-code-index-out.log 2>&1; then

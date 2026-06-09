@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeIndexMode, codeQueryMode, codeReportMode, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
+import { captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unknownCommand, unknownOptions } from "./args";
 import { hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
@@ -40,9 +40,14 @@ Options:
   --review-migration               Sync migration inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --incremental                    With --code-index, require an existing compatible index and update only changes.
+  --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
+  --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
   --code-query <sql>               Run conservative read-only SQL over the code evidence index.
   --code-status, --code-files      Inspect the code evidence index.
   --code-report                    Print architecture and ownership summaries from the code evidence index.
+  --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
+  --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
   --code-search-symbol <term>      Search indexed symbols.
   --help                           Show this help.`);
 }
@@ -80,14 +85,39 @@ if (issueCreateMode && issueDraftMode) {
   process.exit(1);
 }
 
+if (codeReportSection && !codeReportMode) {
+  console.error("--code-report-section is only supported with --code-report.");
+  process.exit(1);
+}
+
+if (codeIndexIncrementalMode && !codeIndexMode) {
+  console.error("--incremental is only supported with --code-index.");
+  process.exit(1);
+}
+
+if (codeIndexFullMode && !codeIndexMode) {
+  console.error("--code-index-full is only supported with --code-index.");
+  process.exit(1);
+}
+
+if (codeParserMode && !codeIndexMode) {
+  console.error("--code-parser is only supported with --code-index.");
+  process.exit(1);
+}
+
+if (codeIndexIncrementalMode && codeIndexFullMode) {
+  console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
+  process.exit(1);
+}
+
 if (command === "install-skill") {
   runInstallSkillMode();
   process.exit(0);
 }
 
-const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
+const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
-  console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, or --code-search-symbol.");
+  console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
   process.exit(1);
 }
 
@@ -105,6 +135,10 @@ if (codeStatusMode) {
 }
 if (codeFilesMode) {
   codeIndex().runCodeFilesMode();
+  process.exit(0);
+}
+if (codeImpactMode) {
+  codeIndex().runCodeImpactMode();
   process.exit(0);
 }
 if (codeSearchSymbolMode) {

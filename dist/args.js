@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeQuerySql = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.rawArgs = void 0;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
@@ -17,7 +17,12 @@ const flagsWithoutValues = new Set([
     "--code-evidence-index",
     "--code-evidence-status",
     "--code-files",
+    "--code-incremental",
     "--code-index",
+    "--code-index-full",
+    "--code-index-incremental",
+    "--code-evidence-index-full",
+    "--code-evidence-index-incremental",
     "--code-report",
     "--code-status",
     "--code-evidence-report",
@@ -27,6 +32,7 @@ const flagsWithoutValues = new Set([
     "--fix",
     "--issue-create",
     "--issue-draft",
+    "--incremental",
     "--link-check",
     "--lint",
     "--migrate",
@@ -40,12 +46,18 @@ const flagsWithoutValues = new Set([
 const flagsWithValues = new Set([
     "--agents",
     "--category",
+    "--code-evidence-impact",
     "--code-evidence-out",
+    "--code-evidence-parser",
     "--code-evidence-query",
+    "--code-evidence-report-section",
     "--code-evidence-scope",
     "--code-evidence-symbol",
+    "--code-impact",
     "--code-index-out",
+    "--code-parser",
     "--code-query",
+    "--code-report-section",
     "--code-scope",
     "--code-search-symbol",
     "--content",
@@ -98,9 +110,13 @@ exports.pruneCheckMode = exports.args.has("--prune-check");
 exports.reviewMigrationMode = exports.args.has("--review-migration") || exports.args.has("--semantic-migrate");
 exports.noGitConfigMode = exports.args.has("--no-git-config");
 exports.codeIndexMode = exports.args.has("--code-index") || exports.args.has("--code-evidence-index");
+exports.codeIndexIncrementalMode = exports.args.has("--incremental") || exports.args.has("--code-incremental") || exports.args.has("--code-index-incremental") || exports.args.has("--code-evidence-index-incremental");
+exports.codeIndexFullMode = exports.args.has("--code-index-full") || exports.args.has("--code-evidence-index-full");
 exports.codeReportMode = exports.args.has("--code-report") || exports.args.has("--code-evidence-report");
 exports.codeStatusMode = exports.args.has("--code-status") || exports.args.has("--code-evidence-status");
 exports.codeFilesMode = exports.args.has("--code-files") || exports.args.has("--code-evidence-files");
+exports.codeParserMode = hasFlag("--code-parser") || hasFlag("--code-evidence-parser");
+exports.codeImpactMode = hasFlag("--code-impact") || hasFlag("--code-evidence-impact");
 exports.codeQueryMode = hasFlag("--code-query") || hasFlag("--code-evidence-query");
 exports.codeSearchSymbolMode = hasFlag("--code-search-symbol") || hasFlag("--code-evidence-symbol");
 function argValue(name) {
@@ -134,9 +150,12 @@ function argValues(name) {
     return values.flatMap((value) => value.split(",").map((part) => part.trim()).filter(Boolean));
 }
 exports.queryTerm = argValue("--query");
+exports.codeImpactTarget = argValue("--code-impact") || argValue("--code-evidence-impact");
 exports.codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
+exports.codeReportSection = argValue("--code-report-section") || argValue("--code-evidence-report-section");
 exports.codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
 exports.codeIndexOutput = argValue("--code-index-out") || argValue("--code-evidence-out") || ".project-wiki/code-evidence.sqlite";
+exports.codeParser = argValue("--code-parser") || argValue("--code-evidence-parser") || "default";
 exports.codeIndexScopes = [...argValues("--code-scope"), ...argValues("--code-evidence-scope")];
 exports.captureTitle = argValue("--title");
 exports.captureContent = argValue("--content");

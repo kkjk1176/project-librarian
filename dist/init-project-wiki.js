@@ -36,9 +36,14 @@ Options:
   --review-migration               Sync migration inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --incremental                    With --code-index, require an existing compatible index and update only changes.
+  --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
+  --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
   --code-query <sql>               Run conservative read-only SQL over the code evidence index.
   --code-status, --code-files      Inspect the code evidence index.
   --code-report                    Print architecture and ownership summaries from the code evidence index.
+  --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
+  --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
   --code-search-symbol <term>      Search indexed symbols.
   --help                           Show this help.`);
 }
@@ -69,13 +74,33 @@ if (args_1.issueCreateMode && args_1.issueDraftMode) {
     console.error("Use one issue mode at a time: --issue-draft or --issue-create.");
     process.exit(1);
 }
+if (args_1.codeReportSection && !args_1.codeReportMode) {
+    console.error("--code-report-section is only supported with --code-report.");
+    process.exit(1);
+}
+if (args_1.codeIndexIncrementalMode && !args_1.codeIndexMode) {
+    console.error("--incremental is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.codeIndexFullMode && !args_1.codeIndexMode) {
+    console.error("--code-index-full is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.codeParserMode && !args_1.codeIndexMode) {
+    console.error("--code-parser is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.codeIndexIncrementalMode && args_1.codeIndexFullMode) {
+    console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
+    process.exit(1);
+}
 if (args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);
 }
-const activeCodeModes = [args_1.codeQueryMode, args_1.codeReportMode, args_1.codeStatusMode, args_1.codeFilesMode, args_1.codeSearchSymbolMode, args_1.codeIndexMode].filter(Boolean).length;
+const activeCodeModes = [args_1.codeQueryMode, args_1.codeReportMode, args_1.codeStatusMode, args_1.codeFilesMode, args_1.codeImpactMode, args_1.codeSearchSymbolMode, args_1.codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
-    console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, or --code-search-symbol.");
+    console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
     process.exit(1);
 }
 if (args_1.codeQueryMode) {
@@ -92,6 +117,10 @@ if (args_1.codeStatusMode) {
 }
 if (args_1.codeFilesMode) {
     codeIndex().runCodeFilesMode();
+    process.exit(0);
+}
+if (args_1.codeImpactMode) {
+    codeIndex().runCodeImpactMode();
     process.exit(0);
 }
 if (args_1.codeSearchSymbolMode) {
