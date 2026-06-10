@@ -2,8 +2,12 @@
 
 const expectations = {
   onboarding: {
-    required_terms: ["benchmark", "Project Librarian"],
-    any_terms: [["risk", "where to read", "evidence"]],
+    required_terms: ["benchmark"],
+    any_terms: [["risk", "where to read", "read next", "evidence"]],
+    evidence_by_condition: {
+      with_project_librarian: [["wiki/startup.md", "wiki/index.md", "wiki/canonical/project-brief.md"]],
+      without_project_librarian: [["README.md", "docs/project-overview.md", "docs/benchmark-policy.md"]],
+    },
     forbidden_terms: ["I cannot access"],
   },
   decision_lookup: {
@@ -16,18 +20,30 @@ const expectations = {
     forbidden_terms: ["I cannot access"],
   },
   code_impact: {
-    required_terms: ["benchmark"],
-    any_terms: [["report", "schema", "runner", "tests"]],
+    required_terms: ["benchmark", "schema"],
+    any_terms: [["report", "runner", "tests"]],
+    evidence_by_condition: {
+      with_project_librarian: [["wiki/canonical/code-impact.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+      without_project_librarian: [["docs/code-impact.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+    },
     forbidden_terms: ["I cannot access"],
   },
   release_policy: {
-    required_terms: ["benchmark"],
-    any_terms: [["release", "claim", "verification", "test"]],
+    required_terms: ["benchmark", "claim"],
+    any_terms: [["release", "verification", "test", "full-matrix"]],
+    evidence_by_condition: {
+      with_project_librarian: [["wiki/canonical/release-policy.md", "wiki/canonical/benchmark-and-release-evidence.md"], ["--full-matrix"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+      without_project_librarian: [["docs/release-policy.md", "docs/benchmark-policy.md"], ["--full-matrix"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+    },
     forbidden_terms: ["I cannot access"],
   },
   change_location: {
     required_terms: ["benchmark"],
-    any_terms: [["benchmarks/", "tests/", "package.json"]],
+    any_terms: [["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+    evidence_by_condition: {
+      with_project_librarian: [["wiki/canonical/implementation-map.md"], ["benchmarks/codex-llm-metrics.js"]],
+      without_project_librarian: [["docs/implementation-map.md"], ["benchmarks/codex-llm-metrics.js"]],
+    },
     forbidden_terms: ["I cannot access"],
   },
 };

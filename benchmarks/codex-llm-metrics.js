@@ -5,10 +5,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const { summarizeJsonl } = require("./lib/codex-jsonl");
 const { evaluateCorrectness } = require("./lib/llm-correctness");
 const { buildManifest, conditions, scales, taskFamilies } = require("./lib/llm-fixtures");
-const { claimableRuns, completePairCount, measurementStatus, medianMetrics, passedRuns, selectPairedScenarios } = require("./lib/llm-report");
+const { claimableRuns, completePairCount, evaluateClaimGate, measurementStatus, medianMetrics, metricStats, passedRuns, renderLlmMarkdownReport, selectPairedScenarios } = require("./lib/llm-report");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
@@ -22,11 +23,24 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+function hasArg(name) {
+  return process.argv.includes(name);
+}
+
 function argValue(name, defaultValue = "") {
   const index = process.argv.indexOf(name);
   if (index < 0) return defaultValue;
   const value = process.argv[index + 1];
   if (!value || value.startsWith("--")) fail(`missing value for ${name}`);
+  return value;
+}
+
+function optionalArgValue(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return null;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) return "";
+  if (value.includes("\n") || value.includes("\r")) fail(`invalid ${name} value`);
   return value;
 }
 
@@ -71,12 +85,25 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function writeText(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, value);
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 function defaultOutPath() {
   return path.join(root, "benchmarks", "reports", "llm", "dry-run-manifest.json");
 }
 
 function defaultMeasuredOutPath() {
   return path.join(root, "benchmarks", "reports", "llm", "current.json");
+}
+
+function defaultMeasuredMarkdownPath() {
+  return path.join(root, "benchmarks", "reports", "llm", "current.md");
 }
 
 function environmentFingerprint() {
@@ -90,6 +117,28 @@ function environmentFingerprint() {
     cpu_count: cpus.length,
     total_memory_mb: Math.round(os.totalmem() / 1024 / 1024),
   };
+}
+
+function sourceControlFingerprint() {
+  try {
+    const commit = commandOutput("git", ["rev-parse", "HEAD"]);
+    const shortCommit = commandOutput("git", ["rev-parse", "--short", "HEAD"]);
+    const branch = commandOutput("git", ["branch", "--show-current"]);
+    const status = commandOutput("git", ["status", "--short"]);
+    return {
+      available: true,
+      commit,
+      short_commit: shortCommit,
+      branch,
+      dirty: status.length > 0,
+      status_entry_count: status ? status.split(/\r?\n/).filter(Boolean).length : 0,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      error: error.message,
+    };
+  }
 }
 
 function commandOutput(command, args) {
@@ -124,8 +173,20 @@ function safeName(value) {
   return value.replace(/[^a-z0-9_.-]+/gi, "-").replace(/^-+|-+$/g, "");
 }
 
+function summarizeJsonlSafely(content, timing) {
+  try {
+    return summarizeJsonl(content, timing);
+  } catch (error) {
+    const metrics = summarizeJsonl("", timing);
+    metrics.unavailable_event_fields.push("jsonl_parse");
+    metrics.parse_error = error.message;
+    return metrics;
+  }
+}
+
 function runCodexScenario(scenario, { rawRoot, runIndex }) {
   const rawPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.jsonl`);
+  const stderrPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.stderr.txt`);
   fs.mkdirSync(path.dirname(rawPath), { recursive: true });
 
   const command = scenario.command[0];
@@ -139,13 +200,9 @@ function runCodexScenario(scenario, { rawRoot, runIndex }) {
   });
   const wallMs = Number(process.hrtime.bigint() - started) / 1_000_000;
   fs.writeFileSync(rawPath, result.stdout || "");
+  if (result.stderr) fs.writeFileSync(stderrPath, result.stderr);
 
-  if (result.error) fail(`codex execution failed for ${scenario.prompt_id}: ${result.error.message}`);
-  if (result.status !== 0) {
-    fail(`codex execution failed for ${scenario.prompt_id} with exit ${result.status}: ${result.stderr || result.stdout}`);
-  }
-
-  const metrics = summarizeJsonl(result.stdout || "", { wall_ms: Math.round(wallMs * 1000) / 1000 });
+  const metrics = summarizeJsonlSafely(result.stdout || "", { wall_ms: Math.round(wallMs * 1000) / 1000 });
   const correctness = evaluateCorrectness({
     taskFamily: scenario.task_family,
     condition: scenario.condition,
@@ -158,6 +215,12 @@ function runCodexScenario(scenario, { rawRoot, runIndex }) {
     run_index: runIndex,
     raw_jsonl_path: rawPath,
     requested_model: scenario.requested_model,
+    execution: {
+      status: result.error || result.status !== 0 ? "failed" : "completed",
+      exit_code: result.status,
+      error: result.error ? result.error.message : "",
+      stderr_path: result.stderr ? stderrPath : null,
+    },
     metrics,
     correctness,
   };
@@ -165,7 +228,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex }) {
   return run;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks }) {
   requireMeasuredAuth(authMode);
   const rawRoot = path.join(root, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
   if (maxScenarios < conditions.length) {
@@ -193,7 +256,10 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
       condition: scenario.condition,
       task_family: scenario.task_family,
       prompt_id: scenario.prompt_id,
+      prompt: scenario.prompt,
+      command: scenario.command,
       cwd: scenario.cwd,
+      fixture_fingerprint: scenario.fixture_fingerprint,
       requested_model: scenario.requested_model,
       model: scenarioModel,
       model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
@@ -201,6 +267,8 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
       runs: measuredRuns,
       median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
       median_all_runs: medianMetrics(measuredRuns),
+      dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
+      dispersion_all_runs: metricStats(measuredRuns),
       passed_run_count: correctnessPassedRuns.length,
       claimable_run_count: actualClaimableRuns.length,
       correctness: measuredRuns.map((run) => run.correctness),
@@ -208,13 +276,14 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
     });
   }
 
-  return {
+  const report = {
     schema_version: 1,
     benchmark_kind: "codex-actual-llm",
     auth_mode: authMode,
     auth: authAudit(),
     generated_at: new Date().toISOString(),
     environment: environmentFingerprint(),
+    source_control: sourceControlFingerprint(),
     codex: {
       version: commandOutput("codex", ["--version"]),
     },
@@ -222,9 +291,32 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
       runs,
       warmup_runs: warmupRuns,
       max_scenarios: maxScenarios,
+      full_matrix: fullMatrix,
+      min_runs_for_claim: minRunsForClaim,
+      require_claimable: requireClaimable,
+      require_clean: requireClean,
+      scenario_order: "deterministic-alternating-pairs",
       requested_model: manifest.requested_model,
+      selected_scales: selectedScales,
+      selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
+      full_manifest_fingerprint: manifest.manifest_fingerprint,
+      manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
+        scale: scenario.scale,
+        condition: scenario.condition,
+        task_family: scenario.task_family,
+        prompt: scenario.prompt,
+        fixture_fingerprint: scenario.fixture_fingerprint,
+        requested_model: scenario.requested_model,
+      })))),
+      scenario_matrix_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
+        scale: scenario.scale,
+        condition: scenario.condition,
+        task_family: scenario.task_family,
+        fixture_fingerprint: scenario.fixture_fingerprint,
+        requested_model: scenario.requested_model,
+      })))),
     },
     summary: {
       scenario_count: scenarios.length,
@@ -237,36 +329,69 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
     },
     scenarios,
   };
+  report.claim_gate = evaluateClaimGate(report, {
+    conditions,
+    expectedScales: selectedScales,
+    expectedTasks: selectedTasks,
+    fullMatrix,
+    minRunsForClaim,
+  });
+  return report;
 }
 
 function main() {
   const dryRun = hasFlag("--dry-run");
   const allowCodexRun = hasFlag("--allow-codex-run");
+  const fullMatrix = hasFlag("--full-matrix");
+  const requireClaimable = hasFlag("--require-claimable");
+  const requireClean = hasFlag("--require-clean");
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const out = path.resolve(root, argValue("--out", dryRun ? defaultOutPath() : defaultMeasuredOutPath()));
+  const markdownArg = optionalArgValue("--markdown");
+  const markdown = markdownArg === null ? "" : (markdownArg || defaultMeasuredMarkdownPath());
   const selectedScales = listArg("--scales", Object.keys(scales), Object.keys(scales));
   const selectedTasks = listArg("--tasks", Object.keys(taskFamilies), Object.keys(taskFamilies));
   const runs = positiveIntegerArgValue("--runs", 1);
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
-  const maxScenarios = positiveIntegerArgValue("--max-scenarios", conditions.length);
+  const minRunsForClaim = positiveIntegerArgValue("--min-runs-for-claim", 1);
+  const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
+  const maxScenarios = positiveIntegerArgValue("--max-scenarios", fullMatrix ? fullMatrixScenarioCount : conditions.length);
   const requestedModel = optionalStringArgValue("--model");
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
+
+  if (fullMatrix && hasArg("--max-scenarios") && maxScenarios !== fullMatrixScenarioCount) {
+    fail(`--full-matrix requires --max-scenarios ${fullMatrixScenarioCount} for selected scales/tasks`);
+  }
 
   if (!dryRun && !allowCodexRun) {
     fail("measured Codex benchmark requires --allow-codex-run; use --dry-run to create a fixture manifest without consuming subscription quota");
   }
+  if (!dryRun && requireClean) {
+    const sourceControl = sourceControlFingerprint();
+    if (!sourceControl.available || sourceControl.dirty) {
+      fail("measured Codex benchmark requires a clean git checkout when --require-clean is set");
+    }
+  }
 
   const manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel });
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks });
     writeJson(out, report);
+    const markdownOut = markdown ? path.resolve(root, markdown) : "";
+    if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
+    if (requireClaimable && report.claim_gate.status !== "passed") {
+      console.error(`claim gate failed: ${report.claim_gate.issues.join("; ")}`);
+      process.exit(1);
+    }
     console.log(JSON.stringify({
       status: "ok",
       mode: "measured",
       out,
+      markdown: markdownOut || null,
       fixture_root: fixtureRoot,
       scenario_count: report.scenarios.length,
+      claim_gate: report.claim_gate.status,
     }, null, 2));
     return;
   }

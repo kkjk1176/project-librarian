@@ -4,15 +4,42 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { conditions } = require("../../benchmarks/lib/llm-fixtures");
-const { claimableRuns, completePairCount, measurementStatus, medianMetrics } = require("../../benchmarks/lib/llm-report");
+const { claimableRuns, completePairCount, evaluateClaimGate, measurementStatus, medianMetrics, metricStats, renderLlmMarkdownReport, selectPairedScenarios } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
 const sampleFinalText = "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.";
 const controlSampleFinalText = "2026-06-10 metrics decision in docs/decisions.md documents benchmark evidence from README.md control docs.";
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function fingerprintDirectory(directory) {
+  const entries = [];
+  function visit(current) {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const absolute = path.join(current, entry.name);
+      const relative = path.relative(directory, absolute).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        if ([".git", "node_modules"].includes(entry.name)) continue;
+        visit(absolute);
+      } else if (entry.isFile()) {
+        entries.push(`${relative}\0${sha256(fs.readFileSync(absolute))}`);
+      }
+    }
+  }
+  visit(directory);
+  return {
+    algorithm: "sha256-relative-path-content",
+    value: sha256(entries.join("\n")),
+    file_count: entries.length,
+  };
+}
 
 function validateSampleJsonl() {
   const samplePath = path.join(root, "benchmarks", "llm", "samples", "codex-turn-completed.jsonl");
@@ -22,15 +49,18 @@ function validateSampleJsonl() {
   assert.equal(metrics.output_tokens, 122);
   assert.equal(metrics.reasoning_output_tokens, 0);
   assert.equal(metrics.total_tokens, 24885);
+  assert.equal(metrics.first_response_ms, 0);
   assert.equal(metrics.codex_turn_count, 1);
   assert.equal(metrics.command_event_count, 2);
   assert.equal(metrics.command_invocation_count, 1);
   assert.equal(metrics.tool_event_count, 2);
   assert.equal(metrics.tool_invocation_count, 1);
+  assert.equal(metrics.plan_event_count, 0);
   assert.equal(metrics.model, "gpt-5.5");
   assert.deepEqual(metrics.models, ["gpt-5.5"]);
   assert.equal(metrics.final_text, sampleFinalText);
   assert.equal(metrics.error_event_count, 0);
+  assert(metrics.unavailable_event_fields.includes("first_response_latency"));
 }
 
 function validateControlSampleJsonl() {
@@ -39,9 +69,11 @@ function validateControlSampleJsonl() {
   assert.equal(metrics.input_tokens, 24763);
   assert.equal(metrics.output_tokens, 122);
   assert.equal(metrics.total_tokens, 24885);
+  assert.equal(metrics.first_response_ms, 0);
   assert.equal(metrics.model, "gpt-5.5");
   assert.deepEqual(metrics.models, ["gpt-5.5"]);
   assert.equal(metrics.final_text, controlSampleFinalText);
+  assert(metrics.unavailable_event_fields.includes("first_response_latency"));
   const correctness = evaluateCorrectness({
     taskFamily: "decision_lookup",
     condition: "without_project_librarian",
@@ -84,6 +116,23 @@ function validateInvocationCounts() {
   assert.equal(completedOnlyMetrics.tool_invocation_count, 1);
 }
 
+function validatePairSelectionOrder() {
+  const scenarios = [];
+  for (const task of ["a", "b", "c"]) {
+    for (const condition of conditions) {
+      scenarios.push({ scale: "small", task_family: task, condition, prompt_id: `${task}-${condition}` });
+    }
+  }
+  assert.deepEqual(selectPairedScenarios(scenarios, 6, conditions).map((scenario) => scenario.prompt_id), [
+    "a-with_project_librarian",
+    "a-without_project_librarian",
+    "b-without_project_librarian",
+    "b-with_project_librarian",
+    "c-with_project_librarian",
+    "c-without_project_librarian",
+  ]);
+}
+
 function validateReport(reportPath) {
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
   assert.equal(report.schema_version, 1);
@@ -95,10 +144,20 @@ function validateReport(reportPath) {
   }
   assert.equal(report.benchmark_kind, "codex-actual-llm");
   assert(report.auth && report.auth.auth_mode_source === "declared");
+  assert(report.source_control && typeof report.source_control.available === "boolean");
   assert(report.configuration && Number.isInteger(report.configuration.runs));
+  assert(typeof report.configuration.manifest_fingerprint === "string" && report.configuration.manifest_fingerprint.length === 64);
+  if (Object.hasOwn(report.configuration, "full_manifest_fingerprint")) {
+    assert(typeof report.configuration.full_manifest_fingerprint === "string" && report.configuration.full_manifest_fingerprint.length === 64);
+  }
+  assert(typeof report.configuration.scenario_matrix_fingerprint === "string" && report.configuration.scenario_matrix_fingerprint.length === 64);
+  assert(Array.isArray(report.configuration.selected_scales));
+  assert(Array.isArray(report.configuration.selected_tasks));
+  assert.equal(report.configuration.scenario_order, "deterministic-alternating-pairs");
   assert(Array.isArray(report.scenarios));
   assert(report.scenarios.length > 0);
   assert.equal(report.configuration.selected_scenarios, report.scenarios.length);
+  assert(report.configuration.total_manifest_scenarios >= report.configuration.selected_scenarios);
   assert(report.configuration.max_scenarios >= conditions.length);
 
   let passedCorrectnessCount = 0;
@@ -110,6 +169,8 @@ function validateReport(reportPath) {
   for (const scenario of report.scenarios) {
     assert(Array.isArray(scenario.runs));
     assert(scenario.runs.length > 0);
+    assert(typeof scenario.prompt === "string" && scenario.prompt.length > 0);
+    assert(Array.isArray(scenario.command) && scenario.command.length > 0);
     assert(Object.hasOwn(scenario, "median"));
     assert(scenario.median_all_runs);
     assert(Array.isArray(scenario.correctness));
@@ -118,13 +179,19 @@ function validateReport(reportPath) {
     assert(Number.isInteger(scenario.passed_run_count));
     assert(Number.isInteger(scenario.claimable_run_count));
     assert(Array.isArray(scenario.models));
+    assert(scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "sha256-relative-path-content" && scenario.fixture_fingerprint.value);
+    if (scenario.cwd && fs.existsSync(scenario.cwd)) {
+      assert.deepEqual(scenario.fixture_fingerprint, fingerprintDirectory(scenario.cwd));
+    }
     assert(Object.hasOwn(scenario, "requested_model"));
     assert(Object.hasOwn(scenario, "model_source"));
+    assert(scenario.dispersion_all_runs);
 
     let passedRunCount = 0;
     const runModels = new Set();
     for (const [index, run] of scenario.runs.entries()) {
       assert(run.metrics);
+      assert(run.execution && ["completed", "failed"].includes(run.execution.status));
       assert.equal(run.requested_model, scenario.requested_model);
       const rawPath = path.resolve(root, run.raw_jsonl_path);
       assert(fs.existsSync(rawPath), `missing raw JSONL: ${run.raw_jsonl_path}`);
@@ -132,7 +199,10 @@ function validateReport(reportPath) {
       assert.deepEqual(run.metrics, rawMetrics);
       assert(Number.isInteger(run.metrics.command_invocation_count));
       assert(Number.isInteger(run.metrics.tool_invocation_count));
+      assert(Number.isInteger(run.metrics.plan_event_count));
+      assert(typeof run.metrics.first_response_ms === "number");
       assert(Array.isArray(run.metrics.models));
+      if (run.metrics.first_response_ms === 0) assert(run.metrics.unavailable_event_fields.includes("first_response_latency"));
       for (const model of run.metrics.models) runModels.add(model);
       if (run.metrics.models.length === 0) assert(run.metrics.unavailable_event_fields.includes("model"));
       if (run.metrics.models.length === 1) assert.equal(run.metrics.model, run.metrics.models[0]);
@@ -164,6 +234,8 @@ function validateReport(reportPath) {
     assert.equal(scenario.claimable_run_count, actualClaimableRuns.length);
     assert.deepEqual(scenario.median_all_runs, medianMetrics(scenario.runs));
     assert.deepEqual(scenario.median, actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null);
+    assert.deepEqual(scenario.dispersion_all_runs, metricStats(scenario.runs));
+    assert.deepEqual(scenario.dispersion, actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null);
     if (actualClaimableRuns.length === 0) assert.equal(scenario.median, null);
     if (scenario.correctness.every((item) => item.status === "passed")) passedCorrectnessCount += 1;
     if (scenario.correctness.some((item) => item.status === "needs_review")) needsReviewCount += 1;
@@ -180,6 +252,36 @@ function validateReport(reportPath) {
   assert.equal(report.summary.failed_correctness_count, failedCorrectnessCount);
   assert.equal(report.summary.claimable_scenario_count, claimableScenarioCount);
   assert.equal(report.summary.unclaimable_scenario_count, unclaimableScenarioCount);
+  assert.equal(report.configuration.scenario_matrix_fingerprint, sha256(JSON.stringify(report.scenarios.map((scenario) => ({
+    scale: scenario.scale,
+    condition: scenario.condition,
+    task_family: scenario.task_family,
+    fixture_fingerprint: scenario.fixture_fingerprint,
+    requested_model: scenario.requested_model,
+  })))));
+  assert.equal(report.configuration.manifest_fingerprint, sha256(JSON.stringify(report.scenarios.map((scenario) => ({
+    scale: scenario.scale,
+    condition: scenario.condition,
+    task_family: scenario.task_family,
+    prompt: scenario.prompt,
+    fixture_fingerprint: scenario.fixture_fingerprint,
+    requested_model: scenario.requested_model,
+  })))));
+  assert.deepEqual(report.claim_gate, evaluateClaimGate(report, {
+    conditions,
+    expectedScales: report.configuration.selected_scales,
+    expectedTasks: report.configuration.selected_tasks,
+    fullMatrix: report.configuration.full_matrix,
+    minRunsForClaim: report.configuration.min_runs_for_claim,
+  }));
+
+  const markdown = renderLlmMarkdownReport(report);
+  assert(markdown.includes("# Codex Actual LLM Benchmark Report"));
+  assert(markdown.includes("Claim gate: passed"));
+  assert(markdown.includes("## Scenario Metrics"));
+  assert(markdown.includes("## With vs Without Delta"));
+  assert(markdown.includes("| small | decision_lookup | with_project_librarian | claimable |"));
+  assert(markdown.includes("| small | decision_lookup | 0% | 0% | 0% |"));
 }
 
 function validateCorrectness() {
@@ -252,6 +354,7 @@ function validateCliArgumentFailures() {
   for (const args of [
     ["benchmarks/codex-llm-metrics.js", "--dry-run", "--scales", ","],
     ["benchmarks/codex-llm-metrics.js", "--dry-run", "--tasks", ","],
+    ["benchmarks/codex-llm-metrics.js", "--dry-run", "--scales", "small,medium,large", "--tasks", "decision_lookup", "--full-matrix", "--max-scenarios", "2"],
     ["benchmarks/codex-llm-metrics.js"],
   ]) {
     const result = childProcess.spawnSync(process.execPath, args, {
@@ -268,6 +371,7 @@ validateSampleJsonl();
 validateControlSampleJsonl();
 validateReasoningTokenTotal();
 validateInvocationCounts();
+validatePairSelectionOrder();
 validateCorrectness();
 validateMeasurementClaimability();
 validateCliArgumentFailures();

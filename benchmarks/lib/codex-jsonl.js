@@ -52,6 +52,32 @@ function modelFromEvent(event) {
   return "";
 }
 
+function timestampValue(value) {
+  if (Number.isFinite(value)) {
+    return value > 10_000_000_000 ? value : value * 1000;
+  }
+  if (typeof value !== "string" || !value.trim()) return NaN;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return timestampValue(numeric);
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function eventTimestampMs(event) {
+  if (!event || typeof event !== "object") return NaN;
+  for (const key of ["timestamp", "time", "created_at", "createdAt", "completed_at", "completedAt"]) {
+    const value = timestampValue(event[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  if (event.item && typeof event.item === "object") {
+    for (const key of ["timestamp", "time", "created_at", "createdAt", "completed_at", "completedAt"]) {
+      const value = timestampValue(event.item[key]);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return NaN;
+}
+
 function classifyEvent(event) {
   const type = eventType(event).toLowerCase();
   const name = typeof event?.name === "string" ? event.name.toLowerCase() : "";
@@ -66,6 +92,7 @@ function classifyEvent(event) {
     isCommand: combined.includes("command") || combined.includes("exec") || combined.includes("shell"),
     isTool: combined.includes("tool") || combined.includes("function_call"),
     isMcp: combined.includes("mcp"),
+    isPlan: combined.includes("plan") || combined.includes("update_plan"),
     isFileChange: combined.includes("file_change") || combined.includes("patch") || combined.includes("apply_patch"),
     isError: combined.includes("error") || event?.error,
   };
@@ -116,6 +143,13 @@ function finalTextFromEvents(events) {
   return candidates.at(-1) || "";
 }
 
+function isResponseTextEvent(event) {
+  const type = eventType(event).toLowerCase();
+  const itemType = typeof event?.item?.type === "string" ? event.item.type.toLowerCase() : "";
+  if (!(type.includes("assistant") || type.includes("message") || itemType.includes("agent_message") || itemType.includes("message"))) return false;
+  return Boolean(textFromValue(event.message) || textFromValue(event.item) || textFromValue(event.response) || textFromValue(event));
+}
+
 function mergeUsage(target, usage) {
   target.input_tokens += numberValue(usage.input_tokens);
   target.cached_input_tokens += numberValue(usage.cached_input_tokens);
@@ -126,6 +160,11 @@ function mergeUsage(target, usage) {
 
 function summarizeEvents(events, timing = {}) {
   const models = [...new Set(events.map(modelFromEvent).filter(Boolean))];
+  const eventTimestamps = events.map(eventTimestampMs).filter(Number.isFinite);
+  const firstEventTimestamp = eventTimestamps.length > 0 ? Math.min(...eventTimestamps) : NaN;
+  const firstResponseTimestamp = Number.isFinite(firstEventTimestamp)
+    ? events.map((event) => isResponseTextEvent(event) ? eventTimestampMs(event) : NaN).filter(Number.isFinite).at(0)
+    : NaN;
   const metrics = {
     input_tokens: 0,
     cached_input_tokens: 0,
@@ -133,6 +172,7 @@ function summarizeEvents(events, timing = {}) {
     reasoning_output_tokens: 0,
     total_tokens: 0,
     wall_ms: numberValue(timing.wall_ms),
+    first_response_ms: 0,
     tokens_per_second: 0,
     codex_turn_count: 0,
     jsonl_event_count: events.length,
@@ -142,6 +182,7 @@ function summarizeEvents(events, timing = {}) {
     tool_invocation_count: 0,
     mcp_event_count: 0,
     mcp_invocation_count: 0,
+    plan_event_count: 0,
     file_change_event_count: 0,
     error_event_count: 0,
     event_type_counts: {},
@@ -167,6 +208,7 @@ function summarizeEvents(events, timing = {}) {
     if (classification.isCommand) metrics.command_event_count += 1;
     if (classification.isTool) metrics.tool_event_count += 1;
     if (classification.isMcp) metrics.mcp_event_count += 1;
+    if (classification.isPlan) metrics.plan_event_count += 1;
     if (classification.isCommand && isInvocationEvent(event)) metrics.command_invocation_count += 1;
     if (classification.isTool && isInvocationEvent(event)) metrics.tool_invocation_count += 1;
     if (classification.isMcp && isInvocationEvent(event)) metrics.mcp_invocation_count += 1;
@@ -180,6 +222,9 @@ function summarizeEvents(events, timing = {}) {
 
   if (metrics.wall_ms > 0) {
     metrics.tokens_per_second = Math.round((metrics.output_tokens / (metrics.wall_ms / 1000)) * 1000) / 1000;
+  }
+  if (Number.isFinite(firstEventTimestamp) && Number.isFinite(firstResponseTimestamp)) {
+    metrics.first_response_ms = Math.max(0, Math.round((firstResponseTimestamp - firstEventTimestamp) * 1000) / 1000);
   }
 
   if (metrics.command_event_count > 0 && metrics.command_invocation_count === 0) {
@@ -200,6 +245,9 @@ function summarizeEvents(events, timing = {}) {
   }
   if (events.length > 0 && metrics.models.length === 0) {
     metrics.unavailable_event_fields.push("model");
+  }
+  if (events.length > 0 && !Number.isFinite(firstResponseTimestamp)) {
+    metrics.unavailable_event_fields.push("first_response_latency");
   }
   if (metrics.models.length > 1) {
     metrics.unavailable_event_fields.push("single_model");
