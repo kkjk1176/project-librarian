@@ -262,6 +262,7 @@ function issueDraftMarkdown() {
     const generatedFiles = existingFileList([
         "AGENTS.md",
         "CLAUDE.md",
+        "GEMINI.md",
         "wiki/AGENTS.md",
         "wiki/startup.md",
         "wiki/index.md",
@@ -269,6 +270,7 @@ function issueDraftMarkdown() {
         ".codex/hooks/wiki-session-start.js",
         ".claude/settings.json",
         ".claude/hooks/wiki-session-start.js",
+        ".cursor/rules/project-librarian.mdc",
         ".githooks/prepare-commit-msg",
         ".githooks/wiki-commit-trailers.js",
     ]);
@@ -687,6 +689,7 @@ function runLintMode() {
     const requiredFiles = [
         "AGENTS.md",
         "CLAUDE.md",
+        "GEMINI.md",
         "wiki/AGENTS.md",
         "wiki/startup.md",
         "wiki/index.md",
@@ -705,6 +708,7 @@ function runLintMode() {
         ".codex/hooks.json",
         ".claude/hooks/wiki-session-start.js",
         ".claude/settings.json",
+        ".cursor/rules/project-librarian.mdc",
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))
@@ -735,6 +739,13 @@ function runLintMode() {
         warnings.push("root AGENTS.md should point detailed wiki editing rules to wiki/AGENTS.md");
     if ((0, workspace_1.exists)("CLAUDE.md") && !(0, workspace_1.read)("CLAUDE.md").includes("@AGENTS.md"))
         errors.push("CLAUDE.md should import AGENTS.md for Claude Code compatibility");
+    if ((0, workspace_1.exists)("GEMINI.md") && !(0, workspace_1.read)("GEMINI.md").includes("@AGENTS.md"))
+        errors.push("GEMINI.md should import AGENTS.md for Gemini CLI compatibility");
+    if ((0, workspace_1.exists)(".cursor/rules/project-librarian.mdc")) {
+        const cursorRule = (0, workspace_1.read)(".cursor/rules/project-librarian.mdc");
+        if (!cursorRule.includes("alwaysApply: true") || !cursorRule.includes("@AGENTS.md"))
+            errors.push("Cursor project rule should always apply and reference AGENTS.md");
+    }
     if ((0, workspace_1.exists)("wiki/AGENTS.md") && !(0, workspace_1.read)("wiki/AGENTS.md").includes("Language policy"))
         warnings.push("wiki/AGENTS.md is missing language policy");
     for (const legacyFile of ["wiki/canonical/wiki-operating-model.md", "wiki/canonical/decision-policy.md", "wiki/decisions/wiki-v1-decisions.md"]) {

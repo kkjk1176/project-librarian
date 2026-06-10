@@ -5,7 +5,7 @@ import { hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upser
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
-import { agentsSection, claudeSection, decisionPolicy, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicy, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
 import { deleteIfGenerated, makeExecutable, mkdirp, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 import { withPreservedMarkedSections } from "./wiki-files";
@@ -19,7 +19,7 @@ function codeIndex(): CodeIndexModule {
 function printUsage(): void {
   console.log(`Usage:
   project-librarian [init] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|both]
+  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 
 Options:
   --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
@@ -203,10 +203,13 @@ mkdirp("wiki/meta");
 mkdirp("wiki/sources");
 mkdirp(".codex/hooks");
 mkdirp(".claude/hooks");
+mkdirp(".cursor/rules");
 mkdirp(".githooks");
 
 results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection)]);
 results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
+results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
+results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
 results.push(["wiki/AGENTS.md", upsertMarkedSection("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", wikiAgentsSection)]);
 results.push([".githooks/prepare-commit-msg", writeManaged(".githooks/prepare-commit-msg", gitPrepareCommitMsgHook)]);
 makeExecutable(".githooks/prepare-commit-msg");

@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-canonical
 read_budget: medium
 decision_ref: wiki/decisions/npm-release-policy.md
@@ -42,8 +42,8 @@ Code-proven behavior:
 
 Code-proven behavior:
 
-- `install-skill` copies `SKILL.md`, `dist`, localized READMEs, `LICENSE`, `package.json`, and `agents` into `.codex/skills/project-librarian` and/or `.claude/skills/project-librarian`, depending on scope and agent options; evidence: `src/install-skill.ts`.
-- `install-skill` reports that it only installs reusable skill files and does not create or update `AGENTS.md`, `CLAUDE.md`, `wiki/`, `.codex/hooks.json`, or `.claude/settings.json`; evidence: `src/install-skill.ts` and `tests/smoke.sh`.
+- `install-skill` copies `SKILL.md`, `dist`, localized READMEs, `LICENSE`, `package.json`, and `agents` into `.codex/skills/project-librarian`, `.claude/skills/project-librarian`, `.cursor/skills/project-librarian`, and/or `.gemini/skills/project-librarian`, depending on scope and agent options; evidence: `src/install-skill.ts`.
+- `install-skill` reports that it only installs reusable skill files and does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.codex/hooks.json`, or `.claude/settings.json`; evidence: `src/install-skill.ts` and `tests/smoke.sh`.
 - Localized README Quick Start sections present `install-skill` first and project librarian/update/migration second; evidence: `README.md`, `README.ko.md`, `README.ja.md`, and `README.zh.md`.
-- The skill execution contract resolves an installed local runner first: source repo `node dist/init-project-wiki.js`, project-scoped `.codex` or `.claude` skill copies, then user-scoped skill copies; network `npx`/`npm exec` is only for environments where no local runner exists and registry access is acceptable; evidence: `SKILL.md`.
+- The skill execution contract resolves an installed local runner first: source repo `node dist/init-project-wiki.js`, project-scoped `.codex`, `.claude`, `.cursor`, or `.gemini` skill copies, then user-scoped skill copies; network `npx`/`npm exec` is only for environments where no local runner exists and registry access is acceptable; evidence: `SKILL.md`.
 - If the resolved runner fails, agents must report or fix the real error instead of recreating generated output as a fallback; evidence: `SKILL.md`.

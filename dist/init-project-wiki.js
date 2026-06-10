@@ -15,7 +15,7 @@ function codeIndex() {
 function printUsage() {
     console.log(`Usage:
   project-librarian [init] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|both]
+  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 
 Options:
   --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
@@ -183,9 +183,12 @@ if (migrationState)
 (0, workspace_1.mkdirp)("wiki/sources");
 (0, workspace_1.mkdirp)(".codex/hooks");
 (0, workspace_1.mkdirp)(".claude/hooks");
+(0, workspace_1.mkdirp)(".cursor/rules");
 (0, workspace_1.mkdirp)(".githooks");
 results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", templates_1.agentsSection)]);
 results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
+results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
+results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
 results.push(["wiki/AGENTS.md", (0, workspace_1.upsertMarkedSection)("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", templates_1.wikiAgentsSection)]);
 results.push([".githooks/prepare-commit-msg", (0, workspace_1.writeManaged)(".githooks/prepare-commit-msg", hooks_1.gitPrepareCommitMsgHook)]);
 (0, workspace_1.makeExecutable)(".githooks/prepare-commit-msg");

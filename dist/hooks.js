@@ -253,7 +253,8 @@ function wikiScope(files) {
     else if (file === "wiki/index.md") add("index");
     else if (file.startsWith(".codex/hooks/") || file === ".codex/hooks.json") add("codex-hooks");
     else if (file.startsWith(".claude/hooks/") || file === ".claude/settings.json") add("claude-hooks");
-    else if (file === "AGENTS.md" || file === "CLAUDE.md") add("agents");
+    else if (file.startsWith(".cursor/rules/")) add("cursor-rules");
+    else if (file === "AGENTS.md" || file === "CLAUDE.md" || file === "GEMINI.md") add("agents");
     else if (file.startsWith(".githooks/")) add("git-hooks");
     else if (file.startsWith("tools/project-librarian/")) add("skill");
   }
@@ -266,15 +267,23 @@ function validationTrailers() {
     "tools/project-librarian/dist/init-project-wiki.js",
     path.join(home, ".codex/skills/project-librarian/dist/init-project-wiki.js"),
     path.join(home, ".claude/skills/project-librarian/dist/init-project-wiki.js"),
+    path.join(home, ".cursor/skills/project-librarian/dist/init-project-wiki.js"),
+    path.join(home, ".gemini/skills/project-librarian/dist/init-project-wiki.js"),
   ].find((candidate) => fs.existsSync(candidate));
   const lintOk = Boolean(lintScript) && commandOk("node", [lintScript, "--lint"]);
   const codexSessionHookOk = fs.existsSync(".codex/hooks/wiki-session-start.js") && commandOk("node", [".codex/hooks/wiki-session-start.js"]);
   const claudeSessionHookOk = fs.existsSync(".claude/hooks/wiki-session-start.js") && commandOk("node", [".claude/hooks/wiki-session-start.js"]);
-  if (lintOk && codexSessionHookOk && claudeSessionHookOk) return { tested: "project wiki lint; Codex and Claude wiki session-start hooks", notTested: "none" };
+  const geminiInstructionsOk = fs.existsSync("GEMINI.md") && existingFile("GEMINI.md").includes("@AGENTS.md");
+  const cursorRuleOk = fs.existsSync(".cursor/rules/project-librarian.mdc") && existingFile(".cursor/rules/project-librarian.mdc").includes("@AGENTS.md");
+  if (lintOk && codexSessionHookOk && claudeSessionHookOk && geminiInstructionsOk && cursorRuleOk) {
+    return { tested: "project wiki lint; Codex and Claude wiki session-start hooks; Cursor and Gemini instruction files", notTested: "none" };
+  }
   const gaps = [];
   if (!lintOk) gaps.push("project wiki lint");
   if (!codexSessionHookOk) gaps.push("Codex wiki session-start hook");
   if (!claudeSessionHookOk) gaps.push("Claude wiki session-start hook");
+  if (!cursorRuleOk) gaps.push("Cursor project rule");
+  if (!geminiInstructionsOk) gaps.push("Gemini instructions");
   return { tested: "prepare-commit-msg generated wiki trailers", notTested: gaps.join("; ") || "unknown" };
 }
 
@@ -287,10 +296,12 @@ const wikiFiles = staged.filter((file) => {
   return file.startsWith("wiki/")
     || file === "AGENTS.md"
     || file === "CLAUDE.md"
+    || file === "GEMINI.md"
     || file === ".codex/hooks.json"
     || file.startsWith(".codex/hooks/")
     || file === ".claude/settings.json"
     || file.startsWith(".claude/hooks/")
+    || file.startsWith(".cursor/rules/")
     || file.startsWith(".githooks/")
     || file.startsWith("tools/project-librarian/");
 });

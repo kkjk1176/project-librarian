@@ -5,6 +5,8 @@ export const ignoredDirectories = new Set([
   ".git",
   ".codex",
   ".claude",
+  ".cursor",
+  ".gemini",
   ".project-wiki",
   "node_modules",
   ".next",

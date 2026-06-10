@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-canonical
 read_budget: medium
 decision_ref: none
@@ -33,7 +33,7 @@ Code-proven behavior:
 Code-proven behavior:
 
 - In git repositories, file discovery uses `git ls-files --cached --others --exclude-standard`; evidence: `gitTrackedAndUnignoredFiles` in `src/code-index.ts`.
-- Fallback traversal skips `.git`, `.codex`, `.claude`, `.project-wiki`, `node_modules`, `.next`, `dist`, `build`, `coverage`, `vendor`, `tmp`, and `temp`; evidence: `ignoredDirectories` in `src/code-index-file-policy.ts`.
+- Fallback traversal skips `.git`, `.codex`, `.claude`, `.cursor`, `.gemini`, `.project-wiki`, `node_modules`, `.next`, `dist`, `build`, `coverage`, `vendor`, `tmp`, and `temp`; evidence: `ignoredDirectories` in `src/code-index-file-policy.ts`.
 - `.env*` files are excluded except `.env.example`; obvious sensitive config filenames such as secret, credential, token, private, or key files are also excluded; evidence: `shouldIndexFile` and `fileLanguage` in `src/code-index-file-policy.ts`.
 - Files larger than 1 MiB are not indexed; evidence: `maxIndexedBytes` in `src/code-index-file-policy.ts`.
 

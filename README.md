@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-brightgreen.svg)](https://nodejs.org/)
 [![Code evidence index](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-Compact project memory and code evidence for Codex and Claude Code.
+Compact project memory and code evidence for Codex, Claude Code, Cursor, and Gemini CLI.
 
 Project Librarian creates a repo-local planning wiki, compact startup hooks, and an optional SQLite code evidence index so agents can start with the project plan, route to the right document, and inspect code-backed evidence without repeatedly scanning the whole repository.
 
@@ -22,6 +22,7 @@ Project Librarian gives agents two local sources of truth:
 | `wiki/startup.md` + `wiki/index.md` | A compact session-start summary and router, so only the relevant planning pages are read. |
 | `wiki/canonical/` and `wiki/decisions/` | Current project facts, constraints, risks, package contracts, CLI behavior, and durable decisions. |
 | `.codex/` and `.claude/` hooks | Automatic startup context for Codex and Claude Code without loading the full wiki. |
+| `GEMINI.md` and `.cursor/rules/` | Gemini CLI and Cursor compatibility files that route agents to the same compact wiki-first contract. |
 | `.project-wiki/code-evidence.sqlite` | Regenerable code evidence for files, symbols, imports, routes, ownership, workspace graph, reports, and impact checks. |
 | Diagnostics and migration modes | Link checks, quality checks, migration inboxes, stale-signal reports, and issue drafts when the workflow exposes a problem. |
 
@@ -71,26 +72,28 @@ Claim boundary: token estimates use `ceil(characters / 4)` as a Markdown context
 Use `npx` only for initial skill installation:
 
 ```bash
-npx project-librarian install-skill --scope user --agents both
+npx project-librarian install-skill --scope user --agents all
 ```
 
 Install into the current repository instead:
 
 ```bash
-npx project-librarian install-skill --scope project --agents both
+npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `wiki/`, `.codex/hooks.json`, or `.claude/settings.json`.
+`install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.codex/hooks.json`, or `.claude/settings.json`.
 
 | Situation | Command |
 | --- | --- |
-| Install globally for Codex and Claude Code | `npx project-librarian install-skill --scope user --agents both` |
-| Install in the current repository | `npx project-librarian install-skill --scope project --agents both` |
+| Install globally for all supported agents | `npx project-librarian install-skill --scope user --agents all` |
+| Install in the current repository | `npx project-librarian install-skill --scope project --agents all` |
 | Install only Codex | `npx project-librarian install-skill --agents codex` |
 | Install only Claude Code | `npx project-librarian install-skill --agents claude` |
-| Preview install output | `npx project-librarian install-skill --scope project --agents both --dry-run` |
+| Install only Cursor | `npx project-librarian install-skill --agents cursor` |
+| Install only Gemini CLI | `npx project-librarian install-skill --agents gemini` |
+| Preview install output | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
-`--agents` also accepts comma-separated values such as `codex,claude`. `--scope` accepts `user` or `project`.
+`--agents` also accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent; `both` remains a Codex/Claude compatibility alias. `--scope` accepts `user` or `project`.
 
 ## Agent Runner
 
@@ -100,8 +103,12 @@ After installation, agents should run the installed local copy with `node`, not 
 | --- | --- |
 | Project-scoped Codex skill | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
 | Project-scoped Claude skill | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
+| Project-scoped Cursor skill | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| Project-scoped Gemini skill | `node .gemini/skills/project-librarian/dist/init-project-wiki.js` |
 | User-scoped Codex skill | `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js` |
 | User-scoped Claude skill | `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js` |
+| User-scoped Cursor skill | `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| User-scoped Gemini skill | `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js` |
 
 The examples below use:
 
@@ -158,7 +165,9 @@ Project instruction files:
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `GEMINI.md`
 - `wiki/AGENTS.md`
+- `.cursor/rules/project-librarian.mdc`
 
 Startup hooks:
 
@@ -224,7 +233,7 @@ Use the local runner for agent execution:
 
 ```bash
 $PROJECT_LIBRARIAN [init] [options]
-$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|both]
+$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
 Important options:
@@ -273,7 +282,7 @@ Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.m
 
 This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: keep persistent markdown context close to the work instead of reconstructing project state from long chat history.
 
-Project Librarian adapts that idea into an installable CLI and skill for Codex and Claude Code, with repo-local instructions, compact startup hooks, migration helpers, diagnostics, and optional code evidence.
+Project Librarian adapts that idea into an installable CLI and skill for Codex, Claude Code, Cursor, and Gemini CLI, with repo-local instructions, compact startup hooks, migration helpers, diagnostics, and optional code evidence.
 
 ## License
 

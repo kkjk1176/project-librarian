@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: code-evidence
 read_budget: medium
 decision_ref: none
@@ -37,7 +37,7 @@ Inference:
 | `src/args.ts` | Command and flag parsing, known option validation, required option-value validation, and value extraction. | Exports pure `parseArgs(argv)`, mode booleans, `missingValueOptions`, and `argValue`/`argValues`. |
 | `src/init-project-wiki.ts` | Top-level command routing and bootstrap orchestration. | Calls mode handlers first, then writes wiki, hook, and instruction files. |
 | `src/templates.ts` | Managed markdown templates, metadata header builder, and starter wiki content. | Exports `metadata`, startup/index templates, wiki operating docs, glossary, and starter files. |
-| `src/hooks.ts` | Codex/Claude session hook config, generated startup hook script, git hook scripts, and `core.hooksPath` setup. | Exports `upsertHookConfig`, `upsertClaudeHookConfig`, `hookScript`, and git hook script strings. |
+| `src/hooks.ts` | Codex/Claude session hook config, generated startup hook script, git hook scripts, wiki trailer scoping, and `core.hooksPath` setup. | Exports `upsertHookConfig`, `upsertClaudeHookConfig`, `hookScript`, and git hook script strings. |
 | `src/workspace.ts` | Repository-relative filesystem operations and idempotent writes. | Provides `writeManaged`, `writeStarter`, `upsertMarkedSection`, `deleteIfGenerated`, and git repository checks. |
 | `src/modes.ts` | Query, issue-draft, lint, link-check, quality-check, doctor, refresh-index, inbox capture, and prune-check modes. | Implements lifecycle output, generated setup lint rules, wiki link diagnostics, document quality diagnostics, and problem/side-effect issue draft output. |
 | `src/wiki-files.ts` | Markdown discovery, metadata extraction, wiki link conversion, link extraction, and table parsing helpers including escaped pipe support. | Used by lint, search, refresh index, diagnostics, and migration. |
@@ -46,7 +46,7 @@ Inference:
 | `src/code-index-db.ts` | SQLite runtime loading and database adapter types. | Requires Node 22.13+ because code evidence uses stable `node:sqlite` without experimental flags. |
 | `src/code-index-file-policy.ts` | Code evidence file inclusion policy. | Defines ignored directories, recognized file languages, max indexed bytes, and sensitive config exclusions. |
 | `src/code-index-sql.ts` | Read-only SQL guard for code evidence queries. | Rejects writes, pragmas, and multi-statement input before preparing user-provided SQL. |
-| `src/install-skill.ts` | Copies package files into Codex/Claude skill directories at user or project scope. | Copies `SKILL.md`, `dist`, localized READMEs, package metadata, license, and agents. |
+| `src/install-skill.ts` | Copies package files into Codex, Claude, Cursor, and Gemini skill directories at user or project scope. | Copies `SKILL.md`, `dist`, localized READMEs, package metadata, license, and agents. |
 | `benchmarks/project-metrics.js` | Maintainer benchmark for release evidence and baseline comparison. | Creates large wiki/code fixtures, runs the built CLI, emits benchmark JSON, and can save Markdown release summaries. |
 
 ## Verification Surface

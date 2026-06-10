@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: startup-router
 read_budget: short
 decision_ref: wiki/meta/wiki-ops-v1-decisions.md
@@ -23,28 +23,28 @@ review_trigger: session-start summary, routing, language policy, or open project
 - [[canonical/project-brief]]: product direction, audience, scope, scenarios.
 - [[canonical/open-questions]]: unresolved questions.
 - [[canonical/risks]]: risks and revisit triggers.
-- [[canonical/distribution-and-verification]]: distribution/verification overview.
-- [[canonical/benchmark-and-release-evidence]]: benchmark metrics, release claims, baseline deltas.
+- [[canonical/distribution-and-verification]]: distribution/verification.
 
 ## Project State
 
-- Product: npm CLI source package `project-librarian`; source in `src/`, committed runtime in `dist/`.
+- Product: npm CLI `project-librarian`; source in `src/`, runtime in `dist/`.
 - Rename release: source `project-librarian@0.2.0`; previous published package `project-wiki-bootstrap@0.1.2`.
 - GitHub remote is `kkjk1176/project-librarian`; npm name was available, but first publish attempt failed with npm `E404` on PUT.
 - Problem: token-efficient planning wiki with compact routing for small repos, large projects, and monorepos.
-- Users: Codex/Claude Code developers and teams, including large-repo teams.
-- Scenario: bootstrap/update `./wiki`, agent instructions, hooks, diagnostics, scoped routing, optional code evidence.
+- Users: Codex, Claude Code, Cursor, Gemini CLI developers/teams.
+- Scenario: bootstrap/update `./wiki`, agent instructions, hooks/rules, diagnostics, scoped routing, optional code evidence.
 - Success: idempotent bootstrap, preservation-first edits, compact hooks, diagnostics, migration copy-risk detection, scoped routing, code evidence.
-- Large-project state: incremental indexing, code reports, Tree-sitter, workspace graph/CODEOWNERS, scoped routing, and v9 benchmarks exist.
-- Measurement: metrics are release evidence; install via `npx`; agents use local `node`; token claims are Markdown context avoided, not actual LLM use.
+- Large-project state: incremental indexing, code reports, Tree-sitter, workspace graph/CODEOWNERS, scoped routing, v9 benchmarks.
+- Measurement: metrics are release evidence; token claims are Markdown context avoided, not actual LLM use.
 - Project content language: Korean unless user/project context changes it.
 
 ## Recent Decisions
 
-- npm publication is official; old name `project-wiki-bootstrap@0.1.2` remains latest until `project-librarian` publishes. See [[decisions/npm-release-policy]].
+- npm publication is official; old name `project-wiki-bootstrap@0.1.2` remains latest until `project-librarian` publishes.
 - Installed skills prefer local `dist/init-project-wiki.js` over network `npx`. See [[decisions/npm-release-policy]].
-- Large projects/monorepos, release-evidence metrics, `--issue-create`, rewrite-not-copy migration, and Node `>=22.13` are adopted. See [[decisions/log]].
-- Product/package/CLI/repository renamed to Project Librarian / `project-librarian` for `0.2.0`. See [[decisions/npm-release-policy]].
+- Large projects/monorepos, release metrics, `--issue-create`, rewrite-not-copy migration, and Node `>=22.13` are adopted. See [[decisions/log]].
+- Product/package/CLI/repo renamed to Project Librarian / `project-librarian` for `0.2.0`. See [[decisions/npm-release-policy]].
+- Cursor/Gemini support uses `.cursor/rules/project-librarian.mdc`, `GEMINI.md`, and `install-skill --agents all`.
 
 ## Wiki Operating Pointers
 
@@ -54,6 +54,6 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 ## Token Discipline
 
-- The Codex and Claude Code session-start hooks inject only this file and `wiki/index.md`.
+- Codex and Claude Code session-start hooks inject only this file and `wiki/index.md`; Cursor and Gemini route through compact instruction/rule files.
 - Detailed files are selected by `wiki/index.md`.
 - Long decision history is not injected wholesale; read only relevant Decision Packs or ADRs.

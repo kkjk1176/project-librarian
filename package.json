@@ -8,6 +8,8 @@
     "agents",
     "claude-code",
     "codex",
+    "cursor",
+    "gemini",
     "llm",
     "project-planning",
     "wiki"
