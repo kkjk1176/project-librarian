@@ -5,10 +5,9 @@ import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTra
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
-import { agentsSection, claudeSection, cursorRule, decisionPolicy, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicy, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
-import { deleteIfGenerated, makeExecutable, mkdirp, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
-import { withPreservedMarkedSections } from "./wiki-files";
+import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 type CodeIndexModule = typeof import("./code-index");
 
@@ -223,7 +222,15 @@ mkdirp(".cursor/rules");
 mkdirp(".gemini/hooks");
 mkdirp(".githooks");
 
-results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection)]);
+// B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
+// so non-interactive `codex exec` (which does not run SessionStart hooks) still
+// gets compact startup context. Routers are starter files written later in this
+// flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
+// template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
+// an existing startup.md fails loudly inside extractStartupTldr (no fallback).
+const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
+const startupTldrForAgents = extractStartupTldr(startupForSync);
+results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection(startupTldrForAgents))]);
 results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
 results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
 results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
@@ -241,13 +248,10 @@ results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
 results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
 results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
 results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
-results.push(["wiki/startup.md", writeManaged("wiki/startup.md", withPreservedMarkedSections("wiki/startup.md", startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
-results.push(["wiki/index.md", writeManaged("wiki/index.md", withPreservedMarkedSections("wiki/index.md", index, [
-  ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],
-  ["<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->"],
-  ["<!-- PROJECT-WIKI-INBOX:START -->", "<!-- PROJECT-WIKI-INBOX:END -->"],
-  ["<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->"],
-]))]);
+// Routers accumulate user-maintained project state after bootstrap, so they are
+// starter files: templates are written only when the file is absent, never rebuilt.
+results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);
+results.push(["wiki/index.md", writeStarter("wiki/index.md", index)]);
 results.push(["wiki/meta/operating-model.md", writeManaged("wiki/meta/operating-model.md", wikiOperatingModel)]);
 results.push(["wiki/meta/decision-policy.md", writeManaged("wiki/meta/decision-policy.md", decisionPolicy)]);
 results.push(["wiki/canonical/wiki-operating-model.md", deleteIfGenerated("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);

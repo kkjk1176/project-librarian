@@ -46,8 +46,6 @@ exports.extractWikiLinks = extractWikiLinks;
 exports.wikiTitleForFile = wikiTitleForFile;
 exports.metadataSummary = metadataSummary;
 exports.stripMarkedSection = stripMarkedSection;
-exports.extractMarkedSection = extractMarkedSection;
-exports.withPreservedMarkedSections = withPreservedMarkedSections;
 exports.hasGlossaryNeedSignal = hasGlossaryNeedSignal;
 exports.hasGlossaryTable = hasGlossaryTable;
 exports.canonicalBodyForLint = canonicalBodyForLint;
@@ -263,25 +261,6 @@ function stripMarkedSection(text, startMarker, endMarker) {
     if (start < 0 || end <= start)
         return text;
     return `${text.slice(0, start).trimEnd()}\n\n${text.slice(end + endMarker.length).trimStart()}`.trim() + "\n";
-}
-function extractMarkedSection(text, startMarker, endMarker) {
-    const start = text.indexOf(startMarker);
-    const end = text.indexOf(endMarker);
-    if (start < 0 || end <= start)
-        return "";
-    return text.slice(start, end + endMarker.length).trim();
-}
-function withPreservedMarkedSections(relativePath, base, markerPairs) {
-    if (!(0, workspace_1.exists)(relativePath))
-        return base;
-    const current = (0, workspace_1.read)(relativePath);
-    const preserved = markerPairs
-        .map(([startMarker, endMarker]) => extractMarkedSection(current, startMarker, endMarker))
-        .filter(Boolean)
-        .filter((section) => !base.includes(section));
-    if (preserved.length === 0)
-        return base;
-    return `${base.trimEnd()}\n\n${preserved.join("\n\n")}\n`;
 }
 function hasGlossaryNeedSignal(text) {
     return /(^|\n)##\s+(Glossary|Terms|Roles|Entities|Data Model|State Model|Permissions|Events|용어|역할|엔티티|상태 모델|권한|이벤트)(\s|$)|`[^`]+`\s*(term|role|state|permission|event|entity|API|DB|UI|용어|역할|상태|권한|이벤트|엔티티)/i.test(text);

@@ -1,8 +1,60 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.starterFiles = exports.decisionPolicy = exports.wikiOperatingModel = exports.inboxIndexBlock = exports.glossaryIndexBlock = exports.glossary = exports.index = exports.startup = exports.metadata = exports.wikiAgentsSection = exports.cursorRule = exports.geminiSection = exports.claudeSection = exports.agentsSection = void 0;
+exports.starterFiles = exports.decisionPolicy = exports.wikiOperatingModel = exports.inboxIndexBlock = exports.glossaryIndexBlock = exports.glossary = exports.index = exports.startup = exports.metadata = exports.wikiAgentsSection = exports.cursorRule = exports.geminiSection = exports.claudeSection = exports.STARTUP_TLDR_MAX_CHARS = exports.startupTldrSyncLabel = exports.wikiTrustContract = void 0;
+exports.extractStartupTldr = extractStartupTldr;
+exports.agentsSection = agentsSection;
 const workspace_1 = require("./workspace");
-exports.agentsSection = `<!-- PROJECT-WIKI-FIRST:START -->
+// B4 (gated on B2, which ships in the same phase): a single-sentence trust
+// contract in the managed AGENTS.md block. It is the substitution mechanism that
+// stops repo-wide re-verification greps; the --doctor router-truth rule (B2)
+// guards against trusting a stale router.
+exports.wikiTrustContract = "Wiki decision documents are authoritative for project decisions: do not re-verify them against the repository unless directly conflicting code evidence appears, since the `--doctor` router-truth rule guards against stale routers.";
+// B1 fallback: label for the auto-synced startup TL;DR sub-block embedded in the
+// managed AGENTS.md marker section. Non-interactive `codex exec` does not run
+// SessionStart hooks (measured 2026-06-10), so AGENTS.md is the only startup
+// context carrier there; the sync stays TL;DR-only per token discipline.
+exports.startupTldrSyncLabel = "Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)";
+// Hard cap on the extracted TL;DR text embedded in AGENTS.md. The startup hook
+// budget is 3500 chars for the full wiki/startup.md; the TL;DR sub-section must
+// stay well under that so the managed block remains token-efficient. 2000 chars is
+// a documented hard bound: it leaves headroom for frontmatter, other sections, and
+// the AGENTS.md surrounding content. Per the no-fallback rule, we NEVER truncate —
+// if the extracted bullets exceed this limit the sync fails loudly so the author
+// knows to trim the TL;DR.
+exports.STARTUP_TLDR_MAX_CHARS = 2000;
+// Extract the `## TL;DR` bullet list from a startup.md body (TL;DR section ONLY —
+// never Recent Decisions or Project State). Returns the `- ` bullet lines between
+// the `## TL;DR` heading and the next `## ` heading. Throws loudly when the
+// startup body has no `## TL;DR` section, that section has no bullets, or the
+// extracted text exceeds STARTUP_TLDR_MAX_CHARS (no fallback, no silent truncation).
+function extractStartupTldr(startupMarkdown) {
+    const match = startupMarkdown.match(/^##\s+TL;DR[^\n]*\n([\s\S]*?)(?=\n##\s|(?![\s\S]))/m);
+    if (!match) {
+        throw new Error("cannot sync startup TL;DR into AGENTS.md: wiki/startup.md has no \"## TL;DR\" section");
+    }
+    const bullets = (match[1] ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trimEnd())
+        .filter((line) => /^\s*-\s+\S/.test(line));
+    if (bullets.length === 0) {
+        throw new Error("cannot sync startup TL;DR into AGENTS.md: the wiki/startup.md \"## TL;DR\" section has no bullet items");
+    }
+    const result = bullets.join("\n");
+    if (result.length > exports.STARTUP_TLDR_MAX_CHARS) {
+        throw new Error(`cannot sync startup TL;DR into AGENTS.md: extracted TL;DR is ${result.length} chars, which exceeds the ${exports.STARTUP_TLDR_MAX_CHARS}-char limit; trim the ## TL;DR section in wiki/startup.md`);
+    }
+    return result;
+}
+// Build the managed AGENTS.md marker section. The startup TL;DR is synced in as a
+// clearly labeled sub-block (B1 fallback) so non-interactive Codex sessions, which
+// never run the SessionStart hook, still receive compact startup context; the
+// trust contract sentence (B4) is appended to the during-conversation rules. Only
+// this marker block changes; user content outside the markers is untouched, and
+// because the section is built deterministically from the current startup TL;DR a
+// re-run with unchanged startup yields the same section ("exists" via
+// upsertMarkedSection).
+function agentsSection(startupTldr) {
+    return `<!-- PROJECT-WIKI-FIRST:START -->
 ## Wiki-First Planning
 
 This project uses \`./wiki\` as the durable project-planning source of truth.
@@ -13,13 +65,19 @@ At the start of every session:
 2. Review \`wiki/index.md\` as the router for which files to read next.
 3. Read detailed \`wiki/canonical/\`, \`wiki/decisions/\`, \`wiki/meta/\`, and \`wiki/sources/\` files on demand only when the current question needs them.
 
+### ${exports.startupTldrSyncLabel}
+
+${startupTldr}
+
 During conversation:
 
 - Update \`./wiki\` in the same turn when project planning content is added, changed, or removed.
 - Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in project wiki canonical or decision docs.
 - Follow \`wiki/AGENTS.md\` for detailed rules when editing files under \`wiki/\`.
 - Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
+- ${exports.wikiTrustContract}
 <!-- PROJECT-WIKI-FIRST:END -->`;
+}
 exports.claudeSection = `<!-- PROJECT-WIKI-CLAUDE:START -->
 # Claude Code Project Instructions
 

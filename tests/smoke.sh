@@ -161,6 +161,22 @@ grep -q "@AGENTS.md" CLAUDE.md
 grep -q "@AGENTS.md" GEMINI.md
 grep -q "alwaysApply: true" .cursor/rules/project-librarian.mdc
 grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
+# B1 fallback: managed AGENTS.md carries the auto-synced startup TL;DR sub-block,
+# and the synced bullets match the startup.md TL;DR (first TL;DR bullet sample).
+grep -q "Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)" AGENTS.md
+grep -q "This project is in an initial planning state unless the canonical wiki says otherwise." AGENTS.md
+# B4 trust contract: single authoritative-wiki sentence, gated on B2 (shipped together).
+grep -q "Wiki decision documents are authoritative for project decisions" AGENTS.md
+grep -q -- "--doctor\` router-truth rule guards against stale routers" AGENTS.md
+# B3: SessionStart hook payload carries the injected-context marker and no-duplicate-read instruction.
+grep -q "ALREADY included" hook.json
+grep -q "Do not re-read these two files this session" hook.json
+grep -q "ALREADY included" claude-hook.json
+grep -q "ALREADY included" cursor-hook.json
+grep -q "ALREADY included" gemini-hook.json
+# B3 budgets: startup/index file budgets are unchanged by the marker text.
+grep -q '"wiki/startup.md", 3500' .codex/hooks/wiki-session-start.js
+grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
@@ -306,12 +322,29 @@ grep -q "0 warnings" quality-check.log
 node "$CLI" --doctor > doctor.log
 grep -q "Project wiki link-check" doctor.log
 grep -q "Project wiki quality-check" doctor.log
+grep -q "Project wiki router-truth check" doctor.log
 grep -q "Project wiki lint" doctor.log
+# B2 router-truth rule: a fresh bootstrap wiki (log has no dated entry) passes the rule.
+if grep -q "router-truth-contradiction" doctor.log; then
+  echo "expected fresh bootstrap to pass the router-truth rule" >&2
+  exit 1
+fi
 if node "$CLI" --fix > bad-fix.log 2>&1; then
   echo "expected --fix without --doctor to fail" >&2
   exit 1
 fi
 grep -q -- "--fix is only supported with --doctor" bad-fix.log
+# B2 router-truth rule: a dated decision-log entry while startup/recent still say
+# "None yet." is an error-level contradiction that fails --doctor and names both sides.
+node -e 'const fs=require("fs"); const f="wiki/decisions/log.md"; fs.writeFileSync(f, fs.readFileSync(f,"utf8").replace("No project decisions yet.", "- 2026-06-10 | metrics | benchmark evidence policy adopted | canonical: [[canonical/project-brief]]"));'
+if node "$CLI" --doctor > doctor-router-truth.log 2>&1; then
+  echo "expected --doctor to fail on a router-truth contradiction" >&2
+  exit 1
+fi
+grep -q "router-truth-contradiction" doctor-router-truth.log
+grep -q "wiki/decisions/recent.md" doctor-router-truth.log
+grep -q "wiki/startup.md" doctor-router-truth.log
+grep -q "wiki/decisions/log.md holds a dated decision entry" doctor-router-truth.log
 cat >> wiki/canonical/project-brief.md <<'EOF'
 
 Broken route probe: [[canonical/missing-page]]

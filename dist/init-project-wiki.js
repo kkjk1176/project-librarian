@@ -8,7 +8,6 @@ const modes_1 = require("./modes");
 const migration_1 = require("./migration");
 const templates_1 = require("./templates");
 const workspace_1 = require("./workspace");
-const wiki_files_1 = require("./wiki-files");
 function codeIndex() {
     return require("./code-index");
 }
@@ -202,7 +201,15 @@ if (migrationState)
 (0, workspace_1.mkdirp)(".cursor/rules");
 (0, workspace_1.mkdirp)(".gemini/hooks");
 (0, workspace_1.mkdirp)(".githooks");
-results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", templates_1.agentsSection)]);
+// B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
+// so non-interactive `codex exec` (which does not run SessionStart hooks) still
+// gets compact startup context. Routers are starter files written later in this
+// flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
+// template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
+// an existing startup.md fails loudly inside extractStartupTldr (no fallback).
+const startupForSync = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md") : templates_1.startup;
+const startupTldrForAgents = (0, templates_1.extractStartupTldr)(startupForSync);
+results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", (0, templates_1.agentsSection)(startupTldrForAgents))]);
 results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
 results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
 results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
@@ -220,13 +227,10 @@ results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
 results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
 results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
 results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-results.push(["wiki/startup.md", (0, workspace_1.writeManaged)("wiki/startup.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/startup.md", templates_1.startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
-results.push(["wiki/index.md", (0, workspace_1.writeManaged)("wiki/index.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/index.md", templates_1.index, [
-        ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],
-        ["<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->"],
-        ["<!-- PROJECT-WIKI-INBOX:START -->", "<!-- PROJECT-WIKI-INBOX:END -->"],
-        ["<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->"],
-    ]))]);
+// Routers accumulate user-maintained project state after bootstrap, so they are
+// starter files: templates are written only when the file is absent, never rebuilt.
+results.push(["wiki/startup.md", (0, workspace_1.writeStarter)("wiki/startup.md", templates_1.startup)]);
+results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
 results.push(["wiki/meta/operating-model.md", (0, workspace_1.writeManaged)("wiki/meta/operating-model.md", templates_1.wikiOperatingModel)]);
 results.push(["wiki/meta/decision-policy.md", (0, workspace_1.writeManaged)("wiki/meta/decision-policy.md", templates_1.decisionPolicy)]);
 results.push(["wiki/canonical/wiki-operating-model.md", (0, workspace_1.deleteIfGenerated)("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);

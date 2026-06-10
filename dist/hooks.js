@@ -183,6 +183,8 @@ const sections = files
 
 const additionalContext = [
   "[Project wiki startup review]",
+  "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
+  "Do not re-read these two files this session; route any further reads through the index.",
   "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
   "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",
