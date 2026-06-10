@@ -183,6 +183,7 @@ if (migrationState)
 (0, workspace_1.mkdirp)("wiki/sources");
 (0, workspace_1.mkdirp)(".codex/hooks");
 (0, workspace_1.mkdirp)(".claude/hooks");
+(0, workspace_1.mkdirp)(".cursor/hooks");
 (0, workspace_1.mkdirp)(".cursor/rules");
 (0, workspace_1.mkdirp)(".githooks");
 results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", templates_1.agentsSection)]);
@@ -199,6 +200,8 @@ results.push([".codex/hooks.json", (0, hooks_1.upsertHookConfig)()]);
 results.push([".codex/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".codex/hooks/wiki-session-start.js", hooks_1.hookScript)]);
 results.push([".claude/settings.json", (0, hooks_1.upsertClaudeHookConfig)()]);
 results.push([".claude/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".claude/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
+results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
 results.push(["wiki/startup.md", (0, workspace_1.writeManaged)("wiki/startup.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/startup.md", templates_1.startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
 results.push(["wiki/index.md", (0, workspace_1.writeManaged)("wiki/index.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/index.md", templates_1.index, [
         ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],

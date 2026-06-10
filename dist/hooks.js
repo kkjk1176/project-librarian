@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gitWikiCommitTrailersScript = exports.gitPrepareCommitMsgHook = exports.hookScript = void 0;
+exports.gitWikiCommitTrailersScript = exports.gitPrepareCommitMsgHook = exports.cursorHookScript = exports.hookScript = void 0;
 exports.upsertGitHooksPath = upsertGitHooksPath;
 exports.upsertHookConfig = upsertHookConfig;
 exports.upsertClaudeHookConfig = upsertClaudeHookConfig;
+exports.upsertCursorHookConfig = upsertCursorHookConfig;
 const childProcess = __importStar(require("node:child_process"));
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
@@ -109,7 +110,30 @@ function upsertHookConfig() {
 function upsertClaudeHookConfig() {
     return upsertSessionStartHookConfig(".claude/settings.json", "node .claude/hooks/wiki-session-start.js", ["startup", "resume", "clear", "compact"]);
 }
-exports.hookScript = `#!/usr/bin/env node
+function isCursorHookCommand(value) {
+    return Boolean(value) && typeof value === "object" && typeof value.command === "string";
+}
+function upsertCursorHookConfig() {
+    const relativePath = ".cursor/hooks.json";
+    const command = "node .cursor/hooks/wiki-session-start.js";
+    const config = (0, workspace_1.parseJson)(relativePath, { version: 1, hooks: {} });
+    if (typeof config.version !== "number")
+        config.version = 1;
+    if (!config.hooks || typeof config.hooks !== "object" || Array.isArray(config.hooks)) {
+        config.hooks = {};
+    }
+    const existing = Array.isArray(config.hooks.sessionStart) ? config.hooks.sessionStart.filter(isCursorHookCommand) : [];
+    config.hooks.sessionStart = [
+        ...existing.filter((hook) => hook.command !== command),
+        { command },
+    ];
+    const next = `${JSON.stringify(config, null, 2)}\n`;
+    const previous = (0, workspace_1.exists)(relativePath) ? (0, workspace_1.read)(relativePath) : "";
+    (0, workspace_1.write)(relativePath, next);
+    return previous === next ? "exists" : previous ? "updated" : "created";
+}
+function buildStartupHookScript(output) {
+    return `#!/usr/bin/env node
 
 const fs = require("fs");
 const path = require("path");
@@ -164,10 +188,15 @@ const additionalContext = [
 ].join("\\n");
 
 process.stdout.write(JSON.stringify({
-  continue: true,
-  hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
+${output}
 }));
 `;
+}
+exports.hookScript = buildStartupHookScript(`  continue: true,
+  hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
+`);
+exports.cursorHookScript = buildStartupHookScript(`  additional_context: additionalContext,
+`);
 exports.gitPrepareCommitMsgHook = `#!/bin/sh
 MSG_FILE="$1"
 SOURCE="$2"
@@ -253,6 +282,7 @@ function wikiScope(files) {
     else if (file === "wiki/index.md") add("index");
     else if (file.startsWith(".codex/hooks/") || file === ".codex/hooks.json") add("codex-hooks");
     else if (file.startsWith(".claude/hooks/") || file === ".claude/settings.json") add("claude-hooks");
+    else if (file.startsWith(".cursor/hooks/") || file === ".cursor/hooks.json") add("cursor-hooks");
     else if (file.startsWith(".cursor/rules/")) add("cursor-rules");
     else if (file === "AGENTS.md" || file === "CLAUDE.md" || file === "GEMINI.md") add("agents");
     else if (file.startsWith(".githooks/")) add("git-hooks");
@@ -273,15 +303,19 @@ function validationTrailers() {
   const lintOk = Boolean(lintScript) && commandOk("node", [lintScript, "--lint"]);
   const codexSessionHookOk = fs.existsSync(".codex/hooks/wiki-session-start.js") && commandOk("node", [".codex/hooks/wiki-session-start.js"]);
   const claudeSessionHookOk = fs.existsSync(".claude/hooks/wiki-session-start.js") && commandOk("node", [".claude/hooks/wiki-session-start.js"]);
+  const cursorSessionHookOk = fs.existsSync(".cursor/hooks/wiki-session-start.js") && commandOk("node", [".cursor/hooks/wiki-session-start.js"]);
+  const cursorHookConfigOk = fs.existsSync(".cursor/hooks.json") && existingFile(".cursor/hooks.json").includes("node .cursor/hooks/wiki-session-start.js");
   const geminiInstructionsOk = fs.existsSync("GEMINI.md") && existingFile("GEMINI.md").includes("@AGENTS.md");
   const cursorRuleOk = fs.existsSync(".cursor/rules/project-librarian.mdc") && existingFile(".cursor/rules/project-librarian.mdc").includes("@AGENTS.md");
-  if (lintOk && codexSessionHookOk && claudeSessionHookOk && geminiInstructionsOk && cursorRuleOk) {
-    return { tested: "project wiki lint; Codex and Claude wiki session-start hooks; Cursor and Gemini instruction files", notTested: "none" };
+  if (lintOk && codexSessionHookOk && claudeSessionHookOk && cursorSessionHookOk && cursorHookConfigOk && geminiInstructionsOk && cursorRuleOk) {
+    return { tested: "project wiki lint; Codex, Claude, and Cursor wiki session-start hooks; Cursor and Gemini instruction files", notTested: "none" };
   }
   const gaps = [];
   if (!lintOk) gaps.push("project wiki lint");
   if (!codexSessionHookOk) gaps.push("Codex wiki session-start hook");
   if (!claudeSessionHookOk) gaps.push("Claude wiki session-start hook");
+  if (!cursorSessionHookOk) gaps.push("Cursor wiki session-start hook");
+  if (!cursorHookConfigOk) gaps.push("Cursor hook config");
   if (!cursorRuleOk) gaps.push("Cursor project rule");
   if (!geminiInstructionsOk) gaps.push("Gemini instructions");
   return { tested: "prepare-commit-msg generated wiki trailers", notTested: gaps.join("; ") || "unknown" };

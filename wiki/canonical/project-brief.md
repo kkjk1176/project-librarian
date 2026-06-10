@@ -20,13 +20,13 @@ review_trigger: product direction, audience, scope, success criteria, or languag
 
 ## Current State
 
-코드 기준 현재 제품은 `project-librarian` CLI다. 기본 실행은 repo-local `wiki/`와 agent instruction files, Codex/Claude session-start hooks, Cursor/Gemini compatibility files, optional git hook 파일을 생성하거나 업데이트한다.
+코드 기준 현재 제품은 `project-librarian` CLI다. 기본 실행은 repo-local `wiki/`와 agent instruction files, Codex/Claude/Cursor session-start hooks, Gemini context instruction file, optional git hook 파일을 생성하거나 업데이트한다.
 
 Code-proven facts:
 
 - npm binary는 `project-librarian`이고 `dist/init-project-wiki.js`를 실행한다. Evidence: `package.json`.
 - source of truth는 TypeScript 파일이 있는 `src/`이며, 배포 실행물은 `dist/`에 커밋된다. Evidence: `README.md`, `package.json`.
-- default bootstrap은 wiki directories, root instructions, Codex/Claude hook config, session hook scripts, Cursor/Gemini compatibility files, git hook scripts, starter wiki pages를 만든다. Evidence: `src/init-project-wiki.ts`.
+- default bootstrap은 wiki directories, root instructions, Codex/Claude/Cursor hook config, session hook scripts, Cursor rule, Gemini instruction file, git hook scripts, starter wiki pages를 만든다. Evidence: `src/init-project-wiki.ts`.
 - 생성된 session-start hook은 `wiki/startup.md`와 `wiki/index.md`만 compact context로 주입한다. Evidence: `src/hooks.ts`.
 - CLI는 bootstrap, migration, lint, link-check, quality-check, doctor, query, issue-draft, refresh-index, capture-inbox, prune-check, migration review, glossary-init, skill install, code evidence index/query/report/status/files/symbol search 모드를 제공한다. Evidence: `src/args.ts`, `src/init-project-wiki.ts`.
 

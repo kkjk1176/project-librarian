@@ -15,6 +15,8 @@ export const standardWikiFiles: Set<string> = new Set([
   ".claude/settings.json",
   ".claude/hooks/wiki-session-start.js",
   ".cursor/rules/project-librarian.mdc",
+  ".cursor/hooks.json",
+  ".cursor/hooks/wiki-session-start.js",
   "wiki/README.md",
   "wiki/startup.md",
   "wiki/index.md",

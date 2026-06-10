@@ -19,7 +19,7 @@ review_trigger: project risks are added, mitigated, or resolved
 | Risk | Impact | Mitigation | Revisit Trigger |
 | --- | --- | --- | --- |
 | `src/` and committed `dist/` can drift. | npm binary and skill installation may execute stale compiled code. | Run `npm run build` and `npm test` before release/commit review. | Any change under `src/`. |
-| Hook config and compatibility instruction updates must preserve unmanaged user content. | Existing project hooks or agent instructions could be removed if merge logic regresses. | Preserve smoke coverage for custom Codex/Claude hook entries and marker-bounded Claude/Gemini instruction files. | Any change to `src/hooks.ts`, `src/templates.ts`, or generated instruction files. |
+| Hook config and compatibility instruction updates must preserve unmanaged user content. | Existing project hooks or agent instructions could be removed if merge logic regresses. | Preserve smoke coverage for custom Codex/Claude/Cursor hook entries and marker-bounded Claude/Gemini instruction files. | Any change to `src/hooks.ts`, `src/templates.ts`, or generated instruction files. |
 | Migration classification is heuristic. | Legacy docs can be routed to imperfect inbox categories. | Keep migration output as review inboxes, not canonical truth. | Changes to `classifyMarkdown` or migration workflow. |
 
 ## Resolved

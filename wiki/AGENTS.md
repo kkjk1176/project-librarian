@@ -1,7 +1,7 @@
 <!-- PROJECT-WIKI-INTERNAL:START -->
 ## Wiki Internal Rules
 
-This file applies to `./wiki` and its children. Root `AGENTS.md` owns the project-wide wiki-first contract. Root `CLAUDE.md` imports `AGENTS.md` for Claude Code compatibility. This file owns detailed wiki editing rules.
+This file applies to `./wiki` and its children. Root `AGENTS.md` owns the project-wide wiki-first contract. Root `CLAUDE.md` and `GEMINI.md` import `AGENTS.md` for agent compatibility. This file owns detailed wiki editing rules.
 
 Language policy:
 
@@ -22,7 +22,7 @@ Storage boundaries:
 - `meta/` contains wiki operating rules, decision policy, bootstrap, lint, hook, and migration decisions.
 - `sources/` contains external reference summaries and source notes.
 - `inbox/` and migration inbox files contain candidates, not canonical truth.
-- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in `canonical/` or `decisions/`; use root `AGENTS.md`, `CLAUDE.md`, hooks, or skills instead.
+- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in `canonical/` or `decisions/`; use root `AGENTS.md`, compatibility instruction files, hooks, rules, or skills instead.
 - During migration review, do not copy legacy markdown files directly into `canonical/`, `decisions/`, or `sources/`. Rewrite only the useful project meaning, cite current-project evidence when possible, and keep unresolved or ambiguous material in migration inboxes.
 
 Update rules:

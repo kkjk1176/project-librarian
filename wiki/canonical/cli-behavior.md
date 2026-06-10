@@ -21,8 +21,8 @@ review_trigger: CLI commands, generated files, lifecycle modes, hook behavior, o
 
 Code-proven behavior:
 
-- Running the default command creates `wiki/canonical`, `wiki/decisions`, `wiki/inbox`, `wiki/meta`, `wiki/sources`, `.codex/hooks`, `.claude/hooks`, `.cursor/rules`, and `.githooks`; evidence: `src/init-project-wiki.ts`.
-- It writes or updates `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/AGENTS.md`, `.cursor/rules/project-librarian.mdc`, `.codex/hooks.json`, `.claude/settings.json`, session-start hook scripts, git hook scripts, `wiki/startup.md`, `wiki/index.md`, wiki meta pages, and starter canonical/decision/source pages; evidence: `src/init-project-wiki.ts`, `src/templates.ts`, `src/hooks.ts`.
+- Running the default command creates `wiki/canonical`, `wiki/decisions`, `wiki/inbox`, `wiki/meta`, `wiki/sources`, `.codex/hooks`, `.claude/hooks`, `.cursor/hooks`, `.cursor/rules`, and `.githooks`; evidence: `src/init-project-wiki.ts`.
+- It writes or updates `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/AGENTS.md`, `.cursor/rules/project-librarian.mdc`, `.cursor/hooks.json`, `.codex/hooks.json`, `.claude/settings.json`, session-start hook scripts, git hook scripts, `wiki/startup.md`, `wiki/index.md`, wiki meta pages, and starter canonical/decision/source pages; evidence: `src/init-project-wiki.ts`, `src/templates.ts`, `src/hooks.ts`.
 - Existing `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `wiki/AGENTS.md` content is preserved outside managed marker sections; evidence: `upsertMarkedSection` in `src/workspace.ts`.
 - Existing starter wiki files with metadata headers are treated as already owned by the project and are not overwritten; evidence: `writeStarter` in `src/workspace.ts`.
 
@@ -30,7 +30,7 @@ Code-proven behavior:
 
 - [[canonical/cli-lifecycle-modes]]: lint, link-check, quality-check, doctor, query, refresh-index, inbox, prune, glossary, and skill install modes.
 - [[canonical/cli-issue-reporting]]: issue-draft and issue-create contracts.
-- [[canonical/cli-hooks-and-migration]]: Codex/Claude hook behavior, Cursor/Gemini instruction behavior, git hook behavior, and migration behavior.
+- [[canonical/cli-hooks-and-migration]]: Codex/Claude/Cursor hook behavior, Cursor/Gemini instruction behavior, git hook behavior, and migration behavior.
 - [[canonical/cli-code-evidence-modes]]: CLI-facing code evidence mode surface.
 
 ## Non-Goals And Boundaries

@@ -271,6 +271,8 @@ function issueDraftMarkdown() {
         ".claude/settings.json",
         ".claude/hooks/wiki-session-start.js",
         ".cursor/rules/project-librarian.mdc",
+        ".cursor/hooks.json",
+        ".cursor/hooks/wiki-session-start.js",
         ".githooks/prepare-commit-msg",
         ".githooks/wiki-commit-trailers.js",
     ]);
@@ -709,6 +711,8 @@ function runLintMode() {
         ".claude/hooks/wiki-session-start.js",
         ".claude/settings.json",
         ".cursor/rules/project-librarian.mdc",
+        ".cursor/hooks/wiki-session-start.js",
+        ".cursor/hooks.json",
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))
@@ -762,6 +766,11 @@ function runLintMode() {
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
             errors.push("Claude startup hook does not clearly inject only startup/index with expected budgets");
     }
+    if ((0, workspace_1.exists)(".cursor/hooks/wiki-session-start.js")) {
+        const hook = (0, workspace_1.read)(".cursor/hooks/wiki-session-start.js");
+        if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("additional_context"))
+            errors.push("Cursor startup hook does not clearly inject startup/index through additional_context");
+    }
     if ((0, workspace_1.exists)(".claude/settings.json")) {
         const command = "node .claude/hooks/wiki-session-start.js";
         try {
@@ -776,6 +785,23 @@ function runLintMode() {
             for (const matcher of ["startup", "resume", "clear", "compact"]) {
                 if (!configuredMatchers.has(matcher))
                     errors.push(`.claude/settings.json is missing the project wiki SessionStart hook for ${matcher}`);
+            }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push(message);
+        }
+    }
+    if ((0, workspace_1.exists)(".cursor/hooks.json")) {
+        const command = "node .cursor/hooks/wiki-session-start.js";
+        try {
+            const settings = (0, workspace_1.parseJson)(".cursor/hooks.json", { version: 1, hooks: {} });
+            if (!settings.hooks || typeof settings.hooks !== "object" || Array.isArray(settings.hooks)) {
+                throw new Error(".cursor/hooks.json has invalid hooks object");
+            }
+            const sessionStart = settings.hooks.sessionStart ?? [];
+            if (!Array.isArray(sessionStart) || !sessionStart.some((hook) => hook?.command === command)) {
+                errors.push(".cursor/hooks.json is missing the project wiki sessionStart hook");
             }
         }
         catch (error) {

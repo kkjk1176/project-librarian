@@ -21,8 +21,8 @@ Project Librarian은 에이전트에게 두 가지 로컬 정본을 제공합니
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | 짧은 세션 시작 요약과 라우터. 필요한 계획 페이지만 읽습니다. |
 | `wiki/canonical/` 및 `wiki/decisions/` | 현재 프로젝트 사실, 제약, 리스크, 패키지 계약, CLI 동작, 지속되는 결정. |
-| `.codex/` 및 `.claude/` 훅 | 전체 위키를 로드하지 않는 Codex/Claude Code 시작 컨텍스트. |
-| `GEMINI.md` 및 `.cursor/rules/` | Gemini CLI와 Cursor가 같은 compact wiki-first 계약으로 진입하게 하는 호환 파일. |
+| `.codex/`, `.claude/`, `.cursor/` 훅 | 전체 위키를 로드하지 않는 Codex/Claude Code/Cursor 시작 컨텍스트. |
+| `GEMINI.md` 및 `.cursor/rules/` | Gemini CLI와 Cursor가 같은 compact wiki-first 계약으로 진입하게 하는 instruction 파일. |
 | `.project-wiki/code-evidence.sqlite` | 파일, 심볼, import, route, 소유권, 작업공간 그래프, 보고서, 영향 확인을 위한 재생성 가능한 코드 근거. |
 | 진단 및 마이그레이션 모드 | 링크 확인, 품질 확인, 마이그레이션 수신함, 오래된 신호 보고서, 작업 흐름 문제 발견 시 이슈 초안. |
 
@@ -81,7 +81,7 @@ npx project-librarian install-skill --scope user --agents all
 npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill`은 재사용 가능한 skill 파일만 복사합니다. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다.
+`install-skill`은 재사용 가능한 skill 파일만 복사합니다. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다.
 
 | 상황 | 명령 |
 | --- | --- |
@@ -170,6 +170,8 @@ $PROJECT_LIBRARIAN
 - `.codex/hooks/wiki-session-start.js`
 - `.claude/settings.json`
 - `.claude/hooks/wiki-session-start.js`
+- `.cursor/hooks.json`
+- `.cursor/hooks/wiki-session-start.js`
 - `.githooks/prepare-commit-msg`
 - `.githooks/wiki-commit-trailers.js`
 - `wiki/canonical/`, `wiki/decisions/`, `wiki/inbox/`, `wiki/meta/`, `wiki/sources/`, `wiki/migration/`

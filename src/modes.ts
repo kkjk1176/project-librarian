@@ -3,7 +3,7 @@ import * as childProcess from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm } from "./args";
-import type { FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiLinkReference } from "./types";
+import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiLinkReference } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata, starterFiles } from "./templates";
 import { canonicalBodyForLint, extractWikiLinks, hasGlossaryNeedSignal, hasGlossaryTable, metadataSummary, stripMarkedSection, walkMarkdownFiles, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
@@ -227,6 +227,8 @@ function issueDraftMarkdown(): string {
     ".claude/settings.json",
     ".claude/hooks/wiki-session-start.js",
     ".cursor/rules/project-librarian.mdc",
+    ".cursor/hooks.json",
+    ".cursor/hooks/wiki-session-start.js",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
   ]);
@@ -651,6 +653,8 @@ export function runLintMode(): void {
     ".claude/hooks/wiki-session-start.js",
     ".claude/settings.json",
     ".cursor/rules/project-librarian.mdc",
+    ".cursor/hooks/wiki-session-start.js",
+    ".cursor/hooks.json",
   ];
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);
@@ -691,6 +695,10 @@ export function runLintMode(): void {
     const hook = read(".claude/hooks/wiki-session-start.js");
     if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]')) errors.push("Claude startup hook does not clearly inject only startup/index with expected budgets");
   }
+  if (exists(".cursor/hooks/wiki-session-start.js")) {
+    const hook = read(".cursor/hooks/wiki-session-start.js");
+    if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("additional_context")) errors.push("Cursor startup hook does not clearly inject startup/index through additional_context");
+  }
   if (exists(".claude/settings.json")) {
     const command = "node .claude/hooks/wiki-session-start.js";
     try {
@@ -704,6 +712,22 @@ export function runLintMode(): void {
         .map((entry) => entry.matcher));
       for (const matcher of ["startup", "resume", "clear", "compact"]) {
         if (!configuredMatchers.has(matcher)) errors.push(`.claude/settings.json is missing the project wiki SessionStart hook for ${matcher}`);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+    }
+  }
+  if (exists(".cursor/hooks.json")) {
+    const command = "node .cursor/hooks/wiki-session-start.js";
+    try {
+      const settings = parseJson<CursorHookConfig>(".cursor/hooks.json", { version: 1, hooks: {} });
+      if (!settings.hooks || typeof settings.hooks !== "object" || Array.isArray(settings.hooks)) {
+        throw new Error(".cursor/hooks.json has invalid hooks object");
+      }
+      const sessionStart = settings.hooks.sessionStart ?? [];
+      if (!Array.isArray(sessionStart) || !sessionStart.some((hook) => hook?.command === command)) {
+        errors.push(".cursor/hooks.json is missing the project wiki sessionStart hook");
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

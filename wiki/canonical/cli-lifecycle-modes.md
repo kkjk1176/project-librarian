@@ -44,5 +44,5 @@ Code-proven behavior:
 Code-proven behavior:
 
 - `install-skill` copies the package into Codex, Claude, Cursor, and/or Gemini skill directories at user or project scope; evidence: `src/install-skill.ts`.
-- `install-skill` reports that it only installs reusable skill files and does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.codex/hooks.json`, or `.claude/settings.json`; evidence: `src/install-skill.ts` and `tests/smoke.sh`.
+- `install-skill` reports that it only installs reusable skill files and does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.codex/hooks.json`, or `.claude/settings.json`; evidence: `src/install-skill.ts` and `tests/smoke.sh`.
 - `--agents all` targets all supported agents, comma-separated values can target explicit subsets, and `--agents both` remains a Codex/Claude compatibility alias; evidence: `installAgents` in `src/install-skill.ts`.

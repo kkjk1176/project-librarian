@@ -41,6 +41,20 @@ export interface HookConfig {
   [key: string]: unknown;
 }
 
+export interface CursorHookCommand {
+  command: string;
+  [key: string]: unknown;
+}
+
+export interface CursorHookConfig {
+  version?: number;
+  hooks: {
+    sessionStart?: CursorHookCommand[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface MarkdownFileInfo {
   path: string;
   basePath: string;
