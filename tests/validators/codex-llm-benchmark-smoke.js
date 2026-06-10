@@ -118,13 +118,14 @@ function validateReport(reportPath) {
     assert(Number.isInteger(scenario.passed_run_count));
     assert(Number.isInteger(scenario.claimable_run_count));
     assert(Array.isArray(scenario.models));
-    if (scenario.models.length === 1) assert.equal(scenario.model, scenario.models[0]);
-    if (scenario.models.length !== 1) assert.equal(scenario.model, null);
+    assert(Object.hasOwn(scenario, "requested_model"));
+    assert(Object.hasOwn(scenario, "model_source"));
 
     let passedRunCount = 0;
     const runModels = new Set();
     for (const [index, run] of scenario.runs.entries()) {
       assert(run.metrics);
+      assert.equal(run.requested_model, scenario.requested_model);
       const rawPath = path.resolve(root, run.raw_jsonl_path);
       assert(fs.existsSync(rawPath), `missing raw JSONL: ${run.raw_jsonl_path}`);
       const rawMetrics = summarizeJsonl(fs.readFileSync(rawPath, "utf8"), { wall_ms: run.metrics.wall_ms });
@@ -153,7 +154,12 @@ function validateReport(reportPath) {
     }
 
     const actualClaimableRuns = claimableRuns(scenario.runs);
-    assert.deepEqual(scenario.models, [...runModels]);
+    const observedModels = [...runModels];
+    const expectedScenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+    assert.deepEqual(scenario.models, expectedScenarioModels);
+    if (scenario.models.length === 1) assert.equal(scenario.model, scenario.models[0]);
+    if (scenario.models.length !== 1) assert.equal(scenario.model, null);
+    assert.equal(scenario.model_source, observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null));
     assert.equal(scenario.passed_run_count, passedRunCount);
     assert.equal(scenario.claimable_run_count, actualClaimableRuns.length);
     assert.deepEqual(scenario.median_all_runs, medianMetrics(scenario.runs));
@@ -225,6 +231,21 @@ function validateMeasurementClaimability() {
     }), { wall_ms: 1000 }),
   });
   assert.equal(claimable.status, "claimable");
+
+  const claimableWithRequestedModel = measurementStatus({
+    correctness,
+    requested_model: "gpt-test",
+    metrics: summarizeJsonl(JSON.stringify({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        total_tokens: 15,
+      },
+      message: sampleFinalText,
+    }), { wall_ms: 1000 }),
+  });
+  assert.equal(claimableWithRequestedModel.status, "claimable");
 }
 
 function validateCliArgumentFailures() {

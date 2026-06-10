@@ -26,7 +26,7 @@ const conditions = ["with_project_librarian", "without_project_librarian"];
 
 const taskFamilies = {
   onboarding: "Summarize what this project is, current risks, and where to read next. Cite the files you used.",
-  decision_lookup: "Find the latest decision about benchmark evidence policy. Cite the source file.",
+  decision_lookup: "Find the latest decision about benchmark evidence policy, including the decision date. Cite the source file.",
   code_impact: "If benchmark report schema changes, what files or areas are likely impacted? Cite evidence.",
   release_policy: "What checks are required before publishing or making benchmark claims? Cite the policy.",
   change_location: "Where should an agent edit to implement a Codex LLM benchmark runner? Do not modify files.",
@@ -138,11 +138,14 @@ function promptFor(taskFamily, scale, condition) {
   ].join("\n");
 }
 
-function codexCommand(prompt) {
-  return ["codex", "exec", "--json", "--ephemeral", "--sandbox", "read-only", prompt];
+function codexCommand(prompt, requestedModel = "") {
+  const command = ["codex", "exec", "--json", "--ephemeral", "--sandbox", "read-only", "--skip-git-repo-check"];
+  if (requestedModel) command.push("--model", requestedModel);
+  command.push(prompt);
+  return command;
 }
 
-function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily }) {
+function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily, requestedModel = "" }) {
   const cwd = path.join(fixtureRoot, scale, condition);
   const prompt = promptFor(taskFamily, scale, condition);
   return {
@@ -152,7 +155,8 @@ function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily }) {
     prompt_id: `${taskFamily}-${scale}-${condition}`,
     cwd,
     prompt,
-    command: codexCommand(prompt),
+    requested_model: requestedModel || null,
+    command: codexCommand(prompt, requestedModel),
   };
 }
 
@@ -163,13 +167,13 @@ function materializeFixturePair(fixtureRoot, scale, cliPath) {
   materializeWithoutProjectLibrarian(withoutRoot, scale);
 }
 
-function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scales), selectedTasks = Object.keys(taskFamilies) }) {
+function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scales), selectedTasks = Object.keys(taskFamilies), requestedModel = "" }) {
   const scenarios = [];
   for (const scale of selectedScales) {
     materializeFixturePair(fixtureRoot, scale, cliPath);
     for (const condition of conditions) {
       for (const taskFamily of selectedTasks) {
-        scenarios.push(buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily }));
+        scenarios.push(buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily, requestedModel }));
       }
     }
   }
@@ -182,6 +186,7 @@ function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scal
     scales: selectedScales,
     conditions,
     task_families: selectedTasks,
+    requested_model: requestedModel || null,
     scenarios,
   };
 }

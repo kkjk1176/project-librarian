@@ -40,6 +40,10 @@ function measurementChecks(run) {
   const metrics = run.metrics || {};
   const unavailable = Array.isArray(metrics.unavailable_event_fields) ? metrics.unavailable_event_fields : [];
   const models = Array.isArray(metrics.models) ? metrics.models : [];
+  const requestedModel = typeof run.requested_model === "string" ? run.requested_model : "";
+  const hasObservedModel = !unavailable.includes("model") && models.length > 0;
+  const hasSingleObservedModel = !unavailable.includes("single_model") && models.length === 1 && metrics.model === models[0];
+  const hasRequestedModel = requestedModel.length > 0;
   return [
     {
       name: "correctness passed",
@@ -67,11 +71,11 @@ function measurementChecks(run) {
     },
     {
       name: "model available",
-      passed: !unavailable.includes("model") && models.length > 0,
+      passed: hasObservedModel || hasRequestedModel,
     },
     {
       name: "single model available",
-      passed: !unavailable.includes("single_model") && models.length === 1 && metrics.model === models[0],
+      passed: hasSingleObservedModel || (hasRequestedModel && models.length === 0),
     },
     {
       name: "final text available",

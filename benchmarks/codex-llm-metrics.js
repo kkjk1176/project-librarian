@@ -41,6 +41,13 @@ function listArg(name, allowed, defaultValues) {
   return values;
 }
 
+function optionalStringArgValue(name) {
+  const value = argValue(name, "");
+  if (!value) return "";
+  if (value.includes("\n") || value.includes("\r")) fail(`invalid ${name} value`);
+  return value;
+}
+
 function positiveIntegerArgValue(name, defaultValue) {
   const value = argValue(name, "");
   if (!value) return defaultValue;
@@ -150,6 +157,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex }) {
   const run = {
     run_index: runIndex,
     raw_jsonl_path: rawPath,
+    requested_model: scenario.requested_model,
     metrics,
     correctness,
   };
@@ -177,14 +185,18 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
     }
     const correctnessPassedRuns = passedRuns(measuredRuns);
     const actualClaimableRuns = claimableRuns(measuredRuns);
-    const scenarioModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
+    const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
+    const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+    const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
     scenarios.push({
       scale: scenario.scale,
       condition: scenario.condition,
       task_family: scenario.task_family,
       prompt_id: scenario.prompt_id,
       cwd: scenario.cwd,
-      model: scenarioModels.length === 1 ? scenarioModels[0] : null,
+      requested_model: scenario.requested_model,
+      model: scenarioModel,
+      model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
       models: scenarioModels,
       runs: measuredRuns,
       median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
@@ -210,6 +222,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
       runs,
       warmup_runs: warmupRuns,
       max_scenarios: maxScenarios,
+      requested_model: manifest.requested_model,
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
     },
@@ -237,13 +250,14 @@ function main() {
   const runs = positiveIntegerArgValue("--runs", 1);
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
   const maxScenarios = positiveIntegerArgValue("--max-scenarios", conditions.length);
+  const requestedModel = optionalStringArgValue("--model");
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
 
   if (!dryRun && !allowCodexRun) {
     fail("measured Codex benchmark requires --allow-codex-run; use --dry-run to create a fixture manifest without consuming subscription quota");
   }
 
-  const manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks });
+  const manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel });
   if (!dryRun) {
     const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios });
     writeJson(out, report);

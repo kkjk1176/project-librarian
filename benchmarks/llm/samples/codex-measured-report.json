@@ -21,6 +21,7 @@
     "runs": 1,
     "warmup_runs": 1,
     "max_scenarios": 2,
+    "requested_model": null,
     "selected_scenarios": 2,
     "total_manifest_scenarios": 30
   },
@@ -40,7 +41,9 @@
       "task_family": "decision_lookup",
       "prompt_id": "decision_lookup-small-with_project_librarian",
       "cwd": "/tmp/project-librarian-codex-llm/sample",
+      "requested_model": null,
       "model": "gpt-5.5",
+      "model_source": "jsonl",
       "models": [
         "gpt-5.5"
       ],
@@ -48,6 +51,7 @@
         {
           "run_index": 1,
           "raw_jsonl_path": "benchmarks/llm/samples/codex-turn-completed.jsonl",
+          "requested_model": null,
           "metrics": {
             "input_tokens": 24763,
             "cached_input_tokens": 24448,
@@ -245,7 +249,9 @@
       "task_family": "decision_lookup",
       "prompt_id": "decision_lookup-small-without_project_librarian",
       "cwd": "/tmp/project-librarian-codex-llm/sample-control",
+      "requested_model": null,
       "model": "gpt-5.5",
+      "model_source": "jsonl",
       "models": [
         "gpt-5.5"
       ],
@@ -253,6 +259,7 @@
         {
           "run_index": 1,
           "raw_jsonl_path": "benchmarks/llm/samples/codex-turn-completed-control.jsonl",
+          "requested_model": null,
           "metrics": {
             "input_tokens": 24763,
             "cached_input_tokens": 24448,
