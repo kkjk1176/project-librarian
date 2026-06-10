@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "benchmark_kind": "codex-actual-llm",
+  "auth_mode": "chatgpt_codex",
+  "generated_at": "2026-06-10T00:00:00.000Z",
+  "environment": {
+    "node": "v22.19.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "codex": {
+    "version": "codex-cli-sample"
+  },
+  "configuration": {
+    "runs": 1,
+    "warmup_runs": 1,
+    "max_scenarios": 1,
+    "selected_scenarios": 1,
+    "total_manifest_scenarios": 30
+  },
+  "summary": {
+    "scenario_count": 1,
+    "passed_correctness_count": 1,
+    "needs_review_count": 0,
+    "failed_correctness_count": 0
+  },
+  "scenarios": [
+    {
+      "scale": "small",
+      "condition": "with_project_librarian",
+      "task_family": "decision_lookup",
+      "prompt_id": "decision_lookup-small-with_project_librarian",
+      "cwd": "/tmp/project-librarian-codex-llm/sample",
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-turn-completed.jsonl",
+          "metrics": {
+            "input_tokens": 24763,
+            "cached_input_tokens": 24448,
+            "output_tokens": 122,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24885,
+            "wall_ms": 2000,
+            "tokens_per_second": 61,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "tool_event_count": 2,
+            "mcp_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "final_text": "Project Librarian benchmark evidence is documented in wiki/canonical/benchmark-and-release-evidence.md.",
+            "unavailable_event_fields": []
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": []
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "wall_ms": 2000,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "tool_event_count": 2,
+        "mcp_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "wall_ms": 2000,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "tool_event_count": 2,
+        "mcp_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": []
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-turn-completed.jsonl"
+      ]
+    }
+  ]
+}

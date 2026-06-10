@@ -27,6 +27,12 @@ function usageFromEvent(event) {
   if (event && typeof event === "object" && event.message && event.message.usage && typeof event.message.usage === "object") {
     return event.message.usage;
   }
+  if (event && typeof event === "object" && event.item && event.item.usage && typeof event.item.usage === "object") {
+    return event.item.usage;
+  }
+  if (event && typeof event === "object" && event.response && event.response.usage && typeof event.response.usage === "object") {
+    return event.response.usage;
+  }
   return null;
 }
 
@@ -42,7 +48,9 @@ function classifyEvent(event) {
   const name = typeof event?.name === "string" ? event.name.toLowerCase() : "";
   const itemType = typeof event?.item?.type === "string" ? event.item.type.toLowerCase() : "";
   const toolName = typeof event?.tool === "string" ? event.tool.toLowerCase() : "";
-  const combined = [type, name, itemType, toolName].filter(Boolean).join(" ");
+  const callType = typeof event?.call?.type === "string" ? event.call.type.toLowerCase() : "";
+  const subtype = typeof event?.subtype === "string" ? event.subtype.toLowerCase() : "";
+  const combined = [type, name, itemType, toolName, callType, subtype].filter(Boolean).join(" ");
 
   return {
     isTurn: Boolean(usageFromEvent(event)) || combined.includes("turn"),
@@ -52,6 +60,31 @@ function classifyEvent(event) {
     isFileChange: combined.includes("file_change") || combined.includes("patch") || combined.includes("apply_patch"),
     isError: combined.includes("error") || event?.error,
   };
+}
+
+function textFromValue(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(textFromValue).filter(Boolean).join("\n");
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.text === "string") return value.text;
+  if (typeof value.content === "string") return value.content;
+  if (Array.isArray(value.content)) return textFromValue(value.content);
+  if (typeof value.message === "string") return value.message;
+  if (value.message && typeof value.message === "object") return textFromValue(value.message);
+  return "";
+}
+
+function finalTextFromEvents(events) {
+  const candidates = [];
+  for (const event of events) {
+    const type = eventType(event).toLowerCase();
+    const itemType = typeof event?.item?.type === "string" ? event.item.type.toLowerCase() : "";
+    if (type.includes("assistant") || type.includes("message") || type.includes("turn.completed") || itemType.includes("message")) {
+      const text = textFromValue(event.message) || textFromValue(event.item) || textFromValue(event.response) || textFromValue(event);
+      if (text) candidates.push(text);
+    }
+  }
+  return candidates.at(-1) || "";
 }
 
 function mergeUsage(target, usage) {
@@ -78,10 +111,17 @@ function summarizeEvents(events, timing = {}) {
     mcp_event_count: 0,
     file_change_event_count: 0,
     error_event_count: 0,
+    event_type_counts: {},
+    unknown_event_types: [],
+    final_text: finalTextFromEvents(events),
     unavailable_event_fields: [],
   };
 
   for (const event of events) {
+    const type = eventType(event);
+    metrics.event_type_counts[type] = (metrics.event_type_counts[type] || 0) + 1;
+    if (type === "unknown") metrics.unknown_event_types.push(type);
+
     const usage = usageFromEvent(event);
     if (usage) {
       metrics.codex_turn_count += 1;
@@ -107,6 +147,9 @@ function summarizeEvents(events, timing = {}) {
   if (events.length > 0 && !events.some((event) => usageFromEvent(event))) {
     metrics.unavailable_event_fields.push("usage");
   }
+  if (events.length > 0 && !metrics.final_text) {
+    metrics.unavailable_event_fields.push("final_text");
+  }
 
   return metrics;
 }
@@ -117,6 +160,7 @@ function summarizeJsonl(content, timing = {}) {
 
 module.exports = {
   classifyEvent,
+  finalTextFromEvents,
   parseJsonlLines,
   summarizeEvents,
   summarizeJsonl,

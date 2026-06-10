@@ -64,13 +64,20 @@ Create the small/medium/large with-vs-without fixture manifest without launching
 npm run benchmark:llm:dry-run
 ```
 
-Validate the JSONL parser against the checked-in sample event stream:
+Validate the JSONL parser and report-shape checks against checked-in sample artifacts:
 
 ```sh
 npm run benchmark:llm:parse-smoke
+node tests/validators/codex-llm-benchmark-smoke.js benchmarks/llm/samples/codex-measured-report.json
 ```
 
-Measured Codex execution is intentionally gated behind `--allow-codex-run` and will use `codex exec --json --ephemeral --sandbox read-only` when the execution phase is implemented. Reports under `benchmarks/reports/llm/` are ignored by default; commit only deliberate release evidence.
+Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only`. By default it runs only one measured scenario to avoid accidental subscription quota use; pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Report `median` values are computed from correctness-passed runs only; `median_all_runs` is retained for audit when a run fails or needs review.
+
+```sh
+npm run benchmark:llm -- --allow-codex-run --scales small --tasks decision_lookup --max-scenarios 1 --runs 1 --warmup-runs 0
+```
+
+Subscription-authenticated runs fail if `CODEX_API_KEY` or `OPENAI_API_KEY` is present. Pass `--auth-mode api-key` only when intentionally running an API-key-priced benchmark. Reports under `benchmarks/reports/llm/` are ignored by default; commit only deliberate release evidence.
 
 Commit policy:
 
