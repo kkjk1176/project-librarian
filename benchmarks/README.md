@@ -71,10 +71,10 @@ npm run benchmark:llm:parse-smoke
 node tests/validators/codex-llm-benchmark-smoke.js benchmarks/llm/samples/codex-measured-report.json
 ```
 
-Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only`. By default it runs only one measured scenario to avoid accidental subscription quota use; pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Report `median` values are computed from correctness-passed runs only; `median_all_runs` is retained for audit when a run fails or needs review. Raw event counts and normalized invocation counts are reported separately so start/completed JSONL pairs do not inflate tool-call claims.
+Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only`. By default it runs one with/without pair to preserve comparison validity while limiting subscription quota use; pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Report `median` values are computed from correctness-passed runs only; `median_all_runs` is retained for audit when a run fails or needs review. Raw event counts and normalized invocation counts are reported separately so start/completed JSONL pairs do not inflate tool-call claims.
 
 ```sh
-npm run benchmark:llm -- --allow-codex-run --scales small --tasks decision_lookup --max-scenarios 1 --runs 1 --warmup-runs 0
+npm run benchmark:llm -- --allow-codex-run --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0
 ```
 
 Subscription-authenticated runs fail if `CODEX_API_KEY` or `OPENAI_API_KEY` is present. Pass `--auth-mode api-key` only when intentionally running an API-key-priced benchmark. The report records declared auth mode plus non-secret auth-environment audit flags, but public claims still need human review when local Codex config could route through a profile not visible in environment variables. Reports under `benchmarks/reports/llm/` are ignored by default; commit only deliberate release evidence.

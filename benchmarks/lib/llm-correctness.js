@@ -9,6 +9,10 @@ const expectations = {
   decision_lookup: {
     required_terms: ["2026-06-10", "benchmark"],
     any_terms: [["decision", "metrics"]],
+    evidence_by_condition: {
+      with_project_librarian: [["wiki/decisions/log.md", "wiki/canonical/benchmark-and-release-evidence.md"]],
+      without_project_librarian: [["docs/decisions.md", "docs/benchmark-policy.md"]],
+    },
     forbidden_terms: ["I cannot access"],
   },
   code_impact: {
@@ -76,6 +80,13 @@ function evaluateCorrectness({ taskFamily, condition, finalText, fileChangeCount
     name: `condition evidence: ${evidenceTerms.join(" | ")}`,
     passed: evidenceTerms.length === 0 || evidenceTerms.some((term) => includesInsensitive(text, term)),
   });
+
+  for (const terms of expectation.evidence_by_condition?.[condition] || []) {
+    checks.push({
+      name: `expected evidence: ${terms.join(" | ")}`,
+      passed: terms.some((term) => includesInsensitive(text, term)),
+    });
+  }
 
   if (readOnly) {
     checks.push({

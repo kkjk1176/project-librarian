@@ -7,9 +7,10 @@ const childProcess = require("node:child_process");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
+const { medianMetrics, passedRuns } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
-const sampleFinalText = "2026-06-10 metrics decision in wiki/canonical/benchmark-and-release-evidence.md documents Project Librarian benchmark evidence.";
+const sampleFinalText = "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.";
 
 function validateSampleJsonl() {
   const samplePath = path.join(root, "benchmarks", "llm", "samples", "codex-turn-completed.jsonl");
@@ -77,6 +78,7 @@ function validateReport(reportPath) {
   assert(report.configuration && Number.isInteger(report.configuration.runs));
   assert(Array.isArray(report.scenarios));
   assert(report.scenarios.length > 0);
+  assert.equal(report.configuration.selected_scenarios, report.scenarios.length);
 
   let passedCorrectnessCount = 0;
   let needsReviewCount = 0;
@@ -89,6 +91,7 @@ function validateReport(reportPath) {
     assert(scenario.median_all_runs);
     assert(Array.isArray(scenario.correctness));
     assert.equal(scenario.correctness.length, scenario.runs.length);
+    assert.deepEqual(scenario.raw_jsonl_paths, scenario.runs.map((run) => run.raw_jsonl_path));
     assert(Number.isInteger(scenario.passed_run_count));
     assert(Array.isArray(scenario.models));
     if (scenario.models.length === 1) assert.equal(scenario.model, scenario.models[0]);
@@ -98,6 +101,10 @@ function validateReport(reportPath) {
     const runModels = new Set();
     for (const [index, run] of scenario.runs.entries()) {
       assert(run.metrics);
+      const rawPath = path.resolve(root, run.raw_jsonl_path);
+      assert(fs.existsSync(rawPath), `missing raw JSONL: ${run.raw_jsonl_path}`);
+      const rawMetrics = summarizeJsonl(fs.readFileSync(rawPath, "utf8"), { wall_ms: run.metrics.wall_ms });
+      assert.deepEqual(run.metrics, rawMetrics);
       assert(Number.isInteger(run.metrics.command_invocation_count));
       assert(Number.isInteger(run.metrics.tool_invocation_count));
       assert(Array.isArray(run.metrics.models));
@@ -122,6 +129,8 @@ function validateReport(reportPath) {
 
     assert.deepEqual(scenario.models, [...runModels]);
     assert.equal(scenario.passed_run_count, passedRunCount);
+    assert.deepEqual(scenario.median_all_runs, medianMetrics(scenario.runs));
+    assert.deepEqual(scenario.median, passedRunCount > 0 ? medianMetrics(passedRuns(scenario.runs)) : null);
     if (passedRunCount === 0) assert.equal(scenario.median, null);
     if (scenario.correctness.every((item) => item.status === "passed")) passedCorrectnessCount += 1;
     if (scenario.correctness.some((item) => item.status === "needs_review")) needsReviewCount += 1;

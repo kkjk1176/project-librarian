@@ -7,7 +7,8 @@ const path = require("node:path");
 const childProcess = require("node:child_process");
 const { summarizeJsonl } = require("./lib/codex-jsonl");
 const { evaluateCorrectness } = require("./lib/llm-correctness");
-const { buildManifest, scales, taskFamilies } = require("./lib/llm-fixtures");
+const { buildManifest, conditions, scales, taskFamilies } = require("./lib/llm-fixtures");
+const { medianMetrics, passedRuns, selectPairedScenarios } = require("./lib/llm-report");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
@@ -112,41 +113,6 @@ function authAudit() {
   };
 }
 
-function median(values) {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 1) return sorted[middle];
-  return ((sorted[middle - 1] || 0) + (sorted[middle] || 0)) / 2;
-}
-
-function medianMetrics(runs) {
-  const numericFields = [
-    "input_tokens",
-    "cached_input_tokens",
-    "output_tokens",
-    "reasoning_output_tokens",
-    "total_tokens",
-    "wall_ms",
-    "tokens_per_second",
-    "codex_turn_count",
-    "jsonl_event_count",
-    "command_event_count",
-    "command_invocation_count",
-    "tool_event_count",
-    "tool_invocation_count",
-    "mcp_event_count",
-    "mcp_invocation_count",
-    "file_change_event_count",
-    "error_event_count",
-  ];
-  return Object.fromEntries(numericFields.map((field) => [field, median(runs.map((run) => run.metrics[field] || 0))]));
-}
-
-function passedRuns(runs) {
-  return runs.filter((run) => run.correctness.status === "passed");
-}
-
 function safeName(value) {
   return value.replace(/[^a-z0-9_.-]+/gi, "-").replace(/^-+|-+$/g, "");
 }
@@ -192,7 +158,11 @@ function runCodexScenario(scenario, { rawRoot, runIndex }) {
 function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) {
   requireMeasuredAuth(authMode);
   const rawRoot = path.join(root, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
-  const selectedScenarios = manifest.scenarios.slice(0, maxScenarios);
+  if (maxScenarios < conditions.length) {
+    fail(`measured Codex benchmark requires at least ${conditions.length} scenarios to compare conditions`);
+  }
+  const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
+  if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
   const scenarios = [];
 
   for (const scenario of selectedScenarios) {
@@ -259,7 +229,7 @@ function main() {
   const selectedTasks = listArg("--tasks", Object.keys(taskFamilies), Object.keys(taskFamilies));
   const runs = positiveIntegerArgValue("--runs", 1);
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
-  const maxScenarios = positiveIntegerArgValue("--max-scenarios", 1);
+  const maxScenarios = positiveIntegerArgValue("--max-scenarios", conditions.length);
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
 
   if (!dryRun && !allowCodexRun) {

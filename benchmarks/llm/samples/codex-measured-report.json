@@ -20,7 +20,7 @@
   "configuration": {
     "runs": 1,
     "warmup_runs": 1,
-    "max_scenarios": 1,
+    "max_scenarios": 2,
     "selected_scenarios": 1,
     "total_manifest_scenarios": 30
   },
@@ -75,7 +75,7 @@
             "models": [
               "gpt-5.5"
             ],
-            "final_text": "2026-06-10 metrics decision in wiki/canonical/benchmark-and-release-evidence.md documents Project Librarian benchmark evidence.",
+            "final_text": "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.",
             "unavailable_event_fields": []
           },
           "correctness": {
@@ -100,6 +100,10 @@
               },
               {
                 "name": "condition evidence: wiki/ | AGENTS.md",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: wiki/decisions/log.md | wiki/canonical/benchmark-and-release-evidence.md",
                 "passed": true
               },
               {
@@ -172,6 +176,10 @@
             },
             {
               "name": "condition evidence: wiki/ | AGENTS.md",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: wiki/decisions/log.md | wiki/canonical/benchmark-and-release-evidence.md",
               "passed": true
             },
             {
