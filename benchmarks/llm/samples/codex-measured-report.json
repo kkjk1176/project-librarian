@@ -2,6 +2,12 @@
   "schema_version": 1,
   "benchmark_kind": "codex-actual-llm",
   "auth_mode": "chatgpt_codex",
+  "auth": {
+    "auth_mode_source": "declared",
+    "code_api_key_present": false,
+    "openai_api_key_present": false,
+    "codex_home_set": true
+  },
   "generated_at": "2026-06-10T00:00:00.000Z",
   "environment": {
     "node": "v22.19.0",
@@ -31,6 +37,10 @@
       "task_family": "decision_lookup",
       "prompt_id": "decision_lookup-small-with_project_librarian",
       "cwd": "/tmp/project-librarian-codex-llm/sample",
+      "model": "gpt-5.5",
+      "models": [
+        "gpt-5.5"
+      ],
       "runs": [
         {
           "run_index": 1,
@@ -46,8 +56,11 @@
             "codex_turn_count": 1,
             "jsonl_event_count": 5,
             "command_event_count": 2,
+            "command_invocation_count": 1,
             "tool_event_count": 2,
+            "tool_invocation_count": 1,
             "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
             "file_change_event_count": 0,
             "error_event_count": 0,
             "event_type_counts": {
@@ -58,13 +71,42 @@
               "turn.completed": 1
             },
             "unknown_event_types": [],
-            "final_text": "Project Librarian benchmark evidence is documented in wiki/canonical/benchmark-and-release-evidence.md.",
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "2026-06-10 metrics decision in wiki/canonical/benchmark-and-release-evidence.md documents Project Librarian benchmark evidence.",
             "unavailable_event_fields": []
           },
           "correctness": {
             "status": "passed",
             "reason": "",
-            "checks": []
+            "checks": [
+              {
+                "name": "required term: 2026-06-10",
+                "passed": true
+              },
+              {
+                "name": "required term: benchmark",
+                "passed": true
+              },
+              {
+                "name": "any term: decision | metrics",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: wiki/ | AGENTS.md",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
           }
         }
       ],
@@ -79,8 +121,11 @@
         "codex_turn_count": 1,
         "jsonl_event_count": 5,
         "command_event_count": 2,
+        "command_invocation_count": 1,
         "tool_event_count": 2,
+        "tool_invocation_count": 1,
         "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
         "file_change_event_count": 0,
         "error_event_count": 0
       },
@@ -95,8 +140,11 @@
         "codex_turn_count": 1,
         "jsonl_event_count": 5,
         "command_event_count": 2,
+        "command_invocation_count": 1,
         "tool_event_count": 2,
+        "tool_invocation_count": 1,
         "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
         "file_change_event_count": 0,
         "error_event_count": 0
       },
@@ -105,7 +153,32 @@
         {
           "status": "passed",
           "reason": "",
-          "checks": []
+          "checks": [
+            {
+              "name": "required term: 2026-06-10",
+              "passed": true
+            },
+            {
+              "name": "required term: benchmark",
+              "passed": true
+            },
+            {
+              "name": "any term: decision | metrics",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: wiki/ | AGENTS.md",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
         }
       ],
       "raw_jsonl_paths": [

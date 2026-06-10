@@ -43,6 +43,15 @@ function eventType(event) {
   return "unknown";
 }
 
+function modelFromEvent(event) {
+  if (!event || typeof event !== "object") return "";
+  if (typeof event.model === "string") return event.model;
+  if (event.message && typeof event.message.model === "string") return event.message.model;
+  if (event.item && typeof event.item.model === "string") return event.item.model;
+  if (event.response && typeof event.response.model === "string") return event.response.model;
+  return "";
+}
+
 function classifyEvent(event) {
   const type = eventType(event).toLowerCase();
   const name = typeof event?.name === "string" ? event.name.toLowerCase() : "";
@@ -60,6 +69,26 @@ function classifyEvent(event) {
     isFileChange: combined.includes("file_change") || combined.includes("patch") || combined.includes("apply_patch"),
     isError: combined.includes("error") || event?.error,
   };
+}
+
+function isStartEvent(event) {
+  const type = eventType(event).toLowerCase();
+  const subtype = typeof event?.subtype === "string" ? event.subtype.toLowerCase() : "";
+  const status = typeof event?.status === "string" ? event.status.toLowerCase() : "";
+  const combined = [type, subtype, status].filter(Boolean).join(" ");
+  return combined.includes("started") || combined.includes("start") || combined.includes("begin") || combined.includes("running");
+}
+
+function isCompletionEvent(event) {
+  const type = eventType(event).toLowerCase();
+  const subtype = typeof event?.subtype === "string" ? event.subtype.toLowerCase() : "";
+  const status = typeof event?.status === "string" ? event.status.toLowerCase() : "";
+  const combined = [type, subtype, status].filter(Boolean).join(" ");
+  return combined.includes("completed") || combined.includes("complete") || combined.includes("finished") || combined.includes("failed") || combined.includes("end") || combined.includes("output") || combined.includes("result");
+}
+
+function isInvocationEvent(event) {
+  return isStartEvent(event) || !isCompletionEvent(event);
 }
 
 function textFromValue(value) {
@@ -96,6 +125,7 @@ function mergeUsage(target, usage) {
 }
 
 function summarizeEvents(events, timing = {}) {
+  const models = [...new Set(events.map(modelFromEvent).filter(Boolean))];
   const metrics = {
     input_tokens: 0,
     cached_input_tokens: 0,
@@ -107,12 +137,17 @@ function summarizeEvents(events, timing = {}) {
     codex_turn_count: 0,
     jsonl_event_count: events.length,
     command_event_count: 0,
+    command_invocation_count: 0,
     tool_event_count: 0,
+    tool_invocation_count: 0,
     mcp_event_count: 0,
+    mcp_invocation_count: 0,
     file_change_event_count: 0,
     error_event_count: 0,
     event_type_counts: {},
     unknown_event_types: [],
+    model: models.length === 1 ? models[0] : "",
+    models,
     final_text: finalTextFromEvents(events),
     unavailable_event_fields: [],
   };
@@ -132,6 +167,9 @@ function summarizeEvents(events, timing = {}) {
     if (classification.isCommand) metrics.command_event_count += 1;
     if (classification.isTool) metrics.tool_event_count += 1;
     if (classification.isMcp) metrics.mcp_event_count += 1;
+    if (classification.isCommand && isInvocationEvent(event)) metrics.command_invocation_count += 1;
+    if (classification.isTool && isInvocationEvent(event)) metrics.tool_invocation_count += 1;
+    if (classification.isMcp && isInvocationEvent(event)) metrics.mcp_invocation_count += 1;
     if (classification.isFileChange) metrics.file_change_event_count += 1;
     if (classification.isError) metrics.error_event_count += 1;
   }
@@ -144,11 +182,27 @@ function summarizeEvents(events, timing = {}) {
     metrics.tokens_per_second = Math.round((metrics.output_tokens / (metrics.wall_ms / 1000)) * 1000) / 1000;
   }
 
+  if (metrics.command_event_count > 0 && metrics.command_invocation_count === 0) {
+    metrics.command_invocation_count = metrics.command_event_count;
+  }
+  if (metrics.tool_event_count > 0 && metrics.tool_invocation_count === 0) {
+    metrics.tool_invocation_count = metrics.tool_event_count;
+  }
+  if (metrics.mcp_event_count > 0 && metrics.mcp_invocation_count === 0) {
+    metrics.mcp_invocation_count = metrics.mcp_event_count;
+  }
+
   if (events.length > 0 && !events.some((event) => usageFromEvent(event))) {
     metrics.unavailable_event_fields.push("usage");
   }
   if (events.length > 0 && !metrics.final_text) {
     metrics.unavailable_event_fields.push("final_text");
+  }
+  if (events.length > 0 && metrics.models.length === 0) {
+    metrics.unavailable_event_fields.push("model");
+  }
+  if (metrics.models.length > 1) {
+    metrics.unavailable_event_fields.push("single_model");
   }
 
   return metrics;
@@ -161,6 +215,7 @@ function summarizeJsonl(content, timing = {}) {
 module.exports = {
   classifyEvent,
   finalTextFromEvents,
+  modelFromEvent,
   parseJsonlLines,
   summarizeEvents,
   summarizeJsonl,

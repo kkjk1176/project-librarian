@@ -1,5 +1,5 @@
 {"type":"session.started","model":"gpt-5.5","cwd":"/tmp/project-librarian-codex-llm/sample"}
 {"type":"tool.command.started","command":"rg benchmark wiki"}
 {"type":"tool.command.completed","command":"rg benchmark wiki","exit_code":0}
-{"type":"assistant.message","message":{"content":"Project Librarian benchmark evidence is documented in wiki/canonical/benchmark-and-release-evidence.md."}}
+{"type":"assistant.message","message":{"content":"2026-06-10 metrics decision in wiki/canonical/benchmark-and-release-evidence.md documents Project Librarian benchmark evidence."}}
 {"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122,"reasoning_output_tokens":0}}

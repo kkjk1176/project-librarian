@@ -33,6 +33,7 @@ function listArg(name, allowed, defaultValues) {
   const raw = argValue(name, "");
   if (!raw) return defaultValues;
   const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) fail(`empty ${name} value`);
   for (const value of values) {
     if (!allowed.includes(value)) fail(`invalid ${name} value: ${value}`);
   }
@@ -102,6 +103,15 @@ function requireMeasuredAuth(authMode) {
   }
 }
 
+function authAudit() {
+  return {
+    auth_mode_source: "declared",
+    code_api_key_present: Boolean(process.env.CODEX_API_KEY),
+    openai_api_key_present: Boolean(process.env.OPENAI_API_KEY),
+    codex_home_set: Boolean(process.env.CODEX_HOME),
+  };
+}
+
 function median(values) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -122,8 +132,11 @@ function medianMetrics(runs) {
     "codex_turn_count",
     "jsonl_event_count",
     "command_event_count",
+    "command_invocation_count",
     "tool_event_count",
+    "tool_invocation_count",
     "mcp_event_count",
+    "mcp_invocation_count",
     "file_change_event_count",
     "error_event_count",
   ];
@@ -191,12 +204,15 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
       measuredRuns.push(runCodexScenario(scenario, { rawRoot, runIndex: index + 1 }));
     }
     const correctnessPassedRuns = passedRuns(measuredRuns);
+    const scenarioModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
     scenarios.push({
       scale: scenario.scale,
       condition: scenario.condition,
       task_family: scenario.task_family,
       prompt_id: scenario.prompt_id,
       cwd: scenario.cwd,
+      model: scenarioModels.length === 1 ? scenarioModels[0] : null,
+      models: scenarioModels,
       runs: measuredRuns,
       median: correctnessPassedRuns.length > 0 ? medianMetrics(correctnessPassedRuns) : null,
       median_all_runs: medianMetrics(measuredRuns),
@@ -210,6 +226,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
     schema_version: 1,
     benchmark_kind: "codex-actual-llm",
     auth_mode: authMode,
+    auth: authAudit(),
     generated_at: new Date().toISOString(),
     environment: environmentFingerprint(),
     codex: {
