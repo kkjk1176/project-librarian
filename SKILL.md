@@ -72,6 +72,7 @@ Map lifecycle requests to these internal operations:
 - Check wiki links and routing: `$PROJECT_LIBRARIAN --link-check`.
 - Check document quality signals: `$PROJECT_LIBRARIAN --quality-check`.
 - Run all wiki diagnostics: `$PROJECT_LIBRARIAN --doctor`.
+- Check migration-specific review signals: `$PROJECT_LIBRARIAN --migration-doctor`.
 - Safely refresh generated routing before diagnostics: `$PROJECT_LIBRARIAN --doctor --fix`.
 - Search the wiki: `$PROJECT_LIBRARIAN --query "search terms"`.
 - Refresh wiki routing/index: `$PROJECT_LIBRARIAN --refresh-index`.
@@ -118,7 +119,7 @@ Use `--lint` for read-only validation:
 $PROJECT_LIBRARIAN --lint
 ```
 
-Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, and `--doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
+Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
 
 Use `--review-migration` or `--semantic-migrate` after migration inbox rows are processed. It syncs inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
@@ -309,20 +310,22 @@ Captured inbox entries are not canonical. Fold them into `wiki/canonical/`, `wik
 
 `--migrate` and `--adopt-existing` are aliases.
 
-Migration mode is a reset-and-rewrite flow:
+Migration mode is a reset-and-restructure flow:
 
 - If `./wiki` exists, renames it to `./wiki_legacy`.
 - If `./wiki_legacy` already exists, preserves both by using a timestamped `wiki_legacy_...` directory for the current wiki.
 - Creates a fresh `./wiki` using the current standard rules.
 - Scans markdown files under the legacy wiki directory.
-- Writes `wiki/migration/inventory.md`, `wiki/migration/plan.md`, and `wiki/migration/verification.md`.
+- Writes `wiki/migration/inventory.md`, `wiki/migration/coverage.md`, `wiki/migration/plan.md`, and `wiki/migration/verification.md`.
 - Writes rewrite inboxes:
   - `wiki/canonical/migration-inbox.md`
   - `wiki/decisions/migration-inbox.md`
   - `wiki/sources/migration-inbox.md`
 - Adds migration routing to `wiki/startup.md` and `wiki/index.md`.
 
-After migration mode, inspect inboxes and fold legacy content into canonical docs, Decision Packs, ADRs, source summaries, or meta docs. Do not copy legacy markdown files directly into `wiki/canonical/`, `wiki/decisions/`, or `wiki/sources/`; rewrite only the useful project meaning, cite current-project evidence when possible, and keep ambiguous material in the migration inbox or mark it `needs-human-review`.
+After migration mode, inspect inboxes and fold legacy content into canonical docs, Decision Packs, ADRs, source summaries, or meta docs. Minimize information loss while converting useful legacy meaning to the current wiki structure and rules. Legacy files, sections, blocks, and wording may be retained when review confirms each retained unit belongs in the new topic shape and remains current project truth. Do not link to or cite `wiki_legacy*` from the new wiki; cite current-project evidence when possible, and keep ambiguous material in the migration inbox or mark it `needs-human-review`.
+
+`wiki/migration/coverage.md` is the unit-level coverage ledger. It accounts for legacy headings, paragraphs, list items, table rows, and code blocks with stable unit IDs. Every unit should end as `adopted`, `merged`, `superseded`, `rejected`, `resolved`, or `needs-human-review`; `pending` means the unit is still open. `adopted` and `merged` rows require a new-wiki target under `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, or `wiki/meta/`. Deleting a unit row is treated as possible information loss and `--migration-lint` reports it as `migration-unaccounted-unit`.
 
 Inbox rows use these statuses:
 
@@ -338,10 +341,10 @@ Run semantic review sync after LLM or human processing:
 $PROJECT_LIBRARIAN --review-migration
 ```
 
-`wiki/migration/verification.md` verifies file coverage: every legacy markdown file should be mapped to a new-wiki migration target. This is not a semantic-completeness proof. Semantic migration is complete only after inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0.
+`wiki/migration/verification.md` verifies file coverage: every legacy markdown file should be mapped to a new-wiki migration target. `wiki/migration/coverage.md` verifies unit coverage: every extracted legacy meaning unit should remain accounted for. Semantic migration is complete only after inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0, and unit coverage has no unaccounted rows.
 
 Human review is not required for every inbox item. LLM may process ordinary rows and close them as adopted/rejected/resolved. Human review is reserved for `needs-human-review`.
 
-Run `$PROJECT_LIBRARIAN --doctor` after migration review. `--quality-check` and `--doctor` report `migration-copy-risk` when a new project wiki document appears to be copied from `wiki_legacy*`, and report `migration-filename-reuse` when a legacy filename is reused and needs rewrite verification.
+Run `$PROJECT_LIBRARIAN --migration-doctor` after migration review. Normal `--quality-check` and `--doctor` intentionally omit migration-only policy/structure signals so accepted migration decisions do not pollute later non-migration document checks. `--migration-quality-check` and `--migration-doctor` report `migration-legacy-reference` as an error when active project truth links to or cites `wiki_legacy*`. They do not warn merely because a new wiki document copies legacy wording, blocks, whole documents, or filenames; those are acceptable when the result follows the current wiki policy and structure. Use `--migration-lint` and `wiki/migration/coverage.md` to prevent information loss.
 
-Do not delete `wiki_legacy` until migration verification passes, semantic review is complete, and migration copy diagnostics are clear.
+Do not delete `wiki_legacy` until migration verification passes, semantic review is complete, and migration policy/structure diagnostics are clear.

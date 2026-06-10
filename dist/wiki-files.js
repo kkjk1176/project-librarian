@@ -75,6 +75,7 @@ exports.standardWikiFiles = new Set([
     "wiki/index.md",
     "wiki/inbox/project-candidates.md",
     "wiki/migration/inventory.md",
+    "wiki/migration/coverage.md",
     "wiki/migration/plan.md",
     "wiki/migration/review.md",
     "wiki/migration/verification.md",

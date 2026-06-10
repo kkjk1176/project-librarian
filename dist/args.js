@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -32,6 +32,9 @@ const flagsWithoutValues = new Set([
     "--link-check",
     "--lint",
     "--migrate",
+    "--migration-doctor",
+    "--migration-lint",
+    "--migration-quality-check",
     "--no-git-config",
     "--prune-check",
     "--quality-check",
@@ -161,6 +164,9 @@ function parseArgs(argv) {
         issueDraftTitle: argValue("--issue-title"),
         linkCheckMode: args.has("--link-check"),
         lintMode: args.has("--lint"),
+        migrationDoctorMode: args.has("--migration-doctor"),
+        migrationLintMode: args.has("--migration-lint"),
+        migrationQualityCheckMode: args.has("--migration-quality-check"),
         migrateMode: args.has("--migrate") || args.has("--adopt-existing"),
         missingValueOptions: Array.from(flagsWithValues).filter((flag) => hasFlag(flag) && !flagHasValue(commandArgs, flag)),
         noGitConfigMode: args.has("--no-git-config"),
@@ -192,6 +198,9 @@ exports.unexpectedValueOptions = exports.parsedArgs.unexpectedValueOptions;
 exports.missingValueOptions = exports.parsedArgs.missingValueOptions;
 exports.migrateMode = exports.parsedArgs.migrateMode;
 exports.lintMode = exports.parsedArgs.lintMode;
+exports.migrationDoctorMode = exports.parsedArgs.migrationDoctorMode;
+exports.migrationLintMode = exports.parsedArgs.migrationLintMode;
+exports.migrationQualityCheckMode = exports.parsedArgs.migrationQualityCheckMode;
 exports.linkCheckMode = exports.parsedArgs.linkCheckMode;
 exports.qualityCheckMode = exports.parsedArgs.qualityCheckMode;
 exports.doctorMode = exports.parsedArgs.doctorMode;

@@ -33,6 +33,9 @@ export interface ParsedArgs {
   issueDraftTitle: string;
   linkCheckMode: boolean;
   lintMode: boolean;
+  migrationDoctorMode: boolean;
+  migrationLintMode: boolean;
+  migrationQualityCheckMode: boolean;
   migrateMode: boolean;
   missingValueOptions: string[];
   noGitConfigMode: boolean;
@@ -76,6 +79,9 @@ const flagsWithoutValues: Set<string> = new Set([
   "--link-check",
   "--lint",
   "--migrate",
+  "--migration-doctor",
+  "--migration-lint",
+  "--migration-quality-check",
   "--no-git-config",
   "--prune-check",
   "--quality-check",
@@ -205,6 +211,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     issueDraftTitle: argValue("--issue-title"),
     linkCheckMode: args.has("--link-check"),
     lintMode: args.has("--lint"),
+    migrationDoctorMode: args.has("--migration-doctor"),
+    migrationLintMode: args.has("--migration-lint"),
+    migrationQualityCheckMode: args.has("--migration-quality-check"),
     migrateMode: args.has("--migrate") || args.has("--adopt-existing"),
     missingValueOptions: Array.from(flagsWithValues).filter((flag) => hasFlag(flag) && !flagHasValue(commandArgs, flag)),
     noGitConfigMode: args.has("--no-git-config"),
@@ -237,6 +246,9 @@ export const unexpectedValueOptions = parsedArgs.unexpectedValueOptions;
 export const missingValueOptions = parsedArgs.missingValueOptions;
 export const migrateMode = parsedArgs.migrateMode;
 export const lintMode = parsedArgs.lintMode;
+export const migrationDoctorMode = parsedArgs.migrationDoctorMode;
+export const migrationLintMode = parsedArgs.migrationLintMode;
+export const migrationQualityCheckMode = parsedArgs.migrationQualityCheckMode;
 export const linkCheckMode = parsedArgs.linkCheckMode;
 export const qualityCheckMode = parsedArgs.qualityCheckMode;
 export const doctorMode = parsedArgs.doctorMode;

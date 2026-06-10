@@ -77,7 +77,7 @@ Storage boundaries:
 - \`sources/\` contains external reference summaries and source notes.
 - \`inbox/\` and migration inbox files contain candidates, not canonical truth.
 - Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in \`canonical/\` or \`decisions/\`; use root \`AGENTS.md\`, compatibility instruction files, hooks, rules, or skills instead.
-- During migration review, do not copy legacy markdown files directly into \`canonical/\`, \`decisions/\`, or \`sources/\`. Rewrite only the useful project meaning, cite current-project evidence when possible, and keep unresolved or ambiguous material in migration inboxes.
+- During migration review, preserve useful meaning while converting it to the current wiki structure. Legacy files, sections, blocks, and wording may be retained when review confirms they belong in the new topic shape and remain current project truth. Do not link to or cite \`wiki_legacy*\` from the new wiki; cite current-project evidence when possible and keep unresolved or ambiguous material in migration inboxes.
 
 Update rules:
 

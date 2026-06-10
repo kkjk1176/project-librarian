@@ -185,9 +185,9 @@ Wiki の検証と保守:
 4. `--refresh-index` は新しい wiki page をルーティングし、route が多い場合は `wiki/indexes/auto-*.md` スコープ別ルーターに分割します。
 5. `--code-index` は `.project-wiki/` 配下に破棄可能な SQLite 根拠 cache を作ります。
 6. `--code-report`、`--code-impact`、`--code-search-symbol`、`--code-query` が計画更新用のコード根拠を提供します。
-7. 診断は壊れたリンク、重複 route、orphan page、古いページ、欠落した TL;DR、根拠 gap、マイグレーションコピーリスクを報告します。
+7. 診断は壊れたリンク、重複 route、orphan page、古いページ、欠落した TL;DR、根拠 gap、マイグレーション方針違反を報告します。
 
-マイグレーションはレビュー優先です。`--migrate` は既存 `wiki/` を `wiki_legacy*` として保存し、migration inbox を作成し、legacy Markdown を新しい canonical truth に直接コピーしません。
+マイグレーションはレビュー優先です。`--migrate` は既存 `wiki/` を `wiki_legacy*` として保存し、migration inbox と unit-level coverage ledger を作成し、legacy の意味を現在の wiki ルールに合わせて再構成します。保持またはコピーした legacy 内容は、新しい wiki の方針と構造に合う場合は許容されます。新しい wiki は `wiki_legacy*` への参照に依存してはいけません。
 
 ## 言語サポート表
 
@@ -217,7 +217,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-重要なオプション: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+重要なオプション: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 開発
 

@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.classifyMarkdown = classifyMarkdown;
+exports.extractMigrationUnits = extractMigrationUnits;
+exports.collectMigrationCoverageDiagnostics = collectMigrationCoverageDiagnostics;
 exports.markdownTableRows = markdownTableRows;
 exports.buildInbox = buildInbox;
 exports.timestampSuffix = timestampSuffix;
@@ -66,6 +68,157 @@ function classifyMarkdown(relativePath, text) {
 }
 function markdownTableCell(value) {
     return String(value).replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+}
+function slugPart(value) {
+    return value.toLowerCase().replace(/[^a-z0-9가-힣ぁ-んァ-ン一-龥]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "unit";
+}
+function unitSummary(value) {
+    return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+function nextUnitId(legacyPath, index, summary) {
+    return `${legacyPath}#u${String(index).padStart(3, "0")}-${slugPart(summary)}`;
+}
+function extractMigrationUnits(legacyPath, text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const lines = body.split(/\r?\n/);
+    const units = [];
+    let heading = "";
+    let paragraph = [];
+    let inCodeFence = false;
+    let codeBlock = [];
+    const pushUnit = (type, value) => {
+        const summary = unitSummary(value);
+        if (!summary)
+            return;
+        units.push({
+            id: nextUnitId(legacyPath, units.length + 1, summary),
+            legacyPath,
+            type,
+            heading,
+            summary,
+        });
+    };
+    const flushParagraph = () => {
+        if (paragraph.length === 0)
+            return;
+        pushUnit("paragraph", paragraph.join(" "));
+        paragraph = [];
+    };
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^```/.test(trimmed)) {
+            if (inCodeFence) {
+                codeBlock.push(line);
+                pushUnit("code-block", codeBlock.join("\n"));
+                codeBlock = [];
+                inCodeFence = false;
+            }
+            else {
+                flushParagraph();
+                inCodeFence = true;
+                codeBlock = [line];
+            }
+            continue;
+        }
+        if (inCodeFence) {
+            codeBlock.push(line);
+            continue;
+        }
+        if (!trimmed) {
+            flushParagraph();
+            continue;
+        }
+        const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch?.[2]) {
+            flushParagraph();
+            heading = headingMatch[2].trim();
+            pushUnit("heading", heading);
+            continue;
+        }
+        if (/^\|.+\|$/.test(trimmed) && !/^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed)) {
+            flushParagraph();
+            pushUnit("table-row", trimmed);
+            continue;
+        }
+        if (/^([-*+]|\d+[.)])\s+/.test(trimmed)) {
+            flushParagraph();
+            pushUnit("list-item", trimmed);
+            continue;
+        }
+        paragraph.push(trimmed);
+    }
+    if (inCodeFence && codeBlock.length > 0)
+        pushUnit("code-block", codeBlock.join("\n"));
+    flushParagraph();
+    return units;
+}
+function coverageTableRows(units) {
+    if (units.length === 0)
+        return "| none | - | - | - | - | pending | - | - |\n";
+    return units.map((unit) => `| ${markdownTableCell(unit.id)} | ${markdownTableCell(unit.legacyPath)} | ${unit.type} | ${markdownTableCell(unit.heading || "-")} | ${markdownTableCell(unit.summary)} | pending | - | - |`).join("\n") + "\n";
+}
+function isMigrationCoverageStatus(value) {
+    return ["adopted", "merged", "superseded", "rejected", "resolved", "needs-human-review", "pending"].includes(value);
+}
+function legacyWikiRoots() {
+    if (!fs.existsSync(workspace_1.root))
+        return [];
+    return fs.readdirSync(workspace_1.root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^wiki_legacy(?:_|$)/.test(entry.name))
+        .map((entry) => entry.name)
+        .sort();
+}
+function expectedMigrationUnits() {
+    return legacyWikiRoots()
+        .flatMap((legacyRoot) => (0, wiki_files_1.walkMarkdownFiles)((0, workspace_1.abs)(legacyRoot), [], (0, workspace_1.abs)(legacyRoot)))
+        .flatMap((file) => extractMigrationUnits(file.basePath, (0, workspace_1.read)(file.path)));
+}
+function collectMigrationCoverageDiagnostics() {
+    const units = expectedMigrationUnits();
+    if (units.length === 0)
+        return [];
+    if (!(0, workspace_1.exists)("wiki/migration/coverage.md")) {
+        return [{
+                code: "migration-coverage-missing",
+                severity: "error",
+                file: "wiki/migration/coverage.md",
+                message: "migration unit coverage ledger is missing; run --migrate to account for legacy meaning units",
+            }];
+    }
+    const diagnostics = [];
+    const expectedIds = new Set(units.map((unit) => unit.id));
+    const seenIds = new Set();
+    const rows = (0, wiki_files_1.parseMarkdownTableRows)((0, workspace_1.read)("wiki/migration/coverage.md"), 8).filter((cells) => cells[0] !== "Unit ID");
+    for (const cells of rows) {
+        const id = cells[0] || "";
+        const status = String(cells[5] || "").trim().toLowerCase();
+        const target = String(cells[6] || "").trim();
+        if (seenIds.has(id)) {
+            diagnostics.push({ code: "migration-duplicate-unit", severity: "error", file: "wiki/migration/coverage.md", message: `duplicate migration unit row: ${id}` });
+        }
+        seenIds.add(id);
+        if (!expectedIds.has(id)) {
+            diagnostics.push({ code: "migration-stale-unit", severity: "warn", file: "wiki/migration/coverage.md", message: `coverage row does not match current legacy units: ${id}` });
+        }
+        if (!isMigrationCoverageStatus(status)) {
+            diagnostics.push({ code: "migration-invalid-status", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} has invalid status: ${status || "(blank)"}` });
+        }
+        if (["adopted", "merged"].includes(status) && !/^wiki\/(canonical|decisions|sources|meta)\//.test(target)) {
+            diagnostics.push({ code: "migration-missing-target", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} is ${status} but target is not a new wiki page` });
+        }
+        if (/\bwiki_legacy(?:_|\b|\/)/.test(target)) {
+            diagnostics.push({ code: "migration-legacy-target", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} targets wiki_legacy* instead of migrated new-wiki truth` });
+        }
+        if (status === "pending") {
+            diagnostics.push({ code: "migration-pending-unit", severity: "warn", file: "wiki/migration/coverage.md", message: `unit ${id} is still pending migration review` });
+        }
+    }
+    for (const unit of units) {
+        if (!seenIds.has(unit.id)) {
+            diagnostics.push({ code: "migration-unaccounted-unit", severity: "error", file: unit.legacyPath, message: `legacy meaning unit missing from coverage ledger: ${unit.id}` });
+        }
+    }
+    return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 function markdownTableRows(items) {
     if (items.length === 0)
@@ -172,6 +325,22 @@ function runMigrationMode(migrationState) {
 | Legacy Source | Classification | Title | Size (bytes) | Summary |
 | --- | --- | --- | ---: | --- |
 ${inventoryRows}`;
+    const units = items.flatMap((item) => extractMigrationUnits(item.legacyPath, (0, workspace_1.read)(item.path)));
+    const coverage = `${(0, templates_1.metadata)("migration-coverage", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration unit coverage statuses change")}
+# Migration Coverage Ledger
+
+## TL;DR
+
+- Generated: ${workspace_1.today}
+- Legacy root: ${legacyPath || "none"}
+- Legacy meaning units: ${units.length}
+- Every legacy heading, paragraph, list item, table row, and code block should remain accounted for.
+- Status values: pending, adopted, merged, superseded, rejected, resolved, needs-human-review.
+- \`adopted\` and \`merged\` rows require a new-wiki target under \`wiki/canonical/\`, \`wiki/decisions/\`, \`wiki/sources/\`, or \`wiki/meta/\`.
+
+| Unit ID | Legacy Source | Type | Heading | Summary | Status | Target | Note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+${coverageTableRows(units)}`;
     const plan = `${(0, templates_1.metadata)("migration-plan", "short", "wiki/meta/wiki-ops-v1-decisions.md", "migration procedure or status changes")}
 # Migration Plan
 
@@ -233,6 +402,10 @@ ${verificationRows}`;
   - Read when: legacy file coverage or semantic migration status matters.
   - Update when: migration inbox statuses change.
   - Token budget: on-demand.
+- [[migration/coverage]]
+  - Read when: checking whether legacy meaning units were adopted, merged, superseded, rejected, resolved, or marked for review.
+  - Update when: unit-level migration coverage statuses, targets, or notes change.
+  - Token budget: on-demand.
 - [[migration/review]]
   - Read when: semantic migration review status matters.
   - Update when: \`--review-migration\` syncs migration state.
@@ -253,6 +426,7 @@ ${verificationRows}`;
     const results = [];
     (0, workspace_1.mkdirp)("wiki/migration");
     results.push(["wiki/migration/inventory.md", (0, workspace_1.writeManaged)("wiki/migration/inventory.md", inventory)]);
+    results.push(["wiki/migration/coverage.md", (0, workspace_1.writeManaged)("wiki/migration/coverage.md", coverage)]);
     results.push(["wiki/migration/plan.md", (0, workspace_1.writeManaged)("wiki/migration/plan.md", plan)]);
     results.push(["wiki/migration/verification.md", (0, workspace_1.writeManaged)("wiki/migration/verification.md", verification)]);
     results.push(["wiki/canonical/migration-inbox.md", (0, workspace_1.writeManaged)("wiki/canonical/migration-inbox.md", buildInbox("Canonical Migration Inbox", "Legacy content that may belong in current project truth.", byKind.canonical.concat(byKind.other)))]);

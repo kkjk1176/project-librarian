@@ -24,6 +24,9 @@ Options:
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
   --doctor                         Run lint, link-check, and quality-check together.
   --fix                            With --doctor, safely refresh generated index routing.
+  --migration-lint                 Validate migration review scaffolding separately from normal lint.
+  --migration-quality-check        Report migration policy/structure signals separately from normal quality-check.
+  --migration-doctor               Run migration-lint and migration-quality-check together.
   --issue-create                   Create a GitHub issue with gh issue create after explicit user approval.
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
   --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
@@ -154,6 +157,18 @@ if (args_1.pruneCheckMode) {
 }
 if (args_1.reviewMigrationMode) {
     (0, migration_1.runReviewMigrationMode)();
+    process.exit(0);
+}
+if (args_1.migrationDoctorMode) {
+    (0, modes_1.runMigrationDoctorMode)();
+    process.exit(0);
+}
+if (args_1.migrationQualityCheckMode) {
+    (0, modes_1.runMigrationQualityCheckMode)();
+    process.exit(0);
+}
+if (args_1.migrationLintMode) {
+    (0, modes_1.runMigrationLintMode)();
     process.exit(0);
 }
 if (args_1.doctorMode) {

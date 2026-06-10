@@ -7,6 +7,7 @@ TMPDIR="$(mktemp -d)"
 ROOT_DIRTY_PROBE="$ROOT/benchmarks/reports/dirty-baseline-smoke.tmp"
 
 cleanup() {
+  cd "$ROOT" 2>/dev/null || cd /
   rm -f "$ROOT_DIRTY_PROBE"
   rm -rf "$TMPDIR"
 }
@@ -386,19 +387,29 @@ Decision: preserve a source path containing a pipe.
 EOF
 node "$CLI" --migrate
 grep -q 'spec\\|decision.md' wiki/migration/verification.md
+grep -q 'spec\\|decision.md#u' wiki/migration/coverage.md
+grep -Fq "[[migration/coverage]]" wiki/index.md
 grep -q "Completion Scope" wiki/migration/verification.md
 grep -q "For a fresh rebuild request" wiki/migration/verification.md
 grep -q "future fresh rebuild request" wiki/startup.md
 grep -q "fresh rebuild procedure" wiki/index.md
+node "$CLI" --migration-lint > migration-lint-pipe.log
+grep -q "migration-pending-unit" migration-lint-pipe.log
 node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
 node "$CLI" --review-migration > review-migration-pipe.log
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/review.md
 grep -q "For a fresh rebuild request" wiki/migration/review.md
 grep -q 'spec\\|decision.md' wiki/migration/review.md
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let removed=false; const kept=lines.filter((line)=>{ if (!removed && /^\| spec\\\|decision\.md#u/.test(line)) { removed=true; return false; } return true; }); fs.writeFileSync(file, kept.join("\n"));'
+if node "$CLI" --migration-lint > migration-lint-missing-unit.log 2>&1; then
+  echo "expected --migration-lint to fail when coverage ledger drops a legacy meaning unit" >&2
+  exit 1
+fi
+grep -q "migration-unaccounted-unit" migration-lint-missing-unit.log
 
-mkdir "$TMPDIR/migration-copy-risk"
-cd "$TMPDIR/migration-copy-risk"
+mkdir "$TMPDIR/migration-copy-policy"
+cd "$TMPDIR/migration-copy-policy"
 mkdir -p wiki/canonical
 cat > wiki/canonical/product-plan.md <<'EOF'
 ---
@@ -415,11 +426,11 @@ review_trigger: legacy product plan changes
 ## TL;DR
 
 - This is legacy project truth from a different project.
-- It intentionally contains enough repeated content to make a direct copy detectable.
+- It intentionally contains enough repeated content to prove direct copy is allowed when policy-compliant.
 
 ## Details
 
-Legacy Project Alpha serves billing administrators who reconcile imported invoices, approve payouts, and export financial reports. Its success criteria, domain terms, workflows, and release constraints belong to that old project. A migration reviewer must rewrite useful meaning for the current project instead of copying this file into the new canonical wiki. The copied text includes specific roles, workflow names, old product promises, and old operational constraints so direct file reuse is unsafe.
+Legacy Project Alpha serves billing administrators who reconcile imported invoices, approve payouts, and export financial reports. Its success criteria, domain terms, workflows, and release constraints belong to the current migration batch. A migration reviewer must verify useful meaning against the current wiki policy and structure before keeping this file in the new canonical wiki. The copied text includes specific roles, workflow names, product promises, and operational constraints that are still accepted as current project truth.
 EOF
 node "$CLI" --migrate > migration-copy-bootstrap.log
 cat > wiki/canonical/product-plan.md <<'EOF'
@@ -437,18 +448,156 @@ review_trigger: migrated product plan changes
 ## TL;DR
 
 - This is legacy project truth from a different project.
-- It intentionally contains enough repeated content to make a direct copy detectable.
+- It intentionally contains enough repeated content to prove direct copy is allowed when policy-compliant.
 
 ## Details
 
-Legacy Project Alpha serves billing administrators who reconcile imported invoices, approve payouts, and export financial reports. Its success criteria, domain terms, workflows, and release constraints belong to that old project. A migration reviewer must rewrite useful meaning for the current project instead of copying this file into the new canonical wiki. The copied text includes specific roles, workflow names, old product promises, and old operational constraints so direct file reuse is unsafe.
+Legacy Project Alpha serves billing administrators who reconcile imported invoices, approve payouts, and export financial reports. Its success criteria, domain terms, workflows, and release constraints belong to the current migration batch. A migration reviewer must verify useful meaning against the current wiki policy and structure before keeping this file in the new canonical wiki. The copied text includes specific roles, workflow names, product promises, and operational constraints that are still accepted as current project truth.
 EOF
-if node "$CLI" --quality-check > migration-copy-risk.log 2>&1; then
-  echo "expected --quality-check to fail on copied legacy wiki content" >&2
+node "$CLI" --quality-check > migration-copy-policy-normal.log
+if grep -q "migration-copy-risk" migration-copy-policy-normal.log; then
+  echo "expected normal --quality-check to ignore legacy copy similarity" >&2
   exit 1
 fi
-grep -q "migration-copy-risk" migration-copy-risk.log
-grep -q "wiki_legacy/canonical/product-plan.md" migration-copy-risk.log
+node "$CLI" --migration-quality-check > migration-copy-policy.log
+if grep -Eq "migration-copy-risk|migration-filename-reuse" migration-copy-policy.log; then
+  echo "expected --migration-quality-check to ignore copy and filename reuse by themselves" >&2
+  exit 1
+fi
+grep -q "passed: .* 0 warnings" migration-copy-policy.log
+node "$CLI" --migration-doctor > migration-doctor.log
+grep -q "Project wiki migration lint" migration-doctor.log
+grep -q "Project wiki migration quality-check" migration-doctor.log
+
+mkdir "$TMPDIR/migration-retained-wording"
+cd "$TMPDIR/migration-retained-wording"
+mkdir -p wiki/canonical
+cat > wiki/canonical/operations-reference.md <<'EOF'
+---
+status: active
+updated: 2026-06-01
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: legacy operations changes
+---
+
+# Operations Reference
+
+## TL;DR
+
+- This legacy document contains valid project rules that should not be lost.
+
+## Rules
+
+- Alpha intake confirms requester identity before creating any tracked project planning record.
+- Bravo review keeps unresolved scope questions visible until a maintainer closes them.
+- Charlie routing sends security sensitive notes to the risk register instead of startup.
+- Delta evidence records the current code path beside every code proven behavior claim.
+- Echo glossary updates happen before names enter public commands, database fields, or policy text.
+- Foxtrot migration keeps useful meaning while adapting it to the current topic structure.
+- Golf decisions capture rejected alternatives when future agents might otherwise retry them.
+- Hotel source notes retain external reference links when the summary depends on outside material.
+- India startup context stays compact and routes detailed planning files on demand only.
+- Juliet verification marks ambiguous legacy material for human review instead of dropping it.
+EOF
+node "$CLI" --migrate > migration-retained-wording-bootstrap.log
+cat > wiki/canonical/operations-rules.md <<'EOF'
+---
+status: active
+updated: 2026-06-09
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: operations rules change
+---
+
+# Operations Rules
+
+## TL;DR
+
+- Valid legacy wording is retained where it remains current truth.
+- The rules are reorganized by current operating concern instead of copied as a legacy file.
+
+## Evidence And Naming
+
+- Delta evidence records the current code path beside every code proven behavior claim.
+- Echo glossary updates happen before names enter public commands, database fields, or policy text.
+- Hotel source notes retain external reference links when the summary depends on outside material.
+
+## Migration And Review
+
+- Foxtrot migration keeps useful meaning while adapting it to the current topic structure.
+- Juliet verification marks ambiguous legacy material for human review instead of dropping it.
+- Bravo review keeps unresolved scope questions visible until a maintainer closes them.
+
+## Routing And Risk
+
+- Alpha intake confirms requester identity before creating any tracked project planning record.
+- Charlie routing sends security sensitive notes to the risk register instead of startup.
+- Golf decisions capture rejected alternatives when future agents might otherwise retry them.
+- India startup context stays compact and routes detailed planning files on demand only.
+EOF
+node "$CLI" --migration-quality-check > migration-retained-wording.log
+if grep -q "migration-copy-risk" migration-retained-wording.log; then
+  echo "expected retained valid wording in a restructured page to avoid copy-risk diagnostics" >&2
+  exit 1
+fi
+
+mkdir "$TMPDIR/migration-legacy-reference"
+cd "$TMPDIR/migration-legacy-reference"
+mkdir -p wiki/canonical
+cat > wiki/canonical/reference-source.md <<'EOF'
+---
+status: active
+updated: 2026-06-01
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: legacy source changes
+---
+
+# Reference Source
+
+## TL;DR
+
+- This file gives migration mode a legacy wiki root.
+
+## Details
+
+Current project truth should be migrated into the new wiki instead of requiring readers to inspect preserved legacy files.
+EOF
+node "$CLI" --migrate > migration-legacy-reference-bootstrap.log
+cat > wiki/canonical/bad-reference.md <<'EOF'
+---
+status: active
+updated: 2026-06-09
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: migrated reference changes
+---
+
+# Bad Reference
+
+## TL;DR
+
+- This page incorrectly depends on preserved legacy files.
+
+## Details
+
+Read wiki_legacy/canonical/reference-source.md for the real source of truth.
+EOF
+node "$CLI" --quality-check > migration-legacy-reference-normal.log
+if grep -q "migration-legacy-reference" migration-legacy-reference-normal.log; then
+  echo "expected normal --quality-check to omit migration-legacy-reference" >&2
+  exit 1
+fi
+if node "$CLI" --migration-quality-check > migration-legacy-reference.log 2>&1; then
+  echo "expected --migration-quality-check to fail when active truth cites wiki_legacy" >&2
+  exit 1
+fi
+grep -q "migration-legacy-reference" migration-legacy-reference.log
 
 mkdir "$TMPDIR/existing-hooks-path"
 cd "$TMPDIR/existing-hooks-path"

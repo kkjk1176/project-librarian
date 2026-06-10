@@ -42,8 +42,13 @@ exports.runIssueCreateMode = runIssueCreateMode;
 exports.runPruneCheckMode = runPruneCheckMode;
 exports.collectLinkDiagnostics = collectLinkDiagnostics;
 exports.collectQualityDiagnostics = collectQualityDiagnostics;
+exports.collectMigrationQualityDiagnostics = collectMigrationQualityDiagnostics;
+exports.collectMigrationLintDiagnostics = collectMigrationLintDiagnostics;
 exports.runLinkCheckMode = runLinkCheckMode;
 exports.runQualityCheckMode = runQualityCheckMode;
+exports.runMigrationQualityCheckMode = runMigrationQualityCheckMode;
+exports.runMigrationLintMode = runMigrationLintMode;
+exports.runMigrationDoctorMode = runMigrationDoctorMode;
 exports.runDoctorMode = runDoctorMode;
 exports.runLintMode = runLintMode;
 const fs = __importStar(require("node:fs"));
@@ -53,6 +58,7 @@ const path = __importStar(require("node:path"));
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
+const migration_1 = require("./migration");
 const wiki_files_1 = require("./wiki-files");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
@@ -510,107 +516,21 @@ function legacyWikiRoots() {
         .map((entry) => entry.name)
         .sort();
 }
-function normalizeMigrationCopyText(text) {
-    return (0, workspace_1.stripMetadataHeader)(text)
-        .replace(/<!--[\s\S]*?-->/g, " ")
-        .replace(/\r?\n/g, " ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .toLowerCase();
-}
-function migrationCopyTokens(text) {
-    return normalizeMigrationCopyText(text).match(/[\p{L}\p{N}_./-]+/gu) ?? [];
-}
-function tokenOverlapScore(left, right) {
-    if (left.length === 0 || right.length === 0)
-        return 0;
-    const counts = new Map();
-    for (const token of right)
-        counts.set(token, (counts.get(token) ?? 0) + 1);
-    let overlap = 0;
-    for (const token of left) {
-        const count = counts.get(token) ?? 0;
-        if (count <= 0)
-            continue;
-        overlap += 1;
-        if (count === 1)
-            counts.delete(token);
-        else
-            counts.set(token, count - 1);
-    }
-    return overlap / Math.max(left.length, right.length);
-}
-function shouldGuardAgainstMigrationCopy(file, text) {
+function shouldGuardAgainstLegacyReference(file) {
     if (!/^wiki\/(?:canonical|decisions|sources)\//.test(file))
         return false;
-    if (file.endsWith("/migration-inbox.md"))
-        return false;
-    const starter = templates_1.starterFiles[file];
-    return !starter || normalizeMigrationCopyText(starter) !== normalizeMigrationCopyText(text);
+    return !file.endsWith("/migration-inbox.md");
 }
-function migrationCopyDiagnostics(files) {
-    const roots = legacyWikiRoots();
-    if (roots.length === 0)
-        return [];
-    const guardedFiles = files.filter((file) => shouldGuardAgainstMigrationCopy(file, (0, workspace_1.read)(file)));
-    if (guardedFiles.length === 0)
-        return [];
-    const legacyEntries = roots
-        .flatMap((legacyRoot) => (0, wiki_files_1.walkMarkdownFiles)((0, workspace_1.abs)(legacyRoot), [], (0, workspace_1.abs)(legacyRoot)))
-        .map((legacyFile) => {
-        const text = (0, workspace_1.read)(legacyFile.path);
-        return {
-            file: legacyFile.path,
-            basePath: legacyFile.basePath,
-            basename: path.basename(legacyFile.basePath).toLowerCase(),
-            normalized: normalizeMigrationCopyText(text),
-            tokens: migrationCopyTokens(text),
-        };
-    })
-        .filter((entry) => entry.normalized.length >= 200);
-    const diagnostics = [];
-    for (const file of guardedFiles) {
-        const text = (0, workspace_1.read)(file);
-        const normalized = normalizeMigrationCopyText(text);
-        if (normalized.length < 200)
-            continue;
-        const tokens = migrationCopyTokens(text);
-        const basename = path.basename(file).toLowerCase();
-        const relativeWithinWiki = file.replace(/^wiki\//, "");
-        for (const legacy of legacyEntries) {
-            if (normalized === legacy.normalized) {
-                diagnostics.push({
-                    code: "migration-copy-risk",
-                    severity: "error",
-                    file,
-                    message: `body matches legacy document ${legacy.file}; rewrite project truth instead of copying legacy files`,
-                });
-                break;
-            }
-            if (tokens.length >= 80 && legacy.tokens.length >= 80) {
-                const score = tokenOverlapScore(tokens, legacy.tokens);
-                if (score >= 0.92) {
-                    diagnostics.push({
-                        code: "migration-copy-risk",
-                        severity: "error",
-                        file,
-                        message: `body is ${Math.round(score * 100)}% token-similar to legacy document ${legacy.file}; rewrite and cite current-project evidence`,
-                    });
-                    break;
-                }
-            }
-            if (relativeWithinWiki === legacy.basePath || basename === legacy.basename) {
-                diagnostics.push({
-                    code: "migration-filename-reuse",
-                    severity: "warn",
-                    file,
-                    message: `filename also exists in legacy document ${legacy.file}; verify this is a rewrite, not a file copy`,
-                });
-                break;
-            }
-        }
-    }
-    return diagnostics;
+function migrationLegacyReferenceDiagnostics(files) {
+    return files
+        .filter(shouldGuardAgainstLegacyReference)
+        .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file))))
+        .map((file) => ({
+        code: "migration-legacy-reference",
+        severity: "error",
+        file,
+        message: "new project truth must not link to or cite wiki_legacy*; migrate the meaning or keep unresolved material in migration inboxes",
+    }));
 }
 function collectQualityDiagnostics() {
     const diagnostics = [];
@@ -656,8 +576,34 @@ function collectQualityDiagnostics() {
             }
         }
     }
-    diagnostics.push(...migrationCopyDiagnostics(files));
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+}
+function collectMigrationQualityDiagnostics() {
+    const files = (0, wiki_files_1.wikiMarkdownFiles)();
+    return migrationLegacyReferenceDiagnostics(files).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+}
+function collectMigrationLintDiagnostics() {
+    if (legacyWikiRoots().length === 0)
+        return [];
+    const requiredFiles = [
+        "wiki/migration/inventory.md",
+        "wiki/migration/coverage.md",
+        "wiki/migration/plan.md",
+        "wiki/migration/verification.md",
+        "wiki/canonical/migration-inbox.md",
+        "wiki/decisions/migration-inbox.md",
+        "wiki/sources/migration-inbox.md",
+    ];
+    const diagnostics = requiredFiles
+        .filter((file) => !(0, workspace_1.exists)(file))
+        .map((file) => ({
+        code: "migration-missing-file",
+        severity: "error",
+        file,
+        message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
+    }));
+    diagnostics.push(...(0, migration_1.collectMigrationCoverageDiagnostics)());
+    return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 function runLinkCheckMode() {
     const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
@@ -667,6 +613,22 @@ function runLinkCheckMode() {
 function runQualityCheckMode() {
     const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
     if (!ok)
+        process.exit(1);
+}
+function runMigrationQualityCheckMode() {
+    const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    if (!ok)
+        process.exit(1);
+}
+function runMigrationLintMode() {
+    const ok = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    if (!ok)
+        process.exit(1);
+}
+function runMigrationDoctorMode() {
+    const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    if (!lintOk || !qualityOk)
         process.exit(1);
 }
 function runDoctorMode(fix) {
