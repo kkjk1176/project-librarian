@@ -153,7 +153,7 @@ function runInstallSkillMode() {
     console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
-    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .codex/hooks.json, or .claude/settings.json.");
+    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
     console.log("next: agents should run the installed local project-librarian runner from the target project root; direct shell users can still run `npx project-librarian` when registry access is available.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);

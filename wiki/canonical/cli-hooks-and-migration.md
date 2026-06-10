@@ -11,7 +11,7 @@ review_trigger: hook setup, startup context, git hook behavior, migration, or mi
 
 ## TL;DR
 
-- Codex, Claude, and Cursor hooks inject compact wiki startup context; Gemini uses generated context instructions.
+- Codex, Claude, Cursor, and Gemini hooks inject compact wiki startup context.
 - Hook setup is preservation-first and does not replace unrelated user hook settings.
 - Migration preserves legacy docs as reviewable inbox candidates instead of copying them into canonical truth.
 
@@ -22,7 +22,7 @@ Code-proven behavior:
 - Codex uses `.codex/hooks.json` with `SessionStart` matcher `startup|resume|clear` and command `node .codex/hooks/wiki-session-start.js`; evidence: `upsertHookConfig` in `src/hooks.ts`.
 - Claude Code uses `.claude/settings.json` with `SessionStart` matchers `startup`, `resume`, `clear`, and `compact`; evidence: `upsertClaudeHookConfig` in `src/hooks.ts`.
 - Cursor uses `.cursor/hooks.json` with a `sessionStart` command `node .cursor/hooks/wiki-session-start.js`, and `.cursor/rules/project-librarian.mdc` as an always-applied project rule that references root `AGENTS.md`; evidence: `upsertCursorHookConfig` in `src/hooks.ts`, `cursorRule` in `src/templates.ts`, and bootstrap writes in `src/init-project-wiki.ts`.
-- Gemini CLI uses root `GEMINI.md`, which imports `AGENTS.md`; evidence: `geminiSection` in `src/templates.ts` and bootstrap writes in `src/init-project-wiki.ts`.
+- Gemini CLI uses `.gemini/settings.json` with `SessionStart` matchers `startup`, `resume`, and `clear`, command `node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"`, plus root `GEMINI.md`, which imports `AGENTS.md`; evidence: `upsertGeminiHookConfig` in `src/hooks.ts`, `geminiSection` in `src/templates.ts`, and bootstrap writes in `src/init-project-wiki.ts`.
 - Existing hook settings are preservation-first: bootstrap removes stale copies of its managed startup command, then inserts the managed command while preserving custom hooks, other hook events, and unrelated top-level settings; evidence: `upsertSessionStartHookConfig`, `upsertCursorHookConfig` in `src/hooks.ts`, and smoke coverage in `tests/smoke.sh`.
 - The generated hook scripts read only `wiki/startup.md` and `wiki/index.md`, truncating each to configured character budgets before emitting additional context; evidence: `hookScript` and `cursorHookScript` in `src/hooks.ts`.
 - Git hook setup configures `core.hooksPath` to `.githooks` only if the repository is git-backed and no hooks path already exists; `--no-git-config` skips this step; evidence: `upsertGitHooksPath` in `src/hooks.ts`.

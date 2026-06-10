@@ -53,6 +53,7 @@ const additionalContext = [
 ].join("\n");
 
 process.stdout.write(JSON.stringify({
-  additional_context: additionalContext,
+  continue: true,
+  hookSpecificOutput: { hookEventName: "SessionStart", additionalContext },
 
 }));

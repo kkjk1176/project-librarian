@@ -21,7 +21,7 @@ Project Librarian gives agents two local sources of truth:
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | A compact session-start summary and router, so only the relevant planning pages are read. |
 | `wiki/canonical/` and `wiki/decisions/` | Current project facts, constraints, risks, package contracts, CLI behavior, and durable decisions. |
-| `.codex/`, `.claude/`, and `.cursor/` hooks | Automatic startup context for Codex, Claude Code, and Cursor without loading the full wiki. |
+| `.codex/`, `.claude/`, `.cursor/`, and `.gemini/` hooks | Automatic startup context for Codex, Claude Code, Cursor, and Gemini CLI without loading the full wiki. |
 | `GEMINI.md` and `.cursor/rules/` | Gemini CLI and Cursor instruction files that route agents to the same compact wiki-first contract. |
 | `.project-wiki/code-evidence.sqlite` | Regenerable code evidence for files, symbols, imports, routes, ownership, workspace graph, reports, and impact checks. |
 | Diagnostics and migration modes | Link checks, quality checks, migration inboxes, stale-signal reports, and issue drafts when the workflow exposes a problem. |
@@ -81,7 +81,7 @@ Install into the current repository instead:
 npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.codex/hooks.json`, or `.claude/settings.json`.
+`install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`.
 
 | Situation | Command |
 | --- | --- |
@@ -177,6 +177,8 @@ Startup hooks:
 - `.claude/hooks/wiki-session-start.js`
 - `.cursor/hooks.json`
 - `.cursor/hooks/wiki-session-start.js`
+- `.gemini/settings.json`
+- `.gemini/hooks/wiki-session-start.js`
 
 Git hook files:
 

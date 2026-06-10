@@ -229,6 +229,8 @@ function issueDraftMarkdown(): string {
     ".cursor/rules/project-librarian.mdc",
     ".cursor/hooks.json",
     ".cursor/hooks/wiki-session-start.js",
+    ".gemini/settings.json",
+    ".gemini/hooks/wiki-session-start.js",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
   ]);
@@ -655,6 +657,8 @@ export function runLintMode(): void {
     ".cursor/rules/project-librarian.mdc",
     ".cursor/hooks/wiki-session-start.js",
     ".cursor/hooks.json",
+    ".gemini/hooks/wiki-session-start.js",
+    ".gemini/settings.json",
   ];
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);
@@ -699,6 +703,10 @@ export function runLintMode(): void {
     const hook = read(".cursor/hooks/wiki-session-start.js");
     if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("additional_context")) errors.push("Cursor startup hook does not clearly inject startup/index through additional_context");
   }
+  if (exists(".gemini/hooks/wiki-session-start.js")) {
+    const hook = read(".gemini/hooks/wiki-session-start.js");
+    if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("hookSpecificOutput")) errors.push("Gemini startup hook does not clearly inject startup/index through hookSpecificOutput");
+  }
   if (exists(".claude/settings.json")) {
     const command = "node .claude/hooks/wiki-session-start.js";
     try {
@@ -728,6 +736,25 @@ export function runLintMode(): void {
       const sessionStart = settings.hooks.sessionStart ?? [];
       if (!Array.isArray(sessionStart) || !sessionStart.some((hook) => hook?.command === command)) {
         errors.push(".cursor/hooks.json is missing the project wiki sessionStart hook");
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+    }
+  }
+  if (exists(".gemini/settings.json")) {
+    const command = 'node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"';
+    try {
+      const settings = parseJson<HookConfig>(".gemini/settings.json", { hooks: {} });
+      if (!settings.hooks || typeof settings.hooks !== "object" || Array.isArray(settings.hooks)) {
+        throw new Error(".gemini/settings.json has invalid hooks object");
+      }
+      const sessionStart = settings.hooks.SessionStart ?? [];
+      const configuredMatchers = new Set(sessionStart
+        .filter((entry) => Array.isArray(entry.hooks) && entry.hooks.some((hook) => hook.command === command))
+        .map((entry) => entry.matcher));
+      for (const matcher of ["startup", "resume", "clear"]) {
+        if (!configuredMatchers.has(matcher)) errors.push(`.gemini/settings.json is missing the project wiki SessionStart hook for ${matcher}`);
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
