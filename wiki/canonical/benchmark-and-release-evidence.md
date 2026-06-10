@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-canonical
 read_budget: on-demand
 decision_ref: wiki/decisions/large-project-roadmap-and-metrics.md
@@ -12,7 +12,9 @@ review_trigger: benchmark harness, release evidence, roadmap metric, or public c
 ## TL;DR
 
 - 성능/효과 측정은 end-user CLI workflow가 아니라 maintainer release evidence workflow다.
-- 목적은 프로젝트를 개발/업데이트하면서 사용자에게 “targeted retrieval 방식이 naive full-wiki scan 대비 어느 정도의 Markdown context 추정 입력량을 피하는지”, “얼마나 빠르게 필요한 정보를 읽는지”, “이전 버전보다 얼마나 좋아졌는지”를 객관적 수치로 설명하는 것이다. 이는 실제 LLM 토큰 사용량 측정이 아니다.
+- 현재 maintainer benchmark의 목적은 프로젝트를 개발/업데이트하면서 사용자에게 “targeted retrieval 방식이 naive full-wiki scan 대비 어느 정도의 Markdown context 추정 입력량을 피하는지”, “얼마나 빠르게 필요한 정보를 읽는지”, “이전 버전보다 얼마나 좋아졌는지”를 객관적 수치로 설명하는 것이다. 이는 실제 LLM 토큰 사용량 측정이 아니다.
+- 실제 LLM 기준 벤치마크가 필요할 때는 OpenAI API/Codex JSONL 계측처럼 실제 `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, wall-clock latency, tokens/sec, request count, model, service tier, cost 계산 근거를 수집하는 별도 benchmark surface로 다뤄야 한다.
+- Codex 실제값 benchmark는 소/중/대 규모 wiki 및 codebase에서 Project Librarian을 적용한 조건과 적용하지 않은 control 조건을 비교해야 한다. 실제 coding agent에게 요청할 법한 과업을 재현하고 token usage, elapsed time, first-token/turn timing, tool-call count, command count, retrieved evidence count, correctness를 함께 측정해야 한다.
 - 측정 harness는 docs-heavy wiki, monorepo wiki, scoped-router wiki, code-heavy mixed JS/TS/TSX/Go/Python/Rust/Java/PHP/Kotlin/Swift/C/C++/C#/config index 시나리오와 optional Tree-sitter index 시나리오로 구성된 large-project benchmark suite를 만든다.
 - 명시적 `--sample-repo <path>`를 반복해서 주면 synthetic suite에 실제 로컬 repository 복사본 검증 시나리오들을 추가한다. 이 값들은 해당 repo들에 대한 관찰 근거이며 기본 synthetic release claim과 구분한다.
 - 개선 릴리스는 benchmark baseline과 current report의 delta를 함께 제시해야 한다.
@@ -75,6 +77,7 @@ Required release-evidence metrics:
 ## Measurement Rules
 
 - Token estimates use `ceil(characters / 4)` for stable cross-version comparison without a tokenizer dependency; they are not measured LLM tokenizer counts or API token consumption.
+- Actual LLM benchmark claims must not reuse the `ceil(characters / 4)` estimate as measured usage. They need an API-backed or Codex JSONL-backed run that records provider-returned token usage plus client-measured timing.
 - Default context-efficiency savings compare full-wiki markdown scanning against startup/index plus the query-returned target document. Startup/index-only savings are retained only as an upper-bound field.
 - Read timing is local wall-clock filesystem timing; compare only against baselines captured with matching schema, Node version, platform, architecture, scale, run count, warmup run count, measurement protocol, and scenario set.
 - Large scale uses one discarded warmup run plus repeated measured runs by default; reported scenario timing metrics are medians and include dispersion statistics.
@@ -100,6 +103,39 @@ Required release-evidence metrics:
 - `--sample-repo` metrics are observational evidence for the explicit local repository paths only. Do not use sample repositories as a general large-project claim without also citing the synthetic suite, sample paths, and repo profiles.
 - Ad hoc current reports under `benchmarks/reports/*.json` and `benchmarks/reports/*.md` are ignored by default; commit only deliberate release evidence summaries or baselines.
 - Official release baselines must be generated from a clean checkout with the standard sample set. If a locally generated baseline reports `source_control.dirty: true`, treat it as implementation evidence until regenerated clean for public release claims.
+
+## Actual LLM Subscription Benchmark Surface
+
+Adopted direction:
+
+- Add a separate opt-in benchmark surface for ChatGPT/Codex-authenticated real LLM measurements instead of mixing these results into the existing deterministic maintainer benchmark.
+- Use only Codex CLI for the subscription-authenticated benchmark path. Do not use OpenCode, OpenClaw, or other third-party coding-agent adapters for official project benchmark evidence.
+- Primary local path is `codex exec --json` with saved ChatGPT/Codex authentication, because it emits machine-readable turn events with provider-returned usage fields while avoiding direct OpenAI Platform API billing.
+- Required actual LLM fields: `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` when available, `total_tokens` or derived total, wall-clock duration, first-token latency when stream events expose it, tokens/sec, request/turn count, model, auth mode, and run timestamp.
+- Cost fields for subscription-authenticated runs should be labeled as `subscription_usage`, `credit_usage`, or `not_priced`, depending on what Codex exposes. Do not calculate dollar API cost unless the run used an API key or a documented token-to-credit rate card that applies to that auth mode.
+- Scenarios should be small and reproducible: fixed prompts against generated wiki fixtures, no repository writes, no external web/tool dependencies, and low run counts by default. Release evidence can increase repetitions only when the user explicitly accepts subscription quota consumption.
+- Claims must distinguish three categories: deterministic Markdown context estimate, subscription-authenticated real token/latency measurement, and API-key-priced token/cost measurement.
+- Official actual-LLM comparison must be a with/without Project Librarian experiment across small, medium, and large wiki/codebase fixtures. The control condition should omit generated `wiki/startup.md`, `wiki/index.md`, hooks, and code-evidence routing while preserving equivalent repository content needed to answer the task. The treatment condition should use the Project Librarian startup/index routing and optional code-evidence surfaces.
+- Scenario prompts should reproduce real agent work, not synthetic token counting alone. Required task families: project onboarding summary, find the current decision/source of truth, answer a code-impact question, locate release/verification policy, and diagnose where a change should be made. Write-changing tasks require a disposable fixture and must report changed-file count; read-only tasks should assert zero file changes.
+- Required comparison dimensions: `scale` (`small`, `medium`, `large`), `condition` (`with_project_librarian`, `without_project_librarian`), `task_family`, `prompt_id`, `model`, `auth_mode`, token usage, wall-clock duration, first-token timing when available, Codex turn count, total JSONL item count, command/tool call counts by event type, files read or referenced when observable, final answer correctness, and evidence-citation correctness.
+- Tool-call metrics should be derived from Codex JSONL events, including command executions, MCP/tool events, file-change events, plan events, and errors when present. If a Codex event type does not expose enough detail to count a tool category, the report must mark that field as unavailable instead of estimating silently.
+- Public claims from actual-LLM benchmarks should report medians and dispersion by scale and condition, plus with-vs-without deltas. They must not substitute deterministic Markdown token estimates for measured Codex usage.
+
+Concrete implementation plan:
+
+- Add a new runner instead of extending `benchmarks/project-metrics.js`: `benchmarks/codex-llm-metrics.js` for CLI/report writing, `benchmarks/lib/codex-jsonl.js` for JSONL parsing, `benchmarks/lib/llm-fixtures.js` for paired fixture materialization, `benchmarks/lib/llm-correctness.js` for expectation checks, and `tests/validators/codex-llm-benchmark-smoke.js` for report validation.
+- Add npm scripts: `benchmark:llm` for opt-in measured runs, `benchmark:llm:dry-run` for fixture/manifest generation without launching Codex, and `benchmark:llm:parse-smoke` for parser/report-shape validation over checked-in sample JSONL fixtures.
+- Matrix: every official report should cover `small`, `medium`, and `large` scales; `with_project_librarian` and `without_project_librarian` conditions; and task families `onboarding`, `decision_lookup`, `code_impact`, `release_policy`, and `change_location`.
+- Fixture sizing: small means about 8-20 planning pages and 50-150 source/config files; medium means about 80-160 planning pages and 500-1,000 source/config files; large means 500+ planning pages and 1,500+ source/config files with monorepo-shaped apps/packages/services.
+- Treatment condition: bootstrap the fixture with Project Librarian and keep generated `AGENTS.md`, `.codex/hooks.json`, `.codex/hooks/wiki-session-start.js`, `wiki/startup.md`, `wiki/index.md`, canonical/decision/source/meta pages, scoped routers, and optional `.project-wiki/code-evidence.sqlite`.
+- Control condition: preserve equivalent repository facts and source files, but remove Project Librarian routing/evidence surfaces such as generated startup/index routing, Project Librarian hook config, scoped routers, and `.project-wiki` code evidence. Keep normal project materials such as README, package files, source files, and scattered docs.
+- Measured command shape: `codex exec --json --ephemeral --sandbox read-only "<prompt>"` from the fixture root. The runner must require explicit `--allow-codex-run` before launching Codex and should refuse measured subscription mode when `CODEX_API_KEY` or `OPENAI_API_KEY` is present unless `--auth-mode api-key` is explicitly requested.
+- Raw artifacts: write JSONL under `benchmarks/reports/llm/raw/` and aggregate JSON/Markdown under `benchmarks/reports/llm/`. Treat ad hoc LLM reports like other local benchmark reports: do not commit unless deliberately preserving release evidence.
+- Report schema v1: top-level fields should include `schema_version`, `benchmark_kind: "codex-actual-llm"`, `auth_mode`, `generated_at`, `environment`, `codex`, `configuration`, `summary`, and `scenarios`. Each scenario should include `scale`, `condition`, `task_family`, `prompt_id`, `runs`, `median`, `correctness`, and `raw_jsonl_paths`.
+- Required parsed metrics: `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens`, derived `total_tokens`, `wall_ms`, `tokens_per_second`, `codex_turn_count`, `jsonl_event_count`, `command_event_count`, `tool_event_count`, `mcp_event_count`, `file_change_event_count`, `error_event_count`, and `unavailable_event_fields`.
+- Correctness checks: each task gets an expectation file under `benchmarks/llm/expectations/`; the checker validates required terms, forbidden terms, expected evidence paths, read-only zero file changes, and write-enabled disposable changed-file boundaries. Public improvement percentages should exclude `needs_review` cases unless manually adjudicated and documented.
+- Implementation phases: first build fixture/manifest dry-run, then JSONL parser and sample fixtures, then one small paired measured scenario, then full scale/task matrix with warmup/measured run support, then Markdown summary and README claim policy.
+- Verification: non-Codex checks are `npm run build`, `npm run typecheck`, `npm run unit`, `node benchmarks/codex-llm-metrics.js --dry-run`, and `node tests/validators/codex-llm-benchmark-smoke.js <sample-report.json>`; measured verification starts with one small with/without pair and confirms raw JSONL, parsed usage, correctness, and clean read-only fixture state.
 
 ## Roadmap Measurement Gates
 

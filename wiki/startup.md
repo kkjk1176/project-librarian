@@ -36,6 +36,7 @@ review_trigger: session-start summary, routing, language policy, or open project
 - Success: idempotent bootstrap, preservation-first edits, compact hooks, diagnostics, migration copy-risk detection, scoped routing, code evidence.
 - Large-project state: incremental indexing, code reports, Tree-sitter, workspace graph/CODEOWNERS, scoped routing, v9 benchmarks.
 - Measurement: metrics are release evidence; token claims are Markdown context avoided, not actual LLM use.
+- Actual LLM benchmark planning: Codex-only measured with/without Project Librarian comparisons are routed through [[canonical/benchmark-and-release-evidence]].
 - Project content language: Korean unless user/project context changes it.
 
 ## Recent Decisions
