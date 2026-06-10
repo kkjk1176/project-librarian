@@ -39,6 +39,8 @@ const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const args_1 = require("./args");
 const skillName = "project-librarian";
+const allAgentTargets = ["codex", "claude", "cursor", "gemini"];
+const legacyBothAgentTargets = ["codex", "claude"];
 const packageFiles = [
     "SKILL.md",
     "dist",
@@ -61,19 +63,23 @@ function installScope() {
     return fail(`invalid --scope: ${scope}; expected user or project`);
 }
 function installAgents() {
-    const value = (0, args_1.argValue)("--agents") || "both";
+    const value = (0, args_1.argValue)("--agents") || "all";
     const parts = value.split(",").map((item) => item.trim()).filter(Boolean);
     const agents = new Set();
     for (const part of parts) {
-        if (part === "both" || part === "all") {
-            agents.add("codex");
-            agents.add("claude");
+        if (part === "all") {
+            for (const agent of allAgentTargets)
+                agents.add(agent);
         }
-        else if (part === "codex" || part === "claude") {
+        else if (part === "both") {
+            for (const agent of legacyBothAgentTargets)
+                agents.add(agent);
+        }
+        else if (allAgentTargets.includes(part)) {
             agents.add(part);
         }
         else {
-            return fail(`invalid --agents entry: ${part}; expected codex, claude, or both`);
+            return fail(`invalid --agents entry: ${part}; expected codex, claude, cursor, gemini, all, or legacy both`);
         }
     }
     return Array.from(agents);
@@ -85,10 +91,23 @@ function userAgentRoot(agent) {
     const home = os.homedir();
     if (agent === "codex")
         return process.env.CODEX_HOME || path.join(home, ".codex");
-    return process.env.CLAUDE_HOME || path.join(home, ".claude");
+    if (agent === "claude")
+        return process.env.CLAUDE_HOME || path.join(home, ".claude");
+    if (agent === "cursor")
+        return process.env.CURSOR_HOME || path.join(home, ".cursor");
+    return process.env.GEMINI_HOME || path.join(home, ".gemini");
+}
+function projectAgentRoot(agent) {
+    if (agent === "codex")
+        return ".codex";
+    if (agent === "claude")
+        return ".claude";
+    if (agent === "cursor")
+        return ".cursor";
+    return ".gemini";
 }
 function installTarget(agent, scope) {
-    const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), agent === "codex" ? ".codex" : ".claude");
+    const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
     return path.join(base, "skills", skillName);
 }
 function sameFile(source, target) {
@@ -134,7 +153,7 @@ function runInstallSkillMode() {
     console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
-    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, wiki/, .codex/hooks.json, or .claude/settings.json.");
+    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .codex/hooks.json, or .claude/settings.json.");
     console.log("next: agents should run the installed local project-librarian runner from the target project root; direct shell users can still run `npx project-librarian` when registry access is available.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);

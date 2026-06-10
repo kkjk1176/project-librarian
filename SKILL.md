@@ -37,8 +37,12 @@ Prefer an already installed local runner over network package execution:
 - In the project-librarian source repository, use `node dist/init-project-wiki.js` when `dist/init-project-wiki.js` exists.
 - In a target repository with a project-scoped Codex skill install, use `node .codex/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Claude skill install, use `node .claude/skills/project-librarian/dist/init-project-wiki.js`.
+- In a target repository with a project-scoped Cursor skill install, use `node .cursor/skills/project-librarian/dist/init-project-wiki.js`.
+- In a target repository with a project-scoped Gemini skill install, use `node .gemini/skills/project-librarian/dist/init-project-wiki.js`.
 - In a user-scoped Codex skill install, use `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js`.
 - In a user-scoped Claude skill install, use `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js`.
+- In a user-scoped Cursor skill install, use `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js`.
+- In a user-scoped Gemini skill install, use `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js`.
 
 Use `npx` or `npm exec` only when no local runner exists and registry access is explicitly acceptable for the environment. When using npm package execution, pin the package version instead of running an unpinned public package.
 
@@ -91,7 +95,7 @@ node .codex/hooks/wiki-session-start.js
 node .claude/hooks/wiki-session-start.js
 $PROJECT_LIBRARIAN --lint
 $PROJECT_LIBRARIAN --doctor
-node -e 'JSON.parse(require("fs").readFileSync(".codex/hooks.json","utf8")); JSON.parse(require("fs").readFileSync(".claude/settings.json","utf8")); console.log("project librarian ok")'
+node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(".codex/hooks.json","utf8")); JSON.parse(fs.readFileSync(".claude/settings.json","utf8")); if (!fs.readFileSync("GEMINI.md","utf8").includes("@AGENTS.md")) process.exit(1); if (!fs.readFileSync(".cursor/rules/project-librarian.mdc","utf8").includes("@AGENTS.md")) process.exit(1); console.log("project librarian ok")'
 ```
 
 4. Report the files created or updated.
@@ -102,7 +106,7 @@ The script is idempotent. It creates missing files, updates the managed startup/
 
 Existing root instruction files are preservation-first:
 
-- Existing `AGENTS.md`, `CLAUDE.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
+- Existing `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
 - If no managed project-wiki section exists, bootstrap appends its marker-bounded section to the existing file.
 - On rerun, bootstrap replaces only content between its own `PROJECT-WIKI-*` markers and preserves surrounding project-specific content.
 
@@ -204,7 +208,9 @@ It installs:
 
 - `AGENTS.md` compact project-wide wiki-first planning instructions.
 - `CLAUDE.md` compact Claude Code compatibility file that imports `AGENTS.md`.
+- `GEMINI.md` compact Gemini CLI compatibility file that imports `AGENTS.md`.
 - `wiki/AGENTS.md` detailed wiki-internal editing and boundary rules.
+- `.cursor/rules/project-librarian.mdc` compact always-applied Cursor rule that references `AGENTS.md`.
 - `.githooks/prepare-commit-msg` wiki commit trailer hook.
 - `.githooks/wiki-commit-trailers.js` staged-file based trailer generator.
 - `.codex/hooks.json` `SessionStart` hook.
@@ -219,7 +225,7 @@ It installs:
 - `wiki/meta/` wiki operating rules, project decision policy, and wiki-operations Decision Pack.
 - `wiki/sources/` source summary starter documents.
 
-The Codex and Claude Code startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Claude Code uses `.claude/settings.json` plus `.claude/hooks/wiki-session-start.js`. `CLAUDE.md` still imports `AGENTS.md` so Claude Code shares the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
+The Codex and Claude Code startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Claude Code uses `.claude/settings.json` plus `.claude/hooks/wiki-session-start.js`. `CLAUDE.md` and `GEMINI.md` import `AGENTS.md`, and `.cursor/rules/project-librarian.mdc` references `AGENTS.md`, so Claude Code, Gemini CLI, and Cursor share the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
 
 When the project is a git repository, the script configures `git config core.hooksPath .githooks` by default only when `core.hooksPath` is unset, so wiki commit trailers are generated automatically without replacing an existing hook chain. Use `--no-git-config` to install hook files without changing git config. If the project is not a git repository yet, the hook files are still installed and will work after `core.hooksPath` is set.
 
@@ -249,7 +255,7 @@ Every wiki markdown file should include a compact metadata header with `status`,
 
 Wiki-specific commit trailers are automated through `.githooks/prepare-commit-msg`.
 
-The hook runs when staged files include `wiki/`, `AGENTS.md`, `CLAUDE.md`, `.codex/hooks.json`, `.codex/hooks/`, `.claude/settings.json`, `.claude/hooks/`, `.githooks/`, or `tools/project-librarian/`.
+The hook runs when staged files include `wiki/`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursor/rules/`, `.codex/hooks.json`, `.codex/hooks/`, `.claude/settings.json`, `.claude/hooks/`, `.githooks/`, or `tools/project-librarian/`.
 
 It appends these trailers when they are missing:
 
@@ -264,7 +270,7 @@ It appends these trailers when they are missing:
 
 Do not hand-write wiki trailers unless the hook is unavailable or the generated value needs correction.
 
-`--lint` verifies the Codex and Claude hook files/settings, git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
+`--lint` verifies the Codex and Claude hook files/settings, Cursor and Gemini instruction files, git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
 
 ## Glossary Mode
 

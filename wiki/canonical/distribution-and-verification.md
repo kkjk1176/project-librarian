@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-canonical
 read_budget: medium
 decision_ref: wiki/decisions/npm-release-policy.md
@@ -35,7 +35,7 @@ Code-proven behavior:
 - The CLI binary maps `project-librarian` to `dist/init-project-wiki.js`; evidence: `package.json`.
 - `package.json` repository, bugs, and homepage URLs point at `kkjk1176/project-librarian`; evidence: `package.json`.
 - `npm test` runs build, typecheck, unit tests, and smoke tests; evidence: `package.json`.
-- `install-skill` copies reusable skill files into Codex and/or Claude skill directories without bootstrapping a target wiki; evidence: `src/install-skill.ts`.
+- `install-skill` copies reusable skill files into Codex, Claude, Cursor, and/or Gemini skill directories without bootstrapping a target wiki; evidence: `src/install-skill.ts`.
 - When changing `src/`, rebuild `dist/` before release or commit review because the published binary path points at `dist/init-project-wiki.js`.
 
 ## README Command Policy
@@ -43,6 +43,6 @@ Code-proven behavior:
 Accepted project documentation policy:
 
 - Use `npx project-librarian install-skill ...` for initial skill installation because that is the npm distribution path.
-- After installation, examples intended for Codex, Claude Code, or any LLM agent should use the local installed runner, such as `node .codex/skills/project-librarian/dist/init-project-wiki.js`.
+- After installation, examples intended for Codex, Claude Code, Cursor, Gemini CLI, or any LLM agent should use the matching local installed runner, such as `node .codex/skills/project-librarian/dist/init-project-wiki.js`.
 - Avoid documenting `npx project-librarian --lint`, `npx project-librarian --doctor`, `npx project-librarian --code-index`, or other lifecycle modes as the normal agent execution path.
 - Direct shell users may still use the npm binary when registry access is available, but that path should not be the default in agent-facing lifecycle tables.

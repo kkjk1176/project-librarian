@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-brightgreen.svg)](https://nodejs.org/)
 [![代码依据索引](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-面向 Codex 和 Claude Code 的简洁项目记忆与代码依据。
+面向 Codex、Claude Code、Cursor 和 Gemini CLI 的简洁项目记忆与代码依据。
 
 Project Librarian 会创建仓库本地规划 wiki、简洁启动 hook，以及可选 SQLite 代码依据索引。代理可以从项目计划开始，被路由到正确文档，并在不反复扫描整个仓库的情况下查看由代码支撑的依据。
 
@@ -22,6 +22,7 @@ Project Librarian 给代理两个本地事实来源。
 | `wiki/startup.md` + `wiki/index.md` | 简短的会话启动摘要和路由器，只读取相关规划页面。 |
 | `wiki/canonical/` 和 `wiki/decisions/` | 当前项目事实、约束、风险、包契约、CLI 行为和持久决策。 |
 | `.codex/` 和 `.claude/` hooks | 不加载整个 wiki 的 Codex/Claude Code 启动上下文。 |
+| `GEMINI.md` 和 `.cursor/rules/` | 将 Gemini CLI 和 Cursor 路由到同一个紧凑 wiki-first 契约的兼容文件。 |
 | `.project-wiki/code-evidence.sqlite` | 可再生成的代码依据，用于文件、符号、import、route、所有权、工作区图、报告和影响检查。 |
 | 诊断和迁移模式 | 链接检查、质量检查、迁移收件箱、过期信号报告，以及工作流暴露问题时的 issue draft。 |
 
@@ -71,24 +72,26 @@ Project Librarian 给代理两个本地事实来源。
 只在初始 skill 安装时使用 `npx`。
 
 ```bash
-npx project-librarian install-skill --scope user --agents both
+npx project-librarian install-skill --scope user --agents all
 ```
 
 安装到当前仓库:
 
 ```bash
-npx project-librarian install-skill --scope project --agents both
+npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill` 只复制可复用的 skill 文件。它不会创建或更新 `AGENTS.md`、`CLAUDE.md`、`wiki/`、`.codex/hooks.json` 或 `.claude/settings.json`。
+`install-skill` 只复制可复用的 skill 文件。它不会创建或更新 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`wiki/`、`.cursor/rules/`、`.codex/hooks.json` 或 `.claude/settings.json`。
 
 | 场景 | 命令 |
 | --- | --- |
-| 为 Codex 和 Claude Code 全局安装 | `npx project-librarian install-skill --scope user --agents both` |
-| 安装到当前仓库 | `npx project-librarian install-skill --scope project --agents both` |
+| 为所有支持的 agent 全局安装 | `npx project-librarian install-skill --scope user --agents all` |
+| 安装到当前仓库 | `npx project-librarian install-skill --scope project --agents all` |
 | 只安装 Codex | `npx project-librarian install-skill --agents codex` |
 | 只安装 Claude Code | `npx project-librarian install-skill --agents claude` |
-| 预览安装结果 | `npx project-librarian install-skill --scope project --agents both --dry-run` |
+| 只安装 Cursor | `npx project-librarian install-skill --agents cursor` |
+| 只安装 Gemini CLI | `npx project-librarian install-skill --agents gemini` |
+| 预览安装结果 | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
 ## 代理运行路径
 
@@ -98,8 +101,12 @@ npx project-librarian install-skill --scope project --agents both
 | --- | --- |
 | 项目范围 Codex skill | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
 | 项目范围 Claude skill | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
+| 项目范围 Cursor skill | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| 项目范围 Gemini skill | `node .gemini/skills/project-librarian/dist/init-project-wiki.js` |
 | 用户范围 Codex skill | `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js` |
 | 用户范围 Claude skill | `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js` |
+| 用户范围 Cursor skill | `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| 用户范围 Gemini skill | `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js` |
 
 下面示例使用:
 
@@ -154,7 +161,9 @@ Wiki 验证和维护：
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `GEMINI.md`
 - `wiki/AGENTS.md`
+- `.cursor/rules/project-librarian.mdc`
 - `.codex/hooks.json`
 - `.codex/hooks/wiki-session-start.js`
 - `.claude/settings.json`
@@ -201,7 +210,7 @@ Wiki 验证和维护：
 
 ```bash
 $PROJECT_LIBRARIAN [init] [options]
-$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|both]
+$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
 重要选项：`--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.

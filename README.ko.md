@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-brightgreen.svg)](https://nodejs.org/)
 [![코드 근거 인덱스](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-Codex와 Claude Code를 위한 간결한 프로젝트 메모리와 코드 근거.
+Codex, Claude Code, Cursor, Gemini CLI를 위한 간결한 프로젝트 메모리와 코드 근거.
 
 Project Librarian은 저장소 로컬 계획 위키, 간결한 시작 훅, 선택적 SQLite 코드 근거 인덱스를 생성합니다. 에이전트는 프로젝트 계획에서 시작하고, 필요한 문서로 라우팅하며, 전체 저장소를 반복 스캔하지 않고 코드로 뒷받침되는 근거를 확인할 수 있습니다.
 
@@ -22,6 +22,7 @@ Project Librarian은 에이전트에게 두 가지 로컬 정본을 제공합니
 | `wiki/startup.md` + `wiki/index.md` | 짧은 세션 시작 요약과 라우터. 필요한 계획 페이지만 읽습니다. |
 | `wiki/canonical/` 및 `wiki/decisions/` | 현재 프로젝트 사실, 제약, 리스크, 패키지 계약, CLI 동작, 지속되는 결정. |
 | `.codex/` 및 `.claude/` 훅 | 전체 위키를 로드하지 않는 Codex/Claude Code 시작 컨텍스트. |
+| `GEMINI.md` 및 `.cursor/rules/` | Gemini CLI와 Cursor가 같은 compact wiki-first 계약으로 진입하게 하는 호환 파일. |
 | `.project-wiki/code-evidence.sqlite` | 파일, 심볼, import, route, 소유권, 작업공간 그래프, 보고서, 영향 확인을 위한 재생성 가능한 코드 근거. |
 | 진단 및 마이그레이션 모드 | 링크 확인, 품질 확인, 마이그레이션 수신함, 오래된 신호 보고서, 작업 흐름 문제 발견 시 이슈 초안. |
 
@@ -71,26 +72,28 @@ Project Librarian은 에이전트에게 두 가지 로컬 정본을 제공합니
 초기 skill 설치에만 `npx`를 사용합니다.
 
 ```bash
-npx project-librarian install-skill --scope user --agents both
+npx project-librarian install-skill --scope user --agents all
 ```
 
 현재 저장소에 설치:
 
 ```bash
-npx project-librarian install-skill --scope project --agents both
+npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill`은 재사용 가능한 skill 파일만 복사합니다. `AGENTS.md`, `CLAUDE.md`, `wiki/`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다.
+`install-skill`은 재사용 가능한 skill 파일만 복사합니다. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다.
 
 | 상황 | 명령 |
 | --- | --- |
-| Codex와 Claude Code에 전역 설치 | `npx project-librarian install-skill --scope user --agents both` |
-| 현재 저장소에 설치 | `npx project-librarian install-skill --scope project --agents both` |
+| 지원하는 모든 agent에 전역 설치 | `npx project-librarian install-skill --scope user --agents all` |
+| 현재 저장소에 설치 | `npx project-librarian install-skill --scope project --agents all` |
 | Codex만 설치 | `npx project-librarian install-skill --agents codex` |
 | Claude Code만 설치 | `npx project-librarian install-skill --agents claude` |
-| 설치 결과 미리 보기 | `npx project-librarian install-skill --scope project --agents both --dry-run` |
+| Cursor만 설치 | `npx project-librarian install-skill --agents cursor` |
+| Gemini CLI만 설치 | `npx project-librarian install-skill --agents gemini` |
+| 설치 결과 미리 보기 | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
-`--agents`는 `codex,claude` 같은 comma-separated 값도 받습니다. `--scope`는 `user` 또는 `project`를 받습니다.
+`--agents`는 `codex,claude,cursor,gemini` 같은 comma-separated 값도 받습니다. `all`은 지원하는 모든 agent를 대상으로 하며, `both`는 Codex/Claude 호환 alias입니다. `--scope`는 `user` 또는 `project`를 받습니다.
 
 ## 에이전트 실행 경로
 
@@ -100,8 +103,12 @@ npx project-librarian install-skill --scope project --agents both
 | --- | --- |
 | 프로젝트 범위 Codex skill | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
 | 프로젝트 범위 Claude skill | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
+| 프로젝트 범위 Cursor skill | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| 프로젝트 범위 Gemini skill | `node .gemini/skills/project-librarian/dist/init-project-wiki.js` |
 | 사용자 범위 Codex skill | `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js` |
 | 사용자 범위 Claude skill | `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js` |
+| 사용자 범위 Cursor skill | `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js` |
+| 사용자 범위 Gemini skill | `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js` |
 
 아래 예시는 다음 runner를 사용합니다.
 
@@ -156,7 +163,9 @@ $PROJECT_LIBRARIAN
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `GEMINI.md`
 - `wiki/AGENTS.md`
+- `.cursor/rules/project-librarian.mdc`
 - `.codex/hooks.json`
 - `.codex/hooks/wiki-session-start.js`
 - `.claude/settings.json`
@@ -203,7 +212,7 @@ $PROJECT_LIBRARIAN
 
 ```bash
 $PROJECT_LIBRARIAN [init] [options]
-$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|both]
+$PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
 중요 옵션: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.

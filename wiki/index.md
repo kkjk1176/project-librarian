@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: wiki-router
 read_budget: short
 decision_ref: wiki/meta/wiki-ops-v1-decisions.md
@@ -40,7 +40,7 @@ Router only. Read detailed files only when relevant.
 - [[canonical/cli-behavior]]: CLI overview, bootstrap, mode-family routing, boundaries. Budget: medium.
 - [[canonical/cli-lifecycle-modes]]: diagnostics, query, refresh-index, inbox, prune, glossary, skill install. Budget: medium.
 - [[canonical/cli-issue-reporting]]: issue-draft, issue-create, approval/GitHub CLI contract. Budget: medium.
-- [[canonical/cli-hooks-and-migration]]: Codex/Claude/git hooks, migration, copy-risk checks. Budget: medium.
+- [[canonical/cli-hooks-and-migration]]: Codex/Claude hooks, Cursor/Gemini instruction files, git hooks, migration, copy-risk checks. Budget: medium.
 - [[canonical/cli-code-evidence-modes]]: code evidence CLI flags, report sections, impact mode. Budget: medium.
 - [[canonical/code-evidence-index]]: code evidence overview, storage, discovery, schema, claim boundary. Budget: medium.
 - [[canonical/code-evidence-extraction]]: parser backends, languages, extraction, workspace/CODEOWNERS adapters. Budget: medium.

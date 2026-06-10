@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-decisions
 read_budget: on-demand
 decision_ref: wiki/meta/decision-policy.md
@@ -27,3 +27,4 @@ review_trigger: trivial project decisions need timestamp tracking
 - 2026-06-09 | code-evidence | optional Tree-sitter parser mode is explicit through `--code-index --code-parser tree-sitter` and remains separate from default parser mode compatibility | canonical: [[canonical/code-evidence-index]]
 - 2026-06-09 | migration-quality | migration review must rewrite legacy meaning instead of copying old markdown files into new project truth, and `--quality-check`/`--doctor` should flag copied legacy content from `wiki_legacy*` | canonical: [[canonical/cli-behavior]]
 - 2026-06-09 | runtime-policy | package minimum Node version is raised to `>=22.13` for the whole CLI because code evidence uses stable `node:sqlite` and split runtime support would make installed skill behavior harder to reason about | canonical: [[canonical/distribution-and-verification]]
+- 2026-06-10 | agent-support | Cursor and Gemini CLI are added as supported agent targets through generated compatibility instruction files and `install-skill --agents all` | canonical: [[canonical/cli-behavior]]

@@ -1,6 +1,6 @@
 ---
 status: active
-updated: 2026-06-09
+updated: 2026-06-10
 scope: project-canonical
 read_budget: medium
 decision_ref: none
@@ -12,7 +12,7 @@ review_trigger: product direction, audience, scope, success criteria, or languag
 ## TL;DR
 
 - Project Librarian은 작은 저장소뿐 아니라 큰 프로젝트와 모노레포에서도 쓸 수 있는 token-efficient project planning wiki와 재생성 가능한 code evidence index를 생성/유지하는 TypeScript CLI 패키지다.
-- 핵심 사용자는 Codex/Claude Code 같은 LLM coding agent를 쓰는 개발자와, agent가 반복해서 읽을 durable project context 및 코드 근거가 필요한 팀, 특히 큰 저장소에서 context routing과 code-backed planning update가 필요한 팀이다.
+- 핵심 사용자는 Codex, Claude Code, Cursor, Gemini CLI 같은 LLM coding agent를 쓰는 개발자와, agent가 반복해서 읽을 durable project context 및 코드 근거가 필요한 팀, 특히 큰 저장소에서 context routing과 code-backed planning update가 필요한 팀이다.
 - 성공 기준은 idempotent bootstrap, 기존 수동 내용 보존, compact startup hook, lint 가능한 생성물, migration/search/inbox, scoped routing, code-evidence index/report/impact 모드다.
 - README는 설치만 `npx`로 안내하고, agent/LLM이 실행하는 bootstrap, diagnostics, migration, code evidence 등 lifecycle 명령은 설치된 local `node .../dist/init-project-wiki.js` runner로 안내해야 한다.
 - Benchmark는 사용자 실행 기능이 아니라 maintainer release evidence다. Public README는 benchmark 사용법보다 결과값, 측정 조건, claim boundary를 먼저 안내해야 한다.
@@ -20,13 +20,13 @@ review_trigger: product direction, audience, scope, success criteria, or languag
 
 ## Current State
 
-코드 기준 현재 제품은 `project-librarian` CLI다. 기본 실행은 repo-local `wiki/`와 agent instruction files, Codex/Claude session-start hooks, optional git hook 파일을 생성하거나 업데이트한다.
+코드 기준 현재 제품은 `project-librarian` CLI다. 기본 실행은 repo-local `wiki/`와 agent instruction files, Codex/Claude session-start hooks, Cursor/Gemini compatibility files, optional git hook 파일을 생성하거나 업데이트한다.
 
 Code-proven facts:
 
 - npm binary는 `project-librarian`이고 `dist/init-project-wiki.js`를 실행한다. Evidence: `package.json`.
 - source of truth는 TypeScript 파일이 있는 `src/`이며, 배포 실행물은 `dist/`에 커밋된다. Evidence: `README.md`, `package.json`.
-- default bootstrap은 wiki directories, root instructions, Codex/Claude hook config, session hook scripts, git hook scripts, starter wiki pages를 만든다. Evidence: `src/init-project-wiki.ts`.
+- default bootstrap은 wiki directories, root instructions, Codex/Claude hook config, session hook scripts, Cursor/Gemini compatibility files, git hook scripts, starter wiki pages를 만든다. Evidence: `src/init-project-wiki.ts`.
 - 생성된 session-start hook은 `wiki/startup.md`와 `wiki/index.md`만 compact context로 주입한다. Evidence: `src/hooks.ts`.
 - CLI는 bootstrap, migration, lint, link-check, quality-check, doctor, query, issue-draft, refresh-index, capture-inbox, prune-check, migration review, glossary-init, skill install, code evidence index/query/report/status/files/symbol search 모드를 제공한다. Evidence: `src/args.ts`, `src/init-project-wiki.ts`.
 
@@ -37,7 +37,7 @@ Product framing:
 
 ## Audience
 
-- Primary: Codex/Claude Code를 쓰며 프로젝트별 planning memory와 agent startup context를 표준화하려는 개발자와 팀.
+- Primary: Codex/Claude Code/Cursor/Gemini CLI를 쓰며 프로젝트별 planning memory와 agent startup context를 표준화하려는 개발자와 팀.
 - Secondary: 큰 저장소, 모노레포, 기존 docs/wiki를 새 `wiki/` 구조로 검토 가능한 inbox와 scoped routing으로 관리하려는 팀.
 - Agent audience: repository state를 긴 대화 기록 대신 `wiki/startup.md`, `wiki/index.md`, on-demand canonical/decision/meta pages로 재구성해야 하는 coding agents.
 

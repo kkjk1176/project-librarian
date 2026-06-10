@@ -56,6 +56,8 @@ const path = __importStar(require("node:path"));
 const workspace_1 = require("./workspace");
 exports.standardWikiFiles = new Set([
     "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
     "wiki/AGENTS.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
@@ -63,6 +65,7 @@ exports.standardWikiFiles = new Set([
     ".codex/hooks/wiki-session-start.js",
     ".claude/settings.json",
     ".claude/hooks/wiki-session-start.js",
+    ".cursor/rules/project-librarian.mdc",
     "wiki/README.md",
     "wiki/startup.md",
     "wiki/index.md",
@@ -92,7 +95,7 @@ exports.standardWikiFiles = new Set([
     "tools/project-librarian/agents/openai.yaml",
     "tools/project-librarian/dist/init-project-wiki.js",
 ]);
-exports.ignoredDirs = new Set([".git", ".codex", ".claude", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"]);
+exports.ignoredDirs = new Set([".git", ".codex", ".claude", ".cursor", ".gemini", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"]);
 function walkMarkdownFiles(dir = workspace_1.root, acc = [], baseDir = workspace_1.root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name);

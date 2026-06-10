@@ -113,16 +113,19 @@ cd "$TMPDIR"
 node "$CLI"
 test -f AGENTS.md
 test -f CLAUDE.md
+test -f GEMINI.md
 test -f wiki/AGENTS.md
 test -f wiki/startup.md
 test -f wiki/index.md
 test -f .codex/hooks/wiki-session-start.js
 test -f .claude/hooks/wiki-session-start.js
 test -f .claude/settings.json
+test -f .cursor/rules/project-librarian.mdc
 
 node "$CLI" > rerun.log
 grep -q "exists  AGENTS.md" rerun.log
 grep -q "exists  CLAUDE.md" rerun.log
+grep -q "exists  GEMINI.md" rerun.log
 grep -q "exists  wiki/AGENTS.md" rerun.log
 
 node "$CLI" --lint
@@ -139,6 +142,9 @@ grep -q "Read On Demand" wiki/startup.md
 grep -q "Language Policy" wiki/index.md
 grep -q "Project canonical content language" wiki/startup.md
 grep -q "@AGENTS.md" CLAUDE.md
+grep -q "@AGENTS.md" GEMINI.md
+grep -q "alwaysApply: true" .cursor/rules/project-librarian.mdc
+grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
@@ -514,6 +520,15 @@ Custom Claude content before the compatibility section.
 
 Custom Claude content after a heading that matches the bootstrap fallback heading.
 EOF
+cat > GEMINI.md <<'EOF'
+# Existing Gemini Instructions
+
+Custom Gemini content before the compatibility section.
+
+# Gemini CLI Project Instructions
+
+Custom Gemini content after a heading that matches the bootstrap fallback heading.
+EOF
 node "$CLI"
 grep -q "Custom content before the wiki section." AGENTS.md
 grep -q "Custom content after a heading that matches the bootstrap fallback heading." AGENTS.md
@@ -521,6 +536,10 @@ grep -q "PROJECT-WIKI-FIRST:START" AGENTS.md
 grep -q "Custom Claude content before the compatibility section." CLAUDE.md
 grep -q "Custom Claude content after a heading that matches the bootstrap fallback heading." CLAUDE.md
 grep -q "PROJECT-WIKI-CLAUDE:START" CLAUDE.md
+grep -q "Custom Gemini content before the compatibility section." GEMINI.md
+grep -q "Custom Gemini content after a heading that matches the bootstrap fallback heading." GEMINI.md
+grep -q "PROJECT-WIKI-GEMINI:START" GEMINI.md
+grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
 node -e 'const c=require("./.codex/hooks.json"); if (!JSON.stringify(c).includes("node custom-codex-hook.js")) process.exit(1)'
 node -e 'const c=require("./.claude/settings.json"); if (!JSON.stringify(c).includes("node custom-claude-hook.js")) process.exit(1)'
 node -e 'const c=require("./.codex/hooks.json"); if (c.mcpServers.existing.command !== "node existing-mcp.js") process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-post-tool-use.js") process.exit(1); const starts = c.hooks.SessionStart.filter(e => e.matcher === "startup|resume|clear"); if (starts.length !== 1) process.exit(1); const commands = starts[0].hooks.map(h => h.command); if (!commands.includes("node custom-codex-hook.js") || !commands.includes("node .codex/hooks/wiki-session-start.js")) process.exit(1)'
@@ -929,21 +948,31 @@ grep -q "Use one code evidence mode" bad-code-mode.log
 
 mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
-HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude > user-skill-install.log
+HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
 grep -q "install-skill only installs the reusable skill files" user-skill-install.log
 grep -q "agents should run the installed local project-librarian runner" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-librarian/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.claude/skills/project-librarian/dist/init-project-wiki.js"
+test -f "$TMPDIR/home/.cursor/skills/project-librarian/SKILL.md"
+test -x "$TMPDIR/home/.cursor/skills/project-librarian/dist/init-project-wiki.js"
+test -f "$TMPDIR/home/.gemini/skills/project-librarian/SKILL.md"
+test -x "$TMPDIR/home/.gemini/skills/project-librarian/dist/init-project-wiki.js"
 
-node "$CLI" install-skill --scope project --agents both > project-skill-install.log
+node "$CLI" install-skill --scope project --agents all > project-skill-install.log
 grep -q "install-skill only installs the reusable skill files" project-skill-install.log
 grep -q "agents should run the installed local project-librarian runner" project-skill-install.log
 test -f .codex/skills/project-librarian/SKILL.md
 test -x .codex/skills/project-librarian/dist/init-project-wiki.js
 test -f .claude/skills/project-librarian/SKILL.md
 test -x .claude/skills/project-librarian/dist/init-project-wiki.js
+test -f .cursor/skills/project-librarian/SKILL.md
+test -x .cursor/skills/project-librarian/dist/init-project-wiki.js
+test -f .gemini/skills/project-librarian/SKILL.md
+test -x .gemini/skills/project-librarian/dist/init-project-wiki.js
+node "$CLI" install-skill --scope project --agents both --dry-run > legacy-both-skill-install.log
+grep -q "agents: codex, claude" legacy-both-skill-install.log
 
 mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"
