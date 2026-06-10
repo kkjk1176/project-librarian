@@ -32,38 +32,35 @@ Project Librarian 给代理两个本地事实来源。
 
 基准是维护者发布依据，不是公开用户工作流。它让 README 和发布说明用有边界的数字说明价值，而不是使用模糊性能描述。
 
-最新 clean 大规模报告：`benchmarks/reports/current-large.json`，生成于 2026-06-09T08:08:07.238Z，Node v22.19.0，darwin arm64，Apple M4 Pro，commit `18e730882c4f`，5 次测量运行和 1 次丢弃的预热运行。时间测量状态为 `stable`；unstable metrics 为 `none`；git 状态指纹为 clean。
+最新 clean 大规模报告：`benchmarks/reports/current-large.json`，生成于 2026-06-10T06:06:44.178Z，Node v22.19.0，darwin arm64，Apple M4 Pro，commit `9ddec8521a43`，5 次测量运行和 1 次丢弃的预热运行。时间测量状态为 `variable`；unstable metrics 为 `code.tree_sitter_code_index_ms`；git 状态指纹为 clean。
 
-| 指标 | 结果 |
-| --- | ---: |
-| Markdown 上下文估算避免量中位数 | 99.61% |
-| Markdown 上下文估算避免量最小值 | 99.43% |
-| 读取时间降低中位数 | 99.47% |
-| 读取时间降低最小值 | 99.26% |
-| 测量的 wiki 页面 | 1,601 |
-| 代码索引文件 | 1,608 |
-| 代码索引时间 | 336.312ms |
-| 代码索引吞吐量 | 4,781.27 files/sec |
-| 增量索引时间 | 186.776ms |
-| 全量到增量的时间降低 | 45.52% |
-| 架构报告时间 | 251.175ms |
-| 架构报告依据表 | 6 |
-| 架构报告 route | 24 |
-| 样本仓库 | 3 |
-| 基准运行 | 5 |
-| 预热运行 | 1 |
-| 时间测量状态 | stable |
-| 不稳定指标 | none |
+比较基准：wiki 路由行里的“未使用 Project Librarian”指 naive full-wiki Markdown scan；“使用 Project Librarian”指只读取 `wiki/startup.md`、`wiki/index.md` 和 query 返回的 target 文档。代码更新行比较全量代码索引 rebuild 与 Project Librarian 增量 reindex。
 
-场景摘要：
+| 工作负载 | 未使用 Project Librarian | 使用 Project Librarian | 差异 |
+| --- | ---: | ---: | ---: |
+| 文档密集 wiki，500页 | Markdown 估算 868,731 tokens；full-wiki read 7.594ms | Markdown 估算 2,260 tokens；targeted read 0.035ms | 上下文减少 99.74%；读取时间减少 99.53% |
+| Monorepo wiki，320页 | Markdown 估算 407,584 tokens；full-wiki read 4.604ms | Markdown 估算 2,339 tokens；targeted read 0.035ms | 上下文减少 99.43%；读取时间减少 99.24% |
+| 分范围路由 wiki，720页 | Markdown 估算 988,117 tokens；full-wiki read 10.731ms | Markdown 估算 3,839 tokens；targeted read 0.048ms | 上下文减少 99.61%；读取时间减少 99.59% |
+| 代码索引更新，1,608个文件 | 全量 rebuild 341.451ms | 2 个变更文件增量 reindex 187.588ms | wall-clock 减少 45.36% |
 
-| 场景 | 规模 | 结果 |
+其他测量依据：
+
+| 指标 | 测量值 | 比较状态 |
 | --- | ---: | --- |
-| 文档密集 wiki | 500页 | 99.74% Markdown 上下文估算避免，99.47% 读取降低，43.83ms query |
-| Monorepo wiki | 320页 | 99.43% Markdown 上下文估算避免，99.26% 读取降低，81.12ms doctor |
-| 分范围路由 wiki | 720页 | 99.61% Markdown 上下文估算避免，99.55% 读取降低，67.684ms refresh |
-| 代码密集混合索引 | 1,608个文件 | 336.312ms 全量索引，186.776ms 增量，251.175ms 报告，626.969ms Tree-sitter 索引 |
-| 样本仓库验证 | 3个仓库、16个文件 | 132.363ms 代码索引中位数，135.694ms 架构报告中位数 |
+| Markdown 上下文估算避免量中位数 | 99.61% | 从 full-wiki vs targeted-context 比较行得出 |
+| 读取时间降低中位数 | 99.53% | 从 full-wiki vs targeted-context 比较行得出 |
+| 架构报告时间 | 258.757ms | 功能计时测量值；没有 no-Project-Librarian baseline |
+| 架构报告依据表 | 6 | 功能输出测量值 |
+| 架构报告 route | 24 | 功能输出测量值 |
+| Tree-sitter 代码索引时间 | 653.668ms | 功能计时测量值；本次 run 中 unstable |
+| Tree-sitter parser profiles | 14 | 功能输出测量值 |
+| 样本仓库代码索引时间中位数 | 136.278ms | 明确样本仓库的观测计时 |
+| 样本仓库架构报告时间中位数 | 137.325ms | 明确样本仓库的观测计时 |
+| 基准运行 | 5 | 测量 protocol |
+| 预热运行 | 1 | 测量 protocol |
+| 时间测量状态 | variable | `code.tree_sitter_code_index_ms` 为 unstable |
+| Claimable metrics | 20 | 可作为 timing claim 的指标 |
+| 不稳定指标 | code.tree_sitter_code_index_ms | release timing claim 前需要 rerun |
 
 声明边界：token 估算值是使用 `ceil(characters / 4)` 得到的 Markdown 上下文大小估算。它不是模型 tokenizer 输出，也不是 API 计费计数器，更不是实际 LLM token 使用量。基准比较 targeted retrieval 读取的 wiki 上下文，相比读取 fixture 中所有 wiki Markdown 文件的 naive full-wiki scan，能避免多少 Markdown 上下文输入。代码索引指标是在生成/样本仓库上测得的本地 CLI 子进程时间。
 

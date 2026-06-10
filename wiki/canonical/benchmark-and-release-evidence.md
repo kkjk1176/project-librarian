@@ -148,23 +148,24 @@ Concrete implementation plan:
 
 ## Current Clean Local Large Benchmark
 
-- Latest clean local report: `benchmarks/reports/current-large.json` and `benchmarks/reports/current-large.md`, generated 2026-06-09T08:08:07.238Z.
+- Latest clean local report: `benchmarks/reports/current-large.json` and `benchmarks/reports/current-large.md`, generated 2026-06-10T06:06:44.178Z.
 - Observed with Node v22.19.0/V8 12.4.254.21-node.29 on darwin arm64, Apple M4 Pro, 14 CPUs, 24,576MB memory.
-- Source-control fingerprint in the local generated file: commit `18e730882c4f`, branch `main`, `dirty: false`, 0 status entries. This is clean local release evidence for README benchmark values.
+- Source-control fingerprint in the local generated file: commit `9ddec8521a43`, branch `main`, `dirty: false`, 0 status entries. This is clean local release evidence for README benchmark values.
 - Large assumptions: 500 varied docs-heavy wiki pages, 40 monorepo workspaces across apps/packages/services/libs, 720 scoped-router pages, 1,608 mixed code fixture files, and 3 repo-local standard sample repositories.
-- Benchmark schema: v9 with 1 discarded warmup run and 5 repeated measured runs; timing status was `stable`.
-- Claimable metrics in that run: 21. Unstable metrics: none.
+- Benchmark schema: v9 with 1 discarded warmup run and 5 repeated measured runs; timing status was `variable`.
+- Claimable metrics in that run: 20. Unstable metrics: `code.tree_sitter_code_index_ms`.
 - Targeted retrieval vs naive full-wiki scan Markdown context-size estimate avoidance: minimum 99.43%, median 99.61%.
-- Read-time reduction: minimum 99.26%, median 99.47%.
+- Read-time reduction: minimum 99.24%, median 99.53%.
+- README comparison rows should list the paired baseline and Project Librarian values plus percent changes: docs-heavy 868,731 estimated Markdown tokens and 7.594ms full-wiki read vs 2,260 estimated tokens and 0.035ms targeted read, 99.74% less context and 99.53% less read time; monorepo 407,584 estimated tokens and 4.604ms vs 2,339 estimated tokens and 0.035ms, 99.43% less context and 99.24% less read time; scoped router 988,117 estimated tokens and 10.731ms vs 3,839 estimated tokens and 0.048ms, 99.61% less context and 99.59% less read time.
 - Retrieval correctness: 4/4 passed; targeted-context missing evidence files: 0.
-- Scoped router: 720 pages, 13 generated routers, 67.684ms refresh-index time, 4,197-char main index.
-- Full code index: 1,608 files at 4,781.27 files/sec, 336.312ms median.
-- Incremental code index: 2 reindexed files, 186.776ms, 45.52% less wall-clock time than the full code-index run in the same fixture.
-- Architecture/ownership report: 251.175ms, 10 sections, 6 populated evidence tables, 24 routes, 48 dependency hotspot entries.
-- Tree-sitter code index: 1,608 files, 626.969ms, 14 parser profiles. Tree-sitter architecture report timing was stable at 254.092ms.
-- Standard sample repos: 3 repos, 16 indexed files total, median sample code-index time 132.363ms, median sample architecture report time 135.694ms, 4 total routes, 5 dependency hotspot entries.
+- Scoped router: 720 pages, 13 generated routers, 68.189ms refresh-index time, 4,197-char main index.
+- Full code index: 1,608 files at 4,709.31 files/sec, 341.451ms median.
+- Incremental code index: 2 reindexed files, 187.588ms, 45.36% less wall-clock time than the full code-index run in the same fixture.
+- Architecture/ownership report: 258.757ms, 10 sections, 6 populated evidence tables, 24 routes, 48 dependency hotspot entries.
+- Tree-sitter code index: 1,608 files, 653.668ms, 14 parser profiles; this specific timing is unstable in the current run. Tree-sitter architecture report timing was claimable at 261.52ms.
+- Standard sample repos: 3 repos, 16 indexed files total, median sample code-index time 136.278ms, median sample architecture report time 137.325ms, 4 total routes, 5 dependency hotspot entries.
 - Sample profiles: `01-web-service:web-routes+package-dependencies+config-bearing+symbol-bearing+mixed-language`, `02-python-cli:config-bearing+symbol-bearing+mixed-language+library-or-tooling`, and `03-mixed-monorepo:web-routes+package-dependencies+config-bearing+symbol-bearing+monorepo-shaped+mixed-language`.
-- Release claims from the current harness require `measurement.timing_status: stable`, an empty `measurement.unstable_metrics`, and `comparison.regression_status: passed` when a baseline is supplied.
+- Release claims from the current harness require `measurement.timing_status: stable`, an empty `measurement.unstable_metrics`, and `comparison.regression_status: passed` when a baseline is supplied; the current local report is clean but not fully stable because Tree-sitter code-index timing is variable.
 
 ## Historical Local Large Benchmark
 
@@ -174,6 +175,7 @@ Concrete implementation plan:
 ## README Presentation Policy
 
 - Public README benchmark content should be phrased as observed maintainer evidence, not as a user instruction to run benchmark commands.
+- Public README benchmark content should present direct comparisons as columns: without Project Librarian baseline, with Project Librarian value, and percent less/faster. For wiki routing rows, the no-Project-Librarian baseline is naive full-wiki Markdown scan. For code update rows, the baseline is full code-index rebuild versus Project Librarian incremental reindex. Metrics without a paired baseline should be labeled as additional measured evidence, not as improvement claims.
 - If the latest available report has `source_control.dirty: true`, disclose it as local validation evidence and avoid presenting it as clean release-gate evidence.
 - User-facing benchmark summaries should include the main values readers need before methodology details: Markdown context-size estimate avoidance from targeted retrieval vs naive full-wiki scan, read-time reduction, measured wiki page count, code-index files/time/throughput, incremental update time/reduction, architecture report time/evidence, run count, warmup count, timing status, and unstable metric status.
 - Benchmark command examples belong in maintainer/development sections or `benchmarks/README.md`, not in the primary product value section.

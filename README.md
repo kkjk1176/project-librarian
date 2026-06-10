@@ -32,38 +32,35 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 
 Benchmarks are maintainer release evidence, not a public user workflow. They exist so README and release notes can make bounded claims with numbers instead of vague performance language.
 
-Latest clean large report: `benchmarks/reports/current-large.json`, generated 2026-06-09T08:08:07.238Z on Node v22.19.0, darwin arm64, Apple M4 Pro, commit `18e730882c4f`, 5 measured runs with 1 discarded warmup run. Timing status was `stable`; unstable metrics were `none`; the report source-control fingerprint was clean.
+Latest clean large report: `benchmarks/reports/current-large.json`, generated 2026-06-10T06:06:44.178Z on Node v22.19.0, darwin arm64, Apple M4 Pro, commit `9ddec8521a43`, 5 measured runs with 1 discarded warmup run. Timing status was `variable`; unstable metrics were `code.tree_sitter_code_index_ms`; the report source-control fingerprint was clean.
 
-| Metric | Result |
-| --- | ---: |
-| Median estimated Markdown context avoidance | 99.61% |
-| Minimum estimated Markdown context avoidance | 99.43% |
-| Median read-time reduction | 99.47% |
-| Minimum read-time reduction | 99.26% |
-| Wiki pages measured | 1,601 |
-| Code-index files | 1,608 |
-| Code-index time | 336.312ms |
-| Code-index throughput | 4,781.27 files/sec |
-| Incremental index time | 186.776ms |
-| Full-to-incremental time reduction | 45.52% |
-| Architecture report time | 251.175ms |
-| Architecture report evidence tables | 6 |
-| Architecture report routes | 24 |
-| Sample repos | 3 |
-| Benchmark runs | 5 |
-| Warmup runs | 1 |
-| Timing status | stable |
-| Unstable metrics | none |
+Comparison baseline: for wiki routing rows, "without Project Librarian" means a naive full-wiki Markdown scan; "with Project Librarian" means `wiki/startup.md` + `wiki/index.md` + the query-returned target document. For the code-update row, the comparison is full code-index rebuild versus Project Librarian incremental reindexing.
 
-Scenario summary:
+| Workload | Without Project Librarian | With Project Librarian | Difference |
+| --- | ---: | ---: | ---: |
+| Docs-heavy wiki, 500 pages | 868,731 estimated Markdown tokens; 7.594ms full-wiki read | 2,260 estimated Markdown tokens; 0.035ms targeted read | 99.74% less context; 99.53% less read time |
+| Monorepo wiki, 320 pages | 407,584 estimated Markdown tokens; 4.604ms full-wiki read | 2,339 estimated Markdown tokens; 0.035ms targeted read | 99.43% less context; 99.24% less read time |
+| Scoped router wiki, 720 pages | 988,117 estimated Markdown tokens; 10.731ms full-wiki read | 3,839 estimated Markdown tokens; 0.048ms targeted read | 99.61% less context; 99.59% less read time |
+| Code index update, 1,608 files | 341.451ms full rebuild | 187.588ms incremental reindex for 2 changed files | 45.36% less wall-clock time |
 
-| Scenario | Scale | Result |
+Additional measured evidence:
+
+| Metric | Measured value | Comparison status |
 | --- | ---: | --- |
-| Docs-heavy wiki | 500 pages | 99.74% estimated Markdown context avoidance, 99.47% read reduction, 43.83ms query |
-| Monorepo wiki | 320 pages | 99.43% estimated Markdown context avoidance, 99.26% read reduction, 81.12ms doctor |
-| Scoped router wiki | 720 pages | 99.61% estimated Markdown context avoidance, 99.55% read reduction, 67.684ms refresh |
-| Code-heavy mixed index | 1,608 files | 336.312ms full index, 186.776ms incremental, 251.175ms report, 626.969ms Tree-sitter index |
-| Sample repo validation | 3 repos, 16 files | 132.363ms median code index, 135.694ms median architecture report |
+| Median estimated Markdown context avoidance | 99.61% | Derived from paired full-wiki vs targeted-context rows |
+| Median read-time reduction | 99.53% | Derived from paired full-wiki vs targeted-context rows |
+| Architecture report time | 258.757ms | Measured capability timing; no no-Project-Librarian baseline |
+| Architecture report evidence tables | 6 | Measured capability output |
+| Architecture report routes | 24 | Measured capability output |
+| Tree-sitter code-index time | 653.668ms | Measured capability timing; unstable in this run |
+| Tree-sitter parser profiles | 14 | Measured capability output |
+| Sample repo median code-index time | 136.278ms | Observational timing for explicit sample repos |
+| Sample repo median architecture report time | 137.325ms | Observational timing for explicit sample repos |
+| Benchmark runs | 5 | Measurement protocol |
+| Warmup runs | 1 | Measurement protocol |
+| Timing status | variable | `code.tree_sitter_code_index_ms` was unstable |
+| Claimable metrics | 20 | Timing claimability |
+| Unstable metrics | code.tree_sitter_code_index_ms | Requires rerun before release timing claims |
 
 Claim boundary: token estimates use `ceil(characters / 4)` as a Markdown context-size estimate. They are not model tokenizer output, API billing counters, or measured real LLM token consumption. The benchmark compares the wiki context read by targeted retrieval against a naive full-wiki scan that reads every wiki Markdown file in the fixture. Code-index metrics are local CLI subprocess timings over generated and sample repositories; sample repo values are observational evidence for those explicit fixtures.
 
