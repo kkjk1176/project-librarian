@@ -78,6 +78,35 @@ function eventTimestampMs(event) {
   return NaN;
 }
 
+// Tool-output bytes (A4): Codex JSONL captures command/tool stdout+stderr in the
+// `aggregated_output` string field of a `command_execution` item, populated on the
+// `item.completed` event (the `item.started` event carries an empty in-progress
+// string). We count the UTF-8 byte length of that field on COMPLETED command/tool
+// items only, so a started/completed pair is never double counted. This exactly
+// reproduces the published per-run tool-output volumes in the canonical trace
+// analysis (medium with-condition 73,487 bytes, large control 168,751 bytes, etc.).
+// We also accept the generic `output`/`stdout`/`result` string fields on a
+// command/tool item or event as a forward-compatible fallback, but never sum more
+// than one field for the same event. No field present means zero bytes, not a guess.
+const TOOL_OUTPUT_FIELDS = ["aggregated_output", "output", "stdout", "result"];
+
+function toolOutputTextForEvent(event) {
+  if (!event || typeof event !== "object") return null;
+  const classification = classifyEvent(event);
+  if (!classification.isCommand && !classification.isTool) return null;
+  // Only count the terminal (completed) event of a started/completed pair.
+  if (isStartEvent(event) && !isCompletionEvent(event)) return null;
+  const carriers = [event.item, event.call, event];
+  for (const carrier of carriers) {
+    if (!carrier || typeof carrier !== "object") continue;
+    for (const field of TOOL_OUTPUT_FIELDS) {
+      const value = carrier[field];
+      if (typeof value === "string") return value;
+    }
+  }
+  return null;
+}
+
 function classifyEvent(event) {
   const type = eventType(event).toLowerCase();
   const name = typeof event?.name === "string" ? event.name.toLowerCase() : "";
@@ -116,6 +145,18 @@ function isCompletionEvent(event) {
 
 function isInvocationEvent(event) {
   return isStartEvent(event) || !isCompletionEvent(event);
+}
+
+// A provider turn/request boundary that has completed. Codex emits `turn.completed`
+// (and historically `turn.ended`) once per `codex exec` request. We match a turn
+// type combined with a completion marker, OR a usage-bearing turn event (the
+// `turn.completed` payload carries `usage`). This is narrower than isCompletionEvent
+// on purpose: command/tool completions and message outputs are not request units.
+function isTurnCompletionEvent(event) {
+  if (!event || typeof event !== "object") return false;
+  const type = eventType(event).toLowerCase();
+  if (!type.includes("turn")) return false;
+  return isCompletionEvent(event) || Boolean(usageFromEvent(event));
 }
 
 function textFromValue(value) {
@@ -168,9 +209,12 @@ function summarizeEvents(events, timing = {}) {
   const metrics = {
     input_tokens: 0,
     cached_input_tokens: 0,
+    uncached_input_tokens: 0,
     output_tokens: 0,
     reasoning_output_tokens: 0,
     total_tokens: 0,
+    tool_output_bytes: 0,
+    request_count_estimate: 0,
     wall_ms: numberValue(timing.wall_ms),
     first_response_ms: 0,
     tokens_per_second: 0,
@@ -193,6 +237,14 @@ function summarizeEvents(events, timing = {}) {
     unavailable_event_fields: [],
   };
 
+  // request_count_estimate source (A4): the count of provider turn-completion
+  // events (`turn.completed`/`turn.ended`), which are the request/turn boundaries
+  // a non-interactive `codex exec` emits (one per provider request). We count
+  // completed turn boundaries rather than usage-bearing events so the estimate
+  // stays a turn/request signal even if a provider stops attaching usage. If the
+  // JSONL exposes no turn-boundary event at all, the field is recorded as
+  // unavailable below rather than guessed from command/tool counts.
+  let turnCompletionEventCount = 0;
   for (const event of events) {
     const type = eventType(event);
     metrics.event_type_counts[type] = (metrics.event_type_counts[type] || 0) + 1;
@@ -203,6 +255,11 @@ function summarizeEvents(events, timing = {}) {
       metrics.codex_turn_count += 1;
       mergeUsage(metrics, usage);
     }
+
+    if (isTurnCompletionEvent(event)) turnCompletionEventCount += 1;
+
+    const toolOutputText = toolOutputTextForEvent(event);
+    if (toolOutputText !== null) metrics.tool_output_bytes += Buffer.byteLength(toolOutputText, "utf8");
 
     const classification = classifyEvent(event);
     if (classification.isCommand) metrics.command_event_count += 1;
@@ -219,6 +276,18 @@ function summarizeEvents(events, timing = {}) {
   if (metrics.total_tokens === 0) {
     metrics.total_tokens = metrics.input_tokens + metrics.output_tokens;
   }
+
+  // Uncached input (A4) = input_tokens - cached_input_tokens. Cached input that
+  // exceeds total input is corrupt usage data, not a clampable edge: fail loudly so
+  // a malformed transcript never silently produces a zero-floored derived field.
+  // Equal cached/input (a fully cached resend) legitimately yields zero.
+  if (metrics.cached_input_tokens > metrics.input_tokens) {
+    throw new Error(`corrupt usage: cached_input_tokens (${metrics.cached_input_tokens}) exceeds input_tokens (${metrics.input_tokens})`);
+  }
+  metrics.uncached_input_tokens = metrics.input_tokens - metrics.cached_input_tokens;
+
+  // request_count_estimate from completed turn boundaries (see isTurnCompletionEvent).
+  metrics.request_count_estimate = turnCompletionEventCount;
 
   if (metrics.wall_ms > 0) {
     metrics.tokens_per_second = Math.round((metrics.output_tokens / (metrics.wall_ms / 1000)) * 1000) / 1000;
@@ -239,6 +308,11 @@ function summarizeEvents(events, timing = {}) {
 
   if (events.length > 0 && !events.some((event) => usageFromEvent(event))) {
     metrics.unavailable_event_fields.push("usage");
+  }
+  // No turn-boundary event means the provider exposed nothing usable to estimate
+  // the request count from; record it as unavailable rather than guessing (A4).
+  if (events.length > 0 && turnCompletionEventCount === 0) {
+    metrics.unavailable_event_fields.push("request_count");
   }
   if (events.length > 0 && !metrics.final_text) {
     metrics.unavailable_event_fields.push("final_text");
@@ -262,9 +336,12 @@ function summarizeJsonl(content, timing = {}) {
 
 module.exports = {
   classifyEvent,
+  eventTimestampMs,
   finalTextFromEvents,
+  isTurnCompletionEvent,
   modelFromEvent,
   parseJsonlLines,
   summarizeEvents,
   summarizeJsonl,
+  toolOutputTextForEvent,
 };

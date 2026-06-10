@@ -1,0 +1,5 @@
+{"type":"session.started","model":"gpt-5.5","cwd":"/tmp/project-librarian-codex-llm/sample-multi-session"}
+{"type":"tool.command.started","command":"cat wiki/canonical/release-policy.md wiki/decisions/log.md"}
+{"type":"tool.command.completed","command":"cat wiki/canonical/release-policy.md wiki/decisions/log.md","exit_code":0}
+{"type":"assistant.message","message":{"content":"Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (wiki/canonical/release-policy.md and wiki/canonical/benchmark-and-release-evidence.md). The latest dated decision is 2026-06-10 in wiki/decisions/log.md."}}
+{"type":"turn.completed","usage":{"input_tokens":21000,"cached_input_tokens":15000,"output_tokens":110,"reasoning_output_tokens":0}}

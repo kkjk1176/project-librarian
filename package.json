@@ -45,6 +45,7 @@
     "benchmark:llm": "npm run build && node benchmarks/codex-llm-metrics.js",
     "benchmark:llm:dry-run": "npm run build && node benchmarks/codex-llm-metrics.js --dry-run",
     "benchmark:llm:parse-smoke": "node tests/validators/codex-llm-benchmark-smoke.js",
+    "benchmark:injection-sentinel": "node benchmarks/tools/injection-sentinel.js",
     "benchmark:release": "npm run benchmark:llm -- --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md",
     "build": "tsc && chmod +x dist/init-project-wiki.js",
     "typecheck": "tsc --noEmit",

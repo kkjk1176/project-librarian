@@ -1,0 +1,5 @@
+{"type":"session.started","model":"gpt-5.5","cwd":"/tmp/project-librarian-codex-llm/sample-multi-session-control"}
+{"type":"tool.command.started","command":"rg -n \"claim|decision\" docs README.md"}
+{"type":"tool.command.completed","command":"rg -n \"claim|decision\" docs README.md","exit_code":0}
+{"type":"assistant.message","message":{"content":"Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (docs/release-policy.md and docs/benchmark-policy.md). The latest dated decision is 2026-06-10 per docs/decisions.md in the control docs."}}
+{"type":"turn.completed","usage":{"input_tokens":20000,"cached_input_tokens":11000,"output_tokens":118,"reasoning_output_tokens":0}}

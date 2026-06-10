@@ -1,0 +1,5 @@
+{"type":"session.started","model":"gpt-5.5","cwd":"/tmp/project-librarian-codex-llm/sample-multi-session"}
+{"type":"tool.command.started","command":"cat wiki/startup.md wiki/index.md"}
+{"type":"tool.command.completed","command":"cat wiki/startup.md wiki/index.md","exit_code":0}
+{"type":"assistant.message","message":{"content":"This project is a maintained benchmark-evidence fixture. Project truth lives in wiki/canonical/ and decision history in wiki/decisions/. Read wiki/startup.md and wiki/index.md first, then the benchmark evidence page for policy."}}
+{"type":"turn.completed","usage":{"input_tokens":18000,"cached_input_tokens":12000,"output_tokens":90,"reasoning_output_tokens":0}}
