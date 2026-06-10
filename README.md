@@ -206,9 +206,9 @@ Disposable code evidence cache:
 4. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
 5. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
 6. `--code-report`, `--code-impact`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
-7. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration copy risks.
+7. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
-Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, writes migration inboxes, and avoids copying legacy markdown directly into new canonical truth.
+Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, writes migration inboxes and a unit-level coverage ledger, and restructures legacy meaning into the current wiki rules. Retained or copied legacy content is acceptable when it fits the new wiki policy and structure; the new wiki must not depend on citing `wiki_legacy*`.
 
 ## Language Support Matrix
 
@@ -250,6 +250,9 @@ Important options:
 | `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |
 | `--doctor` | Run lint, link-check, and quality-check together. |
 | `--doctor --fix` | Safely refresh generated index routing before diagnostics. |
+| `--migration-lint` | Validate migration review scaffolding separately from normal lint. |
+| `--migration-quality-check` | Report migration policy/structure signals separately from normal quality-check. |
+| `--migration-doctor` | Run migration-lint and migration-quality-check together. |
 | `--query <terms>` | Search wiki paths, metadata, titles, and bodies. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
 | `--capture-inbox --title <title> --content <content>` | Append a candidate note to the wiki inbox. |

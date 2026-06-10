@@ -185,9 +185,9 @@ Wiki 验证和维护：
 4. `--refresh-index` 路由新的 wiki page；route 很多时拆分到 `wiki/indexes/auto-*.md` 分范围路由器。
 5. `--code-index` 在 `.project-wiki/` 下创建可丢弃 SQLite 依据缓存。
 6. `--code-report`、`--code-impact`、`--code-search-symbol`、`--code-query` 为规划更新提供代码依据。
-7. 诊断报告坏链接、重复 route、orphan page、过期页面、缺少 TL;DR、依据 gap 和迁移复制风险。
+7. 诊断报告坏链接、重复 route、orphan page、过期页面、缺少 TL;DR、依据 gap 和迁移策略违规。
 
-迁移以审查为先。`--migrate` 会把已有 `wiki/` 保存为 `wiki_legacy*`，写入 migration inbox，并避免把 legacy Markdown 直接复制到新的 canonical truth。
+迁移以审查为先。`--migrate` 会把已有 `wiki/` 保存为 `wiki_legacy*`，写入 migration inbox 和 unit-level coverage ledger，并把 legacy 含义按当前 wiki 规则重构。保留或复制的 legacy 内容只要符合新 wiki 的策略和结构即可接受；新的 wiki 不应依赖引用 `wiki_legacy*` 才能被理解。
 
 ## 语言支持表
 
@@ -217,7 +217,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-重要选项：`--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+重要选项：`--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 开发
 

@@ -19,6 +19,7 @@ export type WikiBudget = "short" | "medium" | "on-demand";
 export type WikiStatus = "active" | "template";
 export type MigrationKind = "canonical" | "decision" | "source" | "other";
 export type MigrationInboxStatus = "adopted" | "rejected" | "resolved" | "needs-human-review" | "pending";
+export type MigrationCoverageStatus = MigrationInboxStatus | "merged" | "superseded";
 export type SemanticStatus = MigrationInboxStatus | "pending semantic rewrite";
 
 export interface HookCommand {
@@ -67,6 +68,14 @@ export interface MigrationItem {
   title: string;
   summary: string;
   bytes: number;
+}
+
+export interface MigrationUnit {
+  id: string;
+  legacyPath: string;
+  type: "heading" | "paragraph" | "list-item" | "table-row" | "code-block";
+  heading: string;
+  summary: string;
 }
 
 export interface MigrationState {

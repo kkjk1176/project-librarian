@@ -187,9 +187,9 @@ $PROJECT_LIBRARIAN
 4. `--refresh-index`는 새 위키 페이지를 라우팅하며, route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 분리합니다.
 5. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 6. `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
-7. 진단은 깨진 링크, 중복 route, orphan page, 오래된 페이지, 누락된 TL;DR, 근거 gap, 마이그레이션 복사 위험을 보고합니다.
+7. 진단은 깨진 링크, 중복 route, orphan page, 오래된 페이지, 누락된 TL;DR, 근거 gap, 마이그레이션 정책 위반을 보고합니다.
 
-마이그레이션은 검토 우선입니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고 마이그레이션 inbox를 작성하며 legacy Markdown을 새 canonical truth로 직접 복사하지 않습니다.
+마이그레이션은 검토 우선입니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고 마이그레이션 inbox와 unit-level coverage ledger를 작성하며, legacy 의미를 현재 wiki 규칙에 맞게 재구성합니다. 보존하거나 복사한 legacy 내용은 새 wiki 정책과 구조에 맞으면 허용되며, 새 wiki가 `wiki_legacy*` 참조에 의존하면 안 됩니다.
 
 ## 언어 지원 표
 
@@ -219,7 +219,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-중요 옵션: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+중요 옵션: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 개발
 
