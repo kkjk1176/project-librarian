@@ -13,8 +13,8 @@ review_trigger: package metadata, runtime policy, npm version, release gate, Typ
 
 - npm registry publication is the official public distribution path.
 - The package is preview SemVer below `1.0.0`; public CLI and generated-file behavior remains compatibility-sensitive.
-- `project-librarian@0.2.0` is the source package for the rename release; the old public package name was `project-wiki-bootstrap`.
-- GitHub repository rename and npm package-name availability have been checked for `project-librarian`; npm publication itself is still pending.
+- `project-librarian@0.2.0` is published as the rename release; the old public package name was `project-wiki-bootstrap`.
+- Current source version is `project-librarian@0.2.1` for a benchmark-evidence documentation correction after `0.2.0` publication.
 - Node `>=22.13` is the package-wide runtime minimum.
 - Release gates include `npm test`, benchmark evidence when making claims, package inspection, executable `dist`, README command review, and unique npm versioning.
 
@@ -35,7 +35,7 @@ Accepted project policy:
 
 - The package uses the npm registry as the official public distribution channel for the `npx project-librarian ...` command.
 - The first public package name was `project-wiki-bootstrap`; the project is renamed to `project-librarian` for the `0.2.0` release because the package identity, CLI binary, and installed skill layout changed.
-- On 2026-06-09, `npm view project-librarian version` returned npm `E404`, confirming no package by that name existed in the registry at check time.
+- On 2026-06-09, `npm view project-librarian version` returned npm `E404`, confirming no package by that name existed in the registry at check time; later registry lookup showed `project-librarian@0.2.0` published with `latest` pointing to `0.2.0`.
 - While below `1.0.0`, treat public CLI commands, flags, generated file contracts, hook behavior, and installed skill layout as compatibility-sensitive.
 - Use patch releases such as `0.1.1` for compatible fixes, documentation corrections that affect installation/use, packaging fixes, and regenerated `dist/` output that does not change public behavior.
 - Use minor releases such as `0.2.0` for new CLI modes, new generated files, changed defaults, changed install contents, changed hook behavior, changed minimum Node version, or any intentional compatibility break before `1.0.0`.
@@ -65,7 +65,7 @@ Code-proven behavior:
 
 Verified on 2026-06-08 under the previous package name: npm showed `project-wiki-bootstrap@0.1.2` as the current package version, published `npx --yes project-wiki-bootstrap --help` executed successfully, and the project-scope `install-skill --agents both --dry-run` path executed after the install/bootstrap-order fix.
 
-`project-librarian` publication is not yet verified in this repository state. The rename release has verified package-name availability and local `npm pack --dry-run`; the first publish attempt reached `https://registry.npmjs.org/` but failed with npm `E404` on `PUT https://registry.npmjs.org/project-librarian`. Diagnose npm auth/token/package-name policy before retrying, then verify `npx --yes project-librarian --help` after publication.
+`project-librarian@0.2.0` is published on npm and `latest` points to `0.2.0` in registry metadata. The local 2026-06-10 publish retry for `0.2.0` failed with npm `E404` because the version already existed and the local npm auth check returned `E401`; do not retry the same version. Use a unique patch version such as `0.2.1` for compatible documentation/package corrections, then verify `npx --yes project-librarian --help` after publication.
 
 ## Maintenance Constraint
 

@@ -28,8 +28,8 @@ review_trigger: session-start summary, routing, language policy, or open project
 ## Project State
 
 - Product: npm CLI `project-librarian`; source in `src/`, runtime in `dist/`.
-- Rename release: source `project-librarian@0.2.0`; previous published package `project-wiki-bootstrap@0.1.2`.
-- GitHub remote is `kkjk1176/project-librarian`; npm name was available, but first publish attempt failed with npm `E404` on PUT.
+- Rename release: `project-librarian@0.2.0` is published on npm; current source version is `0.2.1` for benchmark-evidence documentation correction.
+- GitHub remote is `kkjk1176/project-librarian`; npm registry latest is `project-librarian@0.2.0` until `0.2.1` publishes.
 - Problem: token-efficient planning wiki with compact routing for small repos, large projects, and monorepos.
 - Users: Codex, Claude Code, Cursor, Gemini CLI developers/teams.
 - Scenario: bootstrap/update `./wiki`, agent instructions, hooks/rules, diagnostics, scoped routing, optional code evidence.
@@ -41,7 +41,7 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 ## Recent Decisions
 
-- npm publication is official; old name `project-wiki-bootstrap@0.1.2` remains latest until `project-librarian` publishes.
+- npm publication is official; old name `project-wiki-bootstrap@0.1.2` is superseded by `project-librarian@0.2.0`.
 - Installed skills prefer local `dist/init-project-wiki.js` over network `npx`. See [[decisions/npm-release-policy]].
 - Large projects/monorepos, release metrics, `--issue-create`, rewrite-not-copy migration, and Node `>=22.13` are adopted. See [[decisions/log]].
 - Product/package/CLI/repo renamed to Project Librarian / `project-librarian` for `0.2.0`. See [[decisions/npm-release-policy]].

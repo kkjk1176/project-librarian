@@ -13,8 +13,8 @@ review_trigger: package entrypoints, build/test commands, committed dist policy,
 
 - The source npm binary is `project-librarian` and points to `dist/init-project-wiki.js`.
 - Source is TypeScript under `src/`; committed `dist/` is the executable package output.
-- `project-librarian@0.2.0` is the rename-release source version; the previous published npm package remains `project-wiki-bootstrap@0.1.2` until the renamed package is published.
-- The GitHub repository remote is now `https://github.com/kkjk1176/project-librarian.git`; npm registry lookup returned 404 for `project-librarian` on 2026-06-09, so the package name was available at check time.
+- `project-librarian@0.2.0` is the published rename-release version; the current source version is `0.2.1` for benchmark-evidence documentation correction.
+- The GitHub repository remote is now `https://github.com/kkjk1176/project-librarian.git`; npm registry metadata now shows `project-librarian@0.2.0` with `latest` pointing to `0.2.0`.
 - The package requires Node `>=22.13` for stable `node:sqlite` and one runtime policy across CLI and installed skill runners.
 - Public install documentation targets `npx project-librarian install-skill ...` for the rename release; agent/LLM lifecycle documentation should use installed local `node .../dist/init-project-wiki.js` runners for bootstrap, diagnostics, migration, and code evidence commands.
 - The broad verification command is `npm test`.
