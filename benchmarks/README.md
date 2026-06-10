@@ -71,10 +71,22 @@ npm run benchmark:llm:parse-smoke
 node tests/validators/codex-llm-benchmark-smoke.js benchmarks/llm/samples/codex-measured-report.json
 ```
 
-Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only --skip-git-repo-check` because scenarios run from generated fixture directories. By default it runs one with/without pair to preserve comparison validity while limiting subscription quota use; pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Pass `--model <model>` when Codex JSONL does not expose a model field; the report records `model_source` as `jsonl` or `requested` rather than guessing. Report `median` values are computed only from claimable runs: correctness must pass, usage/model/final-text fields must be present, token counts and wall time must be positive, and the run must resolve to exactly one model. `median_all_runs` is retained for audit when a run fails, needs review, or lacks claimable measurement fields. Raw event counts and normalized invocation counts are reported separately so start/completed JSONL pairs do not inflate tool-call claims.
+Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only --skip-git-repo-check` because scenarios run from generated fixture directories. By default it runs one with/without pair to preserve comparison validity while limiting subscription quota use; use `--full-matrix` when the selected scales/tasks should all run. Pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Pass `--model <model>` when Codex JSONL does not expose a model field; the report records `model_source` as `jsonl` or `requested` rather than guessing. Pass `--markdown` to write the default Markdown summary or `--markdown <path>` for an explicit path. Report `median` values are computed only from claimable runs: correctness must pass, usage/model/final-text fields must be present, token counts and wall time must be positive, and the run must resolve to exactly one model. `median_all_runs` is retained for audit when a run fails, needs review, or lacks claimable measurement fields. Raw event counts and normalized invocation counts are reported separately so start/completed JSONL pairs do not inflate tool-call claims.
 
 ```sh
 npm run benchmark:llm -- --allow-codex-run --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0 --model gpt-5.5
+```
+
+Run the small/medium/large decision-lookup matrix and produce a README-ready Markdown summary:
+
+```sh
+npm run benchmark:llm -- --allow-codex-run --scales small,medium,large --tasks decision_lookup --full-matrix --runs 1 --warmup-runs 0 --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
+```
+
+Run every scale and every current task family only when the expected subscription quota use is acceptable:
+
+```sh
+npm run benchmark:llm -- --allow-codex-run --full-matrix --runs 1 --warmup-runs 0 --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
 ```
 
 Subscription-authenticated runs fail if `CODEX_API_KEY` or `OPENAI_API_KEY` is present. Pass `--auth-mode api-key` only when intentionally running an API-key-priced benchmark. The report records declared auth mode plus non-secret auth-environment audit flags, but public claims still need human review when local Codex config could route through a profile not visible in environment variables. Reports under `benchmarks/reports/llm/` are ignored by default; commit only deliberate release evidence.

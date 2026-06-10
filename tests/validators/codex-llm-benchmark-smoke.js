@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { conditions } = require("../../benchmarks/lib/llm-fixtures");
-const { claimableRuns, completePairCount, measurementStatus, medianMetrics } = require("../../benchmarks/lib/llm-report");
+const { claimableRuns, completePairCount, measurementStatus, medianMetrics, renderLlmMarkdownReport } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
 const sampleFinalText = "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.";
@@ -180,6 +180,13 @@ function validateReport(reportPath) {
   assert.equal(report.summary.failed_correctness_count, failedCorrectnessCount);
   assert.equal(report.summary.claimable_scenario_count, claimableScenarioCount);
   assert.equal(report.summary.unclaimable_scenario_count, unclaimableScenarioCount);
+
+  const markdown = renderLlmMarkdownReport(report);
+  assert(markdown.includes("# Codex Actual LLM Benchmark Report"));
+  assert(markdown.includes("## Scenario Metrics"));
+  assert(markdown.includes("## With vs Without Delta"));
+  assert(markdown.includes("| small | decision_lookup | with_project_librarian | claimable |"));
+  assert(markdown.includes("| small | decision_lookup | 0% | 0% | 0% |"));
 }
 
 function validateCorrectness() {
@@ -252,6 +259,7 @@ function validateCliArgumentFailures() {
   for (const args of [
     ["benchmarks/codex-llm-metrics.js", "--dry-run", "--scales", ","],
     ["benchmarks/codex-llm-metrics.js", "--dry-run", "--tasks", ","],
+    ["benchmarks/codex-llm-metrics.js", "--dry-run", "--scales", "small,medium,large", "--tasks", "decision_lookup", "--full-matrix", "--max-scenarios", "2"],
     ["benchmarks/codex-llm-metrics.js"],
   ]) {
     const result = childProcess.spawnSync(process.execPath, args, {

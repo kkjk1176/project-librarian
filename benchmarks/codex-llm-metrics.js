@@ -8,7 +8,7 @@ const childProcess = require("node:child_process");
 const { summarizeJsonl } = require("./lib/codex-jsonl");
 const { evaluateCorrectness } = require("./lib/llm-correctness");
 const { buildManifest, conditions, scales, taskFamilies } = require("./lib/llm-fixtures");
-const { claimableRuns, completePairCount, measurementStatus, medianMetrics, passedRuns, selectPairedScenarios } = require("./lib/llm-report");
+const { claimableRuns, completePairCount, measurementStatus, medianMetrics, passedRuns, renderLlmMarkdownReport, selectPairedScenarios } = require("./lib/llm-report");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
@@ -22,11 +22,24 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
+function hasArg(name) {
+  return process.argv.includes(name);
+}
+
 function argValue(name, defaultValue = "") {
   const index = process.argv.indexOf(name);
   if (index < 0) return defaultValue;
   const value = process.argv[index + 1];
   if (!value || value.startsWith("--")) fail(`missing value for ${name}`);
+  return value;
+}
+
+function optionalArgValue(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return null;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) return "";
+  if (value.includes("\n") || value.includes("\r")) fail(`invalid ${name} value`);
   return value;
 }
 
@@ -71,12 +84,21 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function writeText(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, value);
+}
+
 function defaultOutPath() {
   return path.join(root, "benchmarks", "reports", "llm", "dry-run-manifest.json");
 }
 
 function defaultMeasuredOutPath() {
   return path.join(root, "benchmarks", "reports", "llm", "current.json");
+}
+
+function defaultMeasuredMarkdownPath() {
+  return path.join(root, "benchmarks", "reports", "llm", "current.md");
 }
 
 function environmentFingerprint() {
@@ -242,16 +264,24 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios }) 
 function main() {
   const dryRun = hasFlag("--dry-run");
   const allowCodexRun = hasFlag("--allow-codex-run");
+  const fullMatrix = hasFlag("--full-matrix");
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const out = path.resolve(root, argValue("--out", dryRun ? defaultOutPath() : defaultMeasuredOutPath()));
+  const markdownArg = optionalArgValue("--markdown");
+  const markdown = markdownArg === null ? "" : (markdownArg || defaultMeasuredMarkdownPath());
   const selectedScales = listArg("--scales", Object.keys(scales), Object.keys(scales));
   const selectedTasks = listArg("--tasks", Object.keys(taskFamilies), Object.keys(taskFamilies));
   const runs = positiveIntegerArgValue("--runs", 1);
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
-  const maxScenarios = positiveIntegerArgValue("--max-scenarios", conditions.length);
+  const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
+  const maxScenarios = positiveIntegerArgValue("--max-scenarios", fullMatrix ? fullMatrixScenarioCount : conditions.length);
   const requestedModel = optionalStringArgValue("--model");
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
+
+  if (fullMatrix && hasArg("--max-scenarios") && maxScenarios !== fullMatrixScenarioCount) {
+    fail(`--full-matrix requires --max-scenarios ${fullMatrixScenarioCount} for selected scales/tasks`);
+  }
 
   if (!dryRun && !allowCodexRun) {
     fail("measured Codex benchmark requires --allow-codex-run; use --dry-run to create a fixture manifest without consuming subscription quota");
@@ -261,10 +291,13 @@ function main() {
   if (!dryRun) {
     const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios });
     writeJson(out, report);
+    const markdownOut = markdown ? path.resolve(root, markdown) : "";
+    if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
     console.log(JSON.stringify({
       status: "ok",
       mode: "measured",
       out,
+      markdown: markdownOut || null,
       fixture_root: fixtureRoot,
       scenario_count: report.scenarios.length,
     }, null, 2));
