@@ -123,6 +123,8 @@ test -f .claude/settings.json
 test -f .cursor/rules/project-librarian.mdc
 test -f .cursor/hooks/wiki-session-start.js
 test -f .cursor/hooks.json
+test -f .gemini/hooks/wiki-session-start.js
+test -f .gemini/settings.json
 
 node "$CLI" > rerun.log
 grep -q "exists  AGENTS.md" rerun.log
@@ -135,6 +137,7 @@ node "$CLI" init --lint
 node .codex/hooks/wiki-session-start.js > hook.json
 node .claude/hooks/wiki-session-start.js > claude-hook.json
 node .cursor/hooks/wiki-session-start.js > cursor-hook.json
+GEMINI_PROJECT_DIR="$PWD" node .gemini/hooks/wiki-session-start.js > gemini-hook.json
 grep -q "wiki/startup.md" hook.json
 grep -q "wiki/index.md" hook.json
 grep -q "wiki/startup.md" claude-hook.json
@@ -142,10 +145,14 @@ grep -q "wiki/index.md" claude-hook.json
 grep -q "wiki/startup.md" cursor-hook.json
 grep -q "wiki/index.md" cursor-hook.json
 grep -q "additional_context" cursor-hook.json
+grep -q "wiki/startup.md" gemini-hook.json
+grep -q "wiki/index.md" gemini-hook.json
+grep -q "hookSpecificOutput" gemini-hook.json
 grep -q "node .claude/hooks/wiki-session-start.js" .claude/settings.json
 node -e 'const s=require("./.claude/settings.json"); const ms=new Set((s.hooks.SessionStart||[]).filter(e=>(e.hooks||[]).some(h=>h.command==="node .claude/hooks/wiki-session-start.js")).map(e=>e.matcher)); for (const m of ["startup","resume","clear","compact"]) if (!ms.has(m)) process.exit(1)'
 grep -q "node .cursor/hooks/wiki-session-start.js" .cursor/hooks.json
 node -e 'const s=require("./.cursor/hooks.json"); if (!Array.isArray(s.hooks.sessionStart) || !s.hooks.sessionStart.some(h=>h.command==="node .cursor/hooks/wiki-session-start.js")) process.exit(1)'
+node -e 'const s=require("./.gemini/settings.json"); const command="node \"$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js\""; const ms=new Set((s.hooks.SessionStart||[]).filter(e=>(e.hooks||[]).some(h=>h.command===command)).map(e=>e.matcher)); for (const m of ["startup","resume","clear"]) if (!ms.has(m)) process.exit(1)'
 grep -q "Read On Demand" wiki/startup.md
 grep -q "Language Policy" wiki/index.md
 grep -q "Project canonical content language" wiki/startup.md
@@ -448,7 +455,7 @@ test "$(git config --get core.hooksPath)" = "custom-hooks"
 
 mkdir "$TMPDIR/existing-instructions"
 cd "$TMPDIR/existing-instructions"
-mkdir -p .codex .claude .cursor
+mkdir -p .codex .claude .cursor .gemini
 cat > .codex/hooks.json <<'EOF'
 {
   "mcpServers": {
@@ -524,6 +531,30 @@ cat > .cursor/hooks.json <<'EOF'
   }
 }
 EOF
+cat > .gemini/settings.json <<'EOF'
+{
+  "theme": "custom",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "WriteFile",
+        "hooks": [
+          { "type": "command", "command": "node custom-gemini-post-tool-use.js" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          { "type": "command", "command": "node \"$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js\"" },
+          { "type": "command", "command": "node custom-gemini-hook.js" }
+        ]
+      }
+    ]
+  }
+}
+EOF
 cat > AGENTS.md <<'EOF'
 # Existing Agent Instructions
 
@@ -565,9 +596,11 @@ grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
 node -e 'const c=require("./.codex/hooks.json"); if (!JSON.stringify(c).includes("node custom-codex-hook.js")) process.exit(1)'
 node -e 'const c=require("./.claude/settings.json"); if (!JSON.stringify(c).includes("node custom-claude-hook.js")) process.exit(1)'
 node -e 'const c=require("./.cursor/hooks.json"); if (!JSON.stringify(c).includes("node custom-cursor-session-start.js")) process.exit(1)'
+node -e 'const c=require("./.gemini/settings.json"); if (!JSON.stringify(c).includes("node custom-gemini-hook.js")) process.exit(1)'
 node -e 'const c=require("./.codex/hooks.json"); if (c.mcpServers.existing.command !== "node existing-mcp.js") process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-post-tool-use.js") process.exit(1); const starts = c.hooks.SessionStart.filter(e => e.matcher === "startup|resume|clear"); if (starts.length !== 1) process.exit(1); const commands = starts[0].hooks.map(h => h.command); if (!commands.includes("node custom-codex-hook.js") || !commands.includes("node .codex/hooks/wiki-session-start.js")) process.exit(1)'
 node -e 'const c=require("./.claude/settings.json"); if (!c.permissions.allow.includes("Bash(npm test)")) process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-claude-post-tool-use.js") process.exit(1); const startup = c.hooks.SessionStart.filter(e => e.matcher === "startup"); if (startup.length !== 1) process.exit(1); const commands = startup[0].hooks.map(h => h.command); if (!commands.includes("node custom-claude-hook.js") || !commands.includes("node .claude/hooks/wiki-session-start.js")) process.exit(1); const ms = new Set(c.hooks.SessionStart.filter(e => (e.hooks || []).some(h => h.command === "node .claude/hooks/wiki-session-start.js")).map(e => e.matcher)); for (const m of ["startup","resume","clear","compact"]) if (!ms.has(m)) process.exit(1)'
 node -e 'const c=require("./.cursor/hooks.json"); if (c.version !== 1) process.exit(1); if (c.hooks.preToolCall?.[0]?.command !== "node custom-cursor-pre-tool-call.js") process.exit(1); const commands = (c.hooks.sessionStart || []).map(h => h.command); if (!commands.includes("node custom-cursor-session-start.js") || !commands.includes("node .cursor/hooks/wiki-session-start.js")) process.exit(1); if (commands.filter(command => command === "node .cursor/hooks/wiki-session-start.js").length !== 1) process.exit(1)'
+node -e 'const c=require("./.gemini/settings.json"); const command="node \"$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js\""; if (c.theme !== "custom") process.exit(1); const post = c.hooks.PostToolUse?.[0]?.hooks?.[0]?.command; if (post !== "node custom-gemini-post-tool-use.js") process.exit(1); const startup = c.hooks.SessionStart.filter(e => e.matcher === "startup"); if (startup.length !== 1) process.exit(1); const commands = startup[0].hooks.map(h => h.command); if (!commands.includes("node custom-gemini-hook.js") || !commands.includes(command)) process.exit(1); const ms = new Set(c.hooks.SessionStart.filter(e => (e.hooks || []).some(h => h.command === command)).map(e => e.matcher)); for (const m of ["startup","resume","clear"]) if (!ms.has(m)) process.exit(1)'
 node -e 'const c=require("./.codex/settings.json"); if (c.sandbox !== "workspace-write") process.exit(1)'
 
 mkdir "$TMPDIR/code-index"

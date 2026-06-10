@@ -44,7 +44,7 @@ review_trigger: session-start summary, routing, language policy, or open project
 - Installed skills prefer local `dist/init-project-wiki.js` over network `npx`. See [[decisions/npm-release-policy]].
 - Large projects/monorepos, release metrics, `--issue-create`, rewrite-not-copy migration, and Node `>=22.13` are adopted. See [[decisions/log]].
 - Product/package/CLI/repo renamed to Project Librarian / `project-librarian` for `0.2.0`. See [[decisions/npm-release-policy]].
-- Cursor/Gemini support uses Cursor rules/hooks, `GEMINI.md`, and `install-skill --agents all`.
+- Cursor/Gemini support uses Cursor rules, Cursor/Gemini hooks, `GEMINI.md`, and `install-skill --agents all`.
 
 ## Wiki Operating Pointers
 
@@ -54,6 +54,6 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 ## Token Discipline
 
-- Codex, Claude Code, and Cursor session-start hooks inject only this file and `wiki/index.md`; Gemini uses generated context instructions that route agents to the same compact context.
+- Codex, Claude Code, Cursor, and Gemini CLI session-start hooks inject only this file and `wiki/index.md`.
 - Detailed files are selected by `wiki/index.md`.
 - Long decision history is not injected wholesale; read only relevant Decision Packs or ADRs.

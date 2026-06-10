@@ -21,7 +21,7 @@ Project Librarian 给代理两个本地事实来源。
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | 简短的会话启动摘要和路由器，只读取相关规划页面。 |
 | `wiki/canonical/` 和 `wiki/decisions/` | 当前项目事实、约束、风险、包契约、CLI 行为和持久决策。 |
-| `.codex/`、`.claude/` 和 `.cursor/` hooks | 不加载整个 wiki 的 Codex/Claude Code/Cursor 启动上下文。 |
+| `.codex/`、`.claude/`、`.cursor/` 和 `.gemini/` hooks | 不加载整个 wiki 的 Codex/Claude Code/Cursor/Gemini CLI 启动上下文。 |
 | `GEMINI.md` 和 `.cursor/rules/` | 将 Gemini CLI 和 Cursor 路由到同一个紧凑 wiki-first 契约的 instruction 文件。 |
 | `.project-wiki/code-evidence.sqlite` | 可再生成的代码依据，用于文件、符号、import、route、所有权、工作区图、报告和影响检查。 |
 | 诊断和迁移模式 | 链接检查、质量检查、迁移收件箱、过期信号报告，以及工作流暴露问题时的 issue draft。 |
@@ -81,7 +81,7 @@ npx project-librarian install-skill --scope user --agents all
 npx project-librarian install-skill --scope project --agents all
 ```
 
-`install-skill` 只复制可复用的 skill 文件。它不会创建或更新 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`wiki/`、`.cursor/rules/`、`.cursor/hooks.json`、`.codex/hooks.json` 或 `.claude/settings.json`。
+`install-skill` 只复制可复用的 skill 文件。它不会创建或更新 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`wiki/`、`.cursor/rules/`、`.cursor/hooks.json`、`.gemini/settings.json`、`.codex/hooks.json` 或 `.claude/settings.json`。
 
 | 场景 | 命令 |
 | --- | --- |
@@ -170,6 +170,8 @@ Wiki 验证和维护：
 - `.claude/hooks/wiki-session-start.js`
 - `.cursor/hooks.json`
 - `.cursor/hooks/wiki-session-start.js`
+- `.gemini/settings.json`
+- `.gemini/hooks/wiki-session-start.js`
 - `.githooks/prepare-commit-msg`
 - `.githooks/wiki-commit-trailers.js`
 - `wiki/canonical/`, `wiki/decisions/`, `wiki/inbox/`, `wiki/meta/`, `wiki/sources/`, `wiki/migration/`

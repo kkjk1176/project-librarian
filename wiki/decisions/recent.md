@@ -16,7 +16,7 @@ review_trigger: recent important project decisions change
 
 ## Decisions
 
-- 2026-06-10: Cursor and Gemini CLI are added as supported agent targets through generated instruction files, Cursor startup hooks, and `install-skill --agents all`. Details: [[canonical/cli-behavior]].
+- 2026-06-10: Cursor and Gemini CLI are added as supported agent targets through generated instruction files, startup hooks, and `install-skill --agents all`. Details: [[canonical/cli-behavior]].
 - 2026-06-09: public product/package/CLI name changed to Project Librarian / `project-librarian`; the rename release source version is `0.2.0`. Details: [[decisions/npm-release-policy]].
 - 2026-06-09: GitHub repository remote is renamed to `kkjk1176/project-librarian`, and npm package-name availability for `project-librarian` was confirmed by an `E404` registry lookup before publication. Details: [[decisions/npm-release-policy]].
 - 2026-06-08: npm registry publication is the official distribution channel; `project-wiki-bootstrap@0.1.0` was published as the initial preview release under the original package name after strict pre-publish verification. Details: [[decisions/npm-release-policy]].
