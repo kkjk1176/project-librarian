@@ -271,29 +271,109 @@ test("impact_trace correctness still fails when a transitive importer is missing
   assert.equal(fail.status, "failed");
 });
 
-test("ownership_lookup correctness fails when the answer reports the *.go extension owner", () => {
+// ownership_lookup designation_forbidden: (a) citing the overridden team in a
+// precedence chain must PASS; (b) designating that team as final owner must FAIL.
+
+test("ownership_lookup correctness PASSES when agent cites overridden *.go rule as precedence evidence", () => {
+  // An agent that correctly explains last-match-wins will typically QUOTE the
+  // overridden *.go rule as part of the evidence chain.  That must not trigger a
+  // failure — the rule line has no designation word ("owner"/"owns"/"owned").
   const expectation = codeGraphExpectation("ownership_lookup", "medium");
   const ownedList = expectation.required_terms.slice(1).join(", ");
-  // Mentions the forbidden first-match owner -> fails even though the owned set is listed.
-  const fail = evaluateCorrectness({
-    taskFamily: "ownership_lookup",
-    condition: "with_project_librarian",
-    benchmarkTrack: "code_graph",
-    expectation,
-    finalText: `Owner is @go-benchmark-team (from *.go). Files: ${CODEOWNERS_SERVICE_OWNER} owns ${ownedList}.`,
-    fileChangeCount: 0,
-  });
-  assert.equal(fail.status, "failed");
-  // The precedence-correct answer (service owner + full owned set, no *.go owner) passes.
+  // Shape matches all real stage2b agent answers: lists matched rules, declares winner.
+  const chainText = [
+    `Using CODEOWNERS last-match precedence, ${CODEOWNERS_TARGET_PATH} is owned by \`${CODEOWNERS_SERVICE_OWNER}\`.`,
+    ``,
+    `Relevant matching rules in order:`,
+    `- \`* @benchmark-org-default\``,
+    `- \`*.go @go-benchmark-team\``,
+    `- \`/packages/workspace-0/ @benchmark-team-0\``,
+    `- \`/packages/workspace-0/src/ @benchmark-src-team-0\``,
+    `- \`/packages/workspace-0/src/service/ ${CODEOWNERS_SERVICE_OWNER}\` (winning rule)`,
+    ``,
+    `The winning rule is the last matching rule. Files owned: ${ownedList}.`,
+  ].join("\n");
   const pass = evaluateCorrectness({
     taskFamily: "ownership_lookup",
     condition: "with_project_librarian",
     benchmarkTrack: "code_graph",
     expectation,
-    finalText: `Under last-match precedence the owner is ${CODEOWNERS_SERVICE_OWNER}, owning ${ownedList} (from CODEOWNERS).`,
+    finalText: chainText,
     fileChangeCount: 0,
   });
-  assert.equal(pass.status, "passed", pass.reason);
+  assert.equal(pass.status, "passed", `expected pass but got: ${JSON.stringify(pass.checks.filter((c) => !c.passed))}`);
+});
+
+test("ownership_lookup correctness FAILS when agent designates the *.go team as final owner", () => {
+  // An agent that stops at the first *.go match and reports that as the owner is wrong.
+  // Even if the correct service owner is mentioned elsewhere, the designation line fails.
+  const expectation = codeGraphExpectation("ownership_lookup", "medium");
+  const ownedList = expectation.required_terms.slice(1).join(", ");
+  // Line 1: designates @go-benchmark-team as owner (has "owns" + forbidden team, no correct owner).
+  const wrongText = [
+    `@go-benchmark-team owns ${CODEOWNERS_TARGET_PATH} because *.go matches it.`,
+    `Note: ${CODEOWNERS_SERVICE_OWNER} also owns some files: ${ownedList}.`,
+  ].join("\n");
+  const fail = evaluateCorrectness({
+    taskFamily: "ownership_lookup",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: wrongText,
+    fileChangeCount: 0,
+  });
+  assert.equal(fail.status, "failed");
+  const failedCheck = fail.checks.find((c) => c.name === "not designated owner: @go-benchmark-team");
+  assert(failedCheck, "expected 'not designated owner' check to exist");
+  assert.equal(failedCheck.passed, false);
+});
+
+test("ownership_lookup correctness PASSES when correct owner overrides on the same designation line", () => {
+  // "*.go @go-benchmark-team BUT @benchmark-service-team wins" on one line: not a wrong designation.
+  const expectation = codeGraphExpectation("ownership_lookup", "medium");
+  const ownedList = expectation.required_terms.slice(1).join(", ");
+  const mixedLine = `@go-benchmark-team owns *.go files but ${CODEOWNERS_SERVICE_OWNER} wins for service/`;
+  const passText = [
+    mixedLine,
+    `Full owned set: ${ownedList}. Source: CODEOWNERS last-match.`,
+  ].join("\n");
+  const pass = evaluateCorrectness({
+    taskFamily: "ownership_lookup",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: passText,
+    fileChangeCount: 0,
+  });
+  assert.equal(pass.status, "passed", `expected pass but got: ${JSON.stringify(pass.checks.filter((c) => !c.passed))}`);
+});
+
+test("workspace_graph condition evidence check passes on workspace-name-only answers", () => {
+  // Agents that answer with @benchmark/workspace-* names (no file paths) must
+  // satisfy the condition evidence check — workspace package names ARE code evidence.
+  const expectation = codeGraphExpectation("workspace_graph", "small");
+  // Replicate the exact shape of a failing stage2b agent answer.
+  const workspaceOnlyAnswer = [
+    "Highest-numbered workspace package: `@benchmark/workspace-3`.",
+    "",
+    "Transitive workspace dependency set:",
+    "1. `@benchmark/workspace-2`",
+    "2. `@benchmark/workspace-1`",
+    "3. `@benchmark/workspace-0`",
+    "",
+    "Evidence chain: @benchmark/workspace-3 depends on @benchmark/workspace-2; ",
+    "@benchmark/workspace-2 depends on @benchmark/workspace-1; ",
+    "@benchmark/workspace-1 depends on @benchmark/workspace-0.",
+  ].join("\n");
+  const pass = evaluateCorrectness({
+    taskFamily: "workspace_graph",
+    condition: "without_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: workspaceOnlyAnswer,
+    fileChangeCount: 0,
+  });
+  assert.equal(pass.status, "passed", `expected pass but got: ${JSON.stringify(pass.checks.filter((c) => !c.passed))}`);
 });
 
 // --- end-to-end: a real small build passes every A7 assert --------------------

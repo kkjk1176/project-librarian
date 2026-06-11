@@ -106,16 +106,67 @@ const evidenceByCondition = {
 };
 
 // code_graph families share the same base repo in both conditions and are
-// answered from code evidence (packages/, CODEOWNERS, tools/ runner output),
-// so the condition-evidence signal is the code surface rather than the wiki or
-// docs split used by the wiki families.
+// answered from code evidence (packages/, CODEOWNERS, tools/ runner output).
+// workspace_graph answers always cite @benchmark/workspace-* package names
+// (workspace package.json identifiers) as their code-surface evidence; those
+// names are accepted as equivalent to a file-path citation, so they are listed
+// alongside packages/ and CODEOWNERS as valid evidence tokens.
 const codeGraphEvidenceByCondition = {
-  with_project_librarian: ["packages/", "CODEOWNERS", ".project-wiki", "tools/project-librarian", "imports", "configs"],
-  without_project_librarian: ["packages/", "CODEOWNERS"],
+  with_project_librarian: ["packages/", "CODEOWNERS", ".project-wiki", "tools/project-librarian", "imports", "configs", "@benchmark/workspace-"],
+  without_project_librarian: ["packages/", "CODEOWNERS", "@benchmark/workspace-"],
 };
 
 function includesInsensitive(text, term) {
   return text.toLowerCase().includes(term.toLowerCase());
+}
+
+// Designation matcher for ownership_lookup forbidden-team checks.
+//
+// Pure substring presence cannot distinguish two legitimate answer shapes:
+//   (a) CORRECT: agent shows the full CODEOWNERS precedence chain as evidence,
+//       quoting overridden rules like "*.go @go-benchmark-team" in a list, then
+//       designates @benchmark-service-team as the winner.  Must PASS.
+//   (b) WRONG: agent designates @go-benchmark-team as the owner of the queried
+//       path, even if @benchmark-service-team is mentioned elsewhere.  Must FAIL.
+//
+// Strategy: split the response into individual lines (the natural unit for
+// CODEOWNERS rule citations and ownership statements).  A line "designates" a
+// team as owner when ALL of the following hold:
+//   1. The line contains the forbidden team handle.
+//   2. After stripping filename tokens ("codeowners", "code-owners") that
+//      contain "owner" as a substring, the line still contains a standalone
+//      designation signal word ("owner", "owned", "owns").  The strip step
+//      prevents the common agent pattern `*.go @go-team at CODEOWNERS:2` from
+//      triggering on the "owner" inside "codeowners".
+//   3. The line does NOT also contain the correct owner handle — if both appear,
+//      the line is explaining the precedence override ("*.go → @go-team, but
+//      service/ → @service-team wins"), which is fine.
+//
+// CODEOWNERS rule-list lines look like:
+//   "*.go @go-benchmark-team"                      → no designation word → pass
+//   "- `*.go @go-benchmark-team` at CODEOWNERS:2"  → "owner" only in "codeowners" → pass
+//   "The owner is @go-benchmark-team"              → standalone "owner" → FAIL
+//   "@go-benchmark-team owns .go but @service wins" → correct owner present → pass
+//
+// This is deliberately conservative: only lines that explicitly designate the
+// wrong team as owner (without also naming the correct winner) fail.
+function isDesignatedOwner(text, forbiddenTeam, correctOwner) {
+  const forbiddenLower = forbiddenTeam.toLowerCase();
+  const correctLower = correctOwner.toLowerCase();
+  // Designation signal words indicating an ownership assignment.
+  const designationSignals = ["owner", "owned", "owns"];
+  for (const rawLine of text.toLowerCase().split("\n")) {
+    if (!rawLine.includes(forbiddenLower)) continue;
+    // Strip filename substrings that contain "owner" but are not a role word,
+    // so that "codeowners:2" or "code-owners" do not match the signal check.
+    const line = rawLine.replace(/code[-_]?owners/g, "");
+    const hasDesignationSignal = designationSignals.some((signal) => line.includes(signal));
+    if (!hasDesignationSignal) continue;
+    // The line designates an owner.  Pass if the correct owner is also on the
+    // line (the agent is explaining the override, not reporting the wrong winner).
+    if (!rawLine.includes(correctLower)) return true;
+  }
+  return false;
 }
 
 // Resolve the expectation for a task family. Most wiki families use the static
@@ -200,6 +251,20 @@ function evaluateCorrectness({ taskFamily, condition, finalText, fileChangeCount
     checks.push({
       name: `forbidden term absent: ${term}`,
       passed: !includesInsensitive(text, term),
+    });
+  }
+
+  // designation_forbidden: line-scoped ownership designation check for
+  // ownership_lookup.  Each entry { team, correct_owner } fails if any line in
+  // the response designates `team` as the owner of the queried path without also
+  // citing `correct_owner` as the override winner on that same line.  This lets
+  // agents show the full CODEOWNERS precedence chain (citing overridden rules) as
+  // evidence without penalty, while still failing agents that report the wrong
+  // team as the final owner.  See isDesignatedOwner for the exact decision rule.
+  for (const { team, correct_owner: correctOwner } of expectation.designation_forbidden || []) {
+    checks.push({
+      name: `not designated owner: ${team}`,
+      passed: !isDesignatedOwner(text, team, correctOwner),
     });
   }
 

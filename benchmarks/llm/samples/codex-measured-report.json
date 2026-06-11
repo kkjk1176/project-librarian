@@ -1363,13 +1363,15 @@
           "with_project_librarian": [
             [
               "packages/",
-              "CODEOWNERS"
+              "CODEOWNERS",
+              "@benchmark/workspace-"
             ]
           ],
           "without_project_librarian": [
             [
               "packages/",
-              "CODEOWNERS"
+              "CODEOWNERS",
+              "@benchmark/workspace-"
             ]
           ]
         },
@@ -1499,7 +1501,7 @@
                 "passed": true
               },
               {
-                "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs",
+                "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs | @benchmark/workspace-",
                 "passed": true
               },
               {
@@ -1689,7 +1691,7 @@
               "passed": true
             },
             {
-              "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs",
+              "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs | @benchmark/workspace-",
               "passed": true
             },
             {
@@ -2120,13 +2122,15 @@
           "with_project_librarian": [
             [
               "packages/",
-              "CODEOWNERS"
+              "CODEOWNERS",
+              "@benchmark/workspace-"
             ]
           ],
           "without_project_librarian": [
             [
               "packages/",
-              "CODEOWNERS"
+              "CODEOWNERS",
+              "@benchmark/workspace-"
             ]
           ]
         },
@@ -2256,7 +2260,7 @@
                 "passed": true
               },
               {
-                "name": "condition evidence: packages/ | CODEOWNERS",
+                "name": "condition evidence: packages/ | CODEOWNERS | @benchmark/workspace-",
                 "passed": true
               },
               {
@@ -2446,7 +2450,7 @@
               "passed": true
             },
             {
-              "name": "condition evidence: packages/ | CODEOWNERS",
+              "name": "condition evidence: packages/ | CODEOWNERS | @benchmark/workspace-",
               "passed": true
             },
             {

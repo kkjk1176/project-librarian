@@ -104,7 +104,12 @@ test("A7 ownership_lookup encodes last-match precedence and the owned set", () =
   for (const scale of Object.keys(scales)) {
     const ownership = codeGraphExpectation("ownership_lookup", scale);
     assert.equal(ownership.required_terms[0], "@benchmark-service-team");
-    assert(ownership.forbidden_terms.includes("@go-benchmark-team"), "the *.go extension owner is the wrong answer");
+    // @go-benchmark-team is caught by designation_forbidden (line-scoped), not forbidden_terms,
+    // so agents quoting the overridden rule in a precedence chain still pass.
+    assert(
+      (ownership.designation_forbidden || []).some((e) => e.team === "@go-benchmark-team"),
+      "the *.go extension owner must be in designation_forbidden",
+    );
     // serviceFiles owned paths are required and forbidden from Markdown.
     const ownedCount = scales[scale].serviceFiles;
     assert.equal(ownership.required_terms.length, ownedCount + 1, `${scale} owner + ${ownedCount} owned files`);

@@ -689,9 +689,12 @@ Current benchmark evidence policy requires with-vs-without Project Librarian com
 // of distinctive code-derived strings that the docs-only gate forbids in any
 // Markdown file. Both conditions share the base repo, so evidence_by_condition
 // points the agent at the same code files in either condition.
+// workspace_graph answers always cite @benchmark/workspace-* package names as
+// their code evidence (the dependency chain), so that token is accepted alongside
+// packages/ and CODEOWNERS as a valid code-surface citation.
 const codeGraphEvidenceByCondition = {
-  with_project_librarian: [["packages/", "CODEOWNERS"]],
-  without_project_librarian: [["packages/", "CODEOWNERS"]],
+  with_project_librarian: [["packages/", "CODEOWNERS", "@benchmark/workspace-"]],
+  without_project_librarian: [["packages/", "CODEOWNERS", "@benchmark/workspace-"]],
 };
 
 function codeGraphExpectation(taskFamily, scaleName) {
@@ -717,10 +720,19 @@ function codeGraphExpectation(taskFamily, scaleName) {
       // The owner handle plus every owned file path must appear: a correct answer
       // names the winning owner AND enumerates the full owned set.
       required_terms: [owner, ...ownedFiles],
-      // A correct answer must show it evaluated precedence, not just grepped *.go:
-      // the *.go extension owner is the classic wrong answer, so it is forbidden.
+      // A correct answer must show it evaluated precedence, not just grepped *.go.
       any_terms: [["CODEOWNERS", "owner", "precedence", "last match", "last-match"]],
-      forbidden_terms: ["I cannot access", "@go-benchmark-team"],
+      // "I cannot access" is a refusal sentinel — always wrong.
+      // @go-benchmark-team is the classic first-match / extension-only wrong answer;
+      // however, a CORRECT answer often QUOTES that rule as part of the precedence
+      // chain, so a bare forbidden_terms substring check would fail correct answers.
+      // We use designation_forbidden instead: the check fails only if a line in the
+      // response DESIGNATES @go-benchmark-team as the owner (contains "owner"/"owns"/
+      // "owned" + the team handle) WITHOUT also mentioning the correct owner as the
+      // override winner on that same line.  Quoting "*.go @go-benchmark-team" in a
+      // rule-list line (no designation word) always passes.
+      forbidden_terms: ["I cannot access"],
+      designation_forbidden: [{ team: "@go-benchmark-team", correct_owner: owner }],
       evidence_by_condition: {
         with_project_librarian: [["CODEOWNERS"]],
         without_project_librarian: [["CODEOWNERS"]],
