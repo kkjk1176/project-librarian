@@ -48,15 +48,15 @@ Claim-grade cells (claim gate passed, every run passing correctness): large `dec
 
 ### Code-graph track (code evidence index)
 
-Report: `benchmarks/reports/llm/stage2-codegraph.*` (2026-06-11). Cost-weighted deltas:
+Reports: `benchmarks/reports/llm/stage2b-codegraph.*` and `benchmarks/reports/llm/stage2c-codegraph.*` (2026-06-11), measured on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop cross-workspace dependency chains, traversal-requiring questions). `ownership_lookup` and `workspace_graph` come from the gate-passing Stage 2c run; `impact_trace` from the correctness-stable Stage 2b cells. Cost-weighted deltas:
 
 | Scale | impact_trace | ownership_lookup | workspace_graph |
 | --- | ---: | ---: | ---: |
-| Small | +275%* | +3.5% | +7.4% |
-| Medium | +39% | +8.8% | +36% |
-| Large | +61% | +56% | +45% |
+| Small | +142% | +65% | +66% |
+| Medium | +90% | +52% | +12% |
+| Large | +103% | +102% | +36% |
 
-The code-graph track currently shows overhead in every cell, so no code-graph performance claims are made. Diagnosis from the raw transcripts: the generated fixtures' structural questions are answerable by reading one tiny file (control scans of 125B-23KB with 2-5 commands), so grep is near-free while the code-evidence tool pays a fixed discovery and invocation cost that cannot amortize. This is an open boundary: fixture-structure deepening (representativeness) is planned before re-measuring, and fixtures are never tuned toward a desired delta. *impact_trace-small was correctness-unstable in both conditions and is not interpretable.
+The code-graph track shows claim-grade overhead in every family at every tested scale, so no code-graph performance claims are made — this is published as a measured boundary per the losing-scenarios policy. The control answers multi-hop structural questions with a handful of targeted greps (4-15 commands), while the code-evidence tool pays discovery and invocation overhead that does not amortize at these scales. Whether the tool pays off on far larger real repositories, with weaker agents, or on non-token value (correctness, structure reports) remains an open, untested question.
 
 ## Install
 
