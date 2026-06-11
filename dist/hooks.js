@@ -39,7 +39,11 @@ exports.upsertHookConfig = upsertHookConfig;
 exports.upsertClaudeHookConfig = upsertClaudeHookConfig;
 exports.upsertGeminiHookConfig = upsertGeminiHookConfig;
 exports.upsertCursorHookConfig = upsertCursorHookConfig;
+exports.upsertClaudeMcpConfig = upsertClaudeMcpConfig;
+exports.upsertCursorMcpConfig = upsertCursorMcpConfig;
+exports.upsertGeminiMcpConfig = upsertGeminiMcpConfig;
 const childProcess = __importStar(require("node:child_process"));
+const fs = __importStar(require("node:fs"));
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 function upsertGitHooksPath() {
@@ -135,6 +139,61 @@ function upsertCursorHookConfig() {
     const previous = (0, workspace_1.exists)(relativePath) ? (0, workspace_1.read)(relativePath) : "";
     (0, workspace_1.write)(relativePath, next);
     return previous === next ? "exists" : previous ? "updated" : "created";
+}
+const mcpServerName = "project-librarian";
+// Candidate local-runner paths, project root relative, in the recorded
+// local-runner-first order (mirrors validationTrailers()). The first existing
+// runner wins; absent any local install we register the published binary.
+const localRunnerCandidates = [
+    "tools/project-librarian/dist/init-project-wiki.js",
+    ".codex/skills/project-librarian/dist/init-project-wiki.js",
+    ".claude/skills/project-librarian/dist/init-project-wiki.js",
+    ".cursor/skills/project-librarian/dist/init-project-wiki.js",
+    ".gemini/skills/project-librarian/dist/init-project-wiki.js",
+];
+// Deterministic command policy for the registered MCP server: if the repo
+// contains a local runner, register `node <runner> mcp`; otherwise register the
+// installed binary `project-librarian mcp`. This mirrors the local-runner-first
+// skill policy (run the installed local copy with node, not npx) so registration
+// does not depend on network/registry access. The runner path is stored project
+// relative so the registration stays portable across clones.
+function mcpServerEntry() {
+    const runner = localRunnerCandidates.find((candidate) => fs.existsSync((0, workspace_1.abs)(candidate)));
+    if (runner)
+        return { command: "node", args: [runner, "mcp"] };
+    return { command: mcpServerName, args: ["mcp"] };
+}
+// Preservation-first, idempotent merge of the project-librarian MCP server into a
+// JSON config file's `mcpServers` map. Unknown keys and other servers are never
+// clobbered; only `mcpServers["project-librarian"]` is set. A second run with an
+// unchanged entry returns "exists". Used for Claude `.mcp.json`, Cursor
+// `.cursor/mcp.json`, and (via the same map) Gemini `.gemini/settings.json`.
+//
+// Codex boundary: `codex mcp` only manages USER-level config (~/.codex/config.toml
+// via `codex mcp add`); there is no documented project-level MCP config file under
+// `.codex/`. Per the no-user-level-writes rule we do not register Codex here; the
+// README documents running `codex mcp add project-librarian -- node <runner> mcp`.
+function upsertMcpServersFile(relativePath) {
+    const config = (0, workspace_1.parseJson)(relativePath, {});
+    if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
+        config.mcpServers = {};
+    }
+    config.mcpServers[mcpServerName] = mcpServerEntry();
+    const next = `${JSON.stringify(config, null, 2)}\n`;
+    const previous = (0, workspace_1.exists)(relativePath) ? (0, workspace_1.read)(relativePath) : "";
+    if (previous === next)
+        return "exists";
+    (0, workspace_1.write)(relativePath, next);
+    return previous ? "updated" : "created";
+}
+function upsertClaudeMcpConfig() {
+    return upsertMcpServersFile(".mcp.json");
+}
+function upsertCursorMcpConfig() {
+    return upsertMcpServersFile(".cursor/mcp.json");
+}
+function upsertGeminiMcpConfig() {
+    return upsertMcpServersFile(".gemini/settings.json");
 }
 function buildStartupHookScript(output) {
     return `#!/usr/bin/env node

@@ -39,7 +39,7 @@ interface IndexStatements {
   insertSymbolFts: SqliteStatement;
 }
 
-interface CodeIndexStaleness {
+export interface CodeIndexStaleness {
   added: number;
   changed: number;
   deleted: number;
@@ -67,15 +67,25 @@ interface CodeownerRule {
   pattern: string;
 }
 
-interface OwnershipContext {
+export interface OwnershipContext {
   codeownerRules: CodeownerRule[];
   workspaces: WorkspacePackage[];
 }
 
-interface OwnershipInfo {
+export interface OwnershipInfo {
   codeowners: string;
   owner: string;
   owner_source: string;
+}
+
+// A single CODEOWNERS rule that matched a path, kept in file order so the MCP
+// server can report last-match-wins precedence (which rule won, how many were
+// overridden) without re-deriving the matching logic.
+export interface MatchedCodeownerRule {
+  file_path: string;
+  line: number;
+  owners: string[];
+  pattern: string;
 }
 
 interface WorkspacePackage {
@@ -1211,7 +1221,7 @@ function removeDatabaseFiles(databasePath: string): void {
   }
 }
 
-function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
+export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
   const scopes = indexedScopes(database);
   const parserMode = indexedParserMode(database);
   const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
@@ -1316,7 +1326,7 @@ function matchingWorkspace(filePath: string, workspaces: WorkspacePackage[]): Wo
     .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
 }
 
-function codeownerRules(): CodeownerRule[] {
+export function codeownerRules(): CodeownerRule[] {
   const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
   const rules: CodeownerRule[] = [];
   for (const filePath of files) {
@@ -1358,14 +1368,22 @@ function matchingCodeowners(filePath: string, rules: CodeownerRule[]): string[] 
   return matches[matches.length - 1]?.owners ?? [];
 }
 
-function ownershipContext(): OwnershipContext {
+// Return every CODEOWNERS rule that matches a path, in file order. The last entry
+// is the effective owner under last-match-wins; earlier entries are overridden.
+// Reuses the same matcher as matchingCodeowners so precedence answers stay
+// consistent with --code-report / --code-impact.
+export function matchedCodeownerRules(filePath: string, rules: CodeownerRule[]): MatchedCodeownerRule[] {
+  return rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
+}
+
+export function ownershipContext(): OwnershipContext {
   return {
     codeownerRules: codeownerRules(),
     workspaces: workspacePackages(),
   };
 }
 
-function ownershipInfo(filePath: string, context: OwnershipContext): OwnershipInfo {
+export function ownershipInfo(filePath: string, context: OwnershipContext): OwnershipInfo {
   const workspace = matchingWorkspace(filePath, context.workspaces);
   const owners = matchingCodeowners(filePath, context.codeownerRules);
   return {
@@ -1398,7 +1416,7 @@ function incrementOwnerField(owners: Map<string, OwnerSummary>, context: Ownersh
   owners.set(key, current);
 }
 
-function evidenceCoverage(database: SqliteDatabase): Record<string, number> {
+export function evidenceCoverage(database: SqliteDatabase): Record<string, number> {
   const rows = database.prepare(`
     SELECT 'files' AS table_name, count(*) AS rows FROM files
     UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -1456,7 +1474,7 @@ function parserBackendSummary(database: SqliteDatabase): Record<string, unknown>
   });
 }
 
-function workspaceSummary(database: SqliteDatabase): Record<string, unknown> {
+export function workspaceSummary(database: SqliteDatabase): Record<string, unknown> {
   const context = ownershipContext();
   const counts = new Map<string, { bytes: number; files: number; lines: number; name: string; root: string; source: string; workspace_pattern: string }>();
   for (const workspace of context.workspaces) {
@@ -1491,7 +1509,7 @@ function packageManagerFromLockfile(filePath: string): string {
   return "unknown";
 }
 
-function workspaceDependencyGraph(): Record<string, unknown> {
+export function workspaceDependencyGraph(): Record<string, unknown> {
   const workspaces = workspacePackages();
   const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace] as const));
   const lockfiles = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]
@@ -1608,7 +1626,7 @@ function codeReportSectionData(database: SqliteDatabase, section: CodeReportSect
   }
 }
 
-function codeReportMetadata(database: SqliteDatabase): Record<string, unknown> {
+export function codeReportMetadata(database: SqliteDatabase): Record<string, unknown> {
   const databasePath = codeEvidenceDatabasePath();
   const staleness = codeIndexStaleness(database);
   return {
@@ -1664,7 +1682,7 @@ function codeReportForRequestedSection(database: SqliteDatabase): Record<string,
   };
 }
 
-function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
+export function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
   const like = `%${target}%`;
   const fileMatches = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ORDER BY path LIMIT 25").all(like);
   const symbolMatches = database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
@@ -1723,6 +1741,50 @@ function codeImpact(database: SqliteDatabase, target: string): Record<string, un
       sample_files: owner.sample_files,
     })).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner)),
   };
+}
+
+// Symbol search reusing the exact SELECT behind --code-search-symbol so the MCP
+// code_search tool returns identical rows without duplicating the query string.
+export function searchSymbols(database: SqliteDatabase, term: string): Record<string, unknown>[] {
+  const like = `%${term}%`;
+  return database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like);
+}
+
+// Error thrown when the code-evidence index is missing or schema-incompatible.
+// The MCP server catches this to return an isError tool result (tools/list still
+// works); CLI modes keep their own process.exit path via requireExistingIndex.
+export class CodeEvidenceIndexUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CodeEvidenceIndexUnavailableError";
+  }
+}
+
+// Open the existing .project-wiki code-evidence index READ-ONLY for serving:
+// validates existence and schema version, then pins PRAGMA query_only = ON. Uses
+// the same path resolution and schema constant as the indexer so the server and
+// the writer share one contract. Throws CodeEvidenceIndexUnavailableError (never
+// exits) so the MCP server can answer with guidance to run --code-index.
+export function openCodeEvidenceDatabaseForServing(): { database: SqliteDatabase; relativePath: string } {
+  const databasePath = codeEvidenceDatabasePath();
+  if (!fs.existsSync(databasePath.absolutePath)) {
+    throw new CodeEvidenceIndexUnavailableError(`missing code evidence index: ${databasePath.relativePath}; run \`project-librarian --code-index\` first`);
+  }
+  const database = openDatabase(databasePath.absolutePath);
+  let schemaVersion = "";
+  try {
+    schemaVersion = readMetaValue(database, "schema_version");
+  } catch (error: unknown) {
+    database.close();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
+  }
+  if (schemaVersion !== codeIndexSchemaVersion) {
+    database.close();
+    throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+  }
+  database.exec("PRAGMA query_only = ON");
+  return { database, relativePath: databasePath.relativePath };
 }
 
 function prepareOutputPath(): void {

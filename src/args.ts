@@ -21,7 +21,7 @@ export interface ParsedArgs {
   codeSearchSymbol: string;
   codeSearchSymbolMode: boolean;
   codeStatusMode: boolean;
-  command: "init" | "install-skill";
+  command: "init" | "install-skill" | "mcp";
   commandArgs: string[];
   doctorMode: boolean;
   fixMode: boolean;
@@ -51,7 +51,7 @@ export interface ParsedArgs {
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
-const knownCommands: Set<string> = new Set(["init", "install-skill"]);
+const knownCommands: Set<string> = new Set(["init", "install-skill", "mcp"]);
 
 const flagsWithoutValues: Set<string> = new Set([
   "--adopt-existing",
@@ -167,7 +167,7 @@ function argValuesFrom(commandArgs: string[], name: string): string[] {
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  const command: "init" | "install-skill" = knownCommands.has(argv[0] ?? "") ? argv[0] as "init" | "install-skill" : "init";
+  const command: "init" | "install-skill" | "mcp" = knownCommands.has(argv[0] ?? "") ? argv[0] as "init" | "install-skill" | "mcp" : "init";
   const commandArgs = command === argv[0] ? argv.slice(1) : argv;
   const args = new Set(commandArgs);
   const hasFlag = (name: string): boolean => hasFlagIn(commandArgs, name);

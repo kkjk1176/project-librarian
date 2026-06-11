@@ -60,6 +60,7 @@ grep -q -- "--code-index-full" help.log
 grep -q -- "--code-impact" help.log
 grep -q -- "--code-parser" help.log
 grep -q -- "--code-report-section" help.log
+grep -q "project-librarian mcp" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
 grep -Fq 'run `$PROJECT_LIBRARIAN --issue-draft --issue-title' "$ROOT/SKILL.md"
 grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
@@ -177,6 +178,27 @@ grep -q "ALREADY included" gemini-hook.json
 # B3 budgets: startup/index file budgets are unchanged by the marker text.
 grep -q '"wiki/startup.md", 3500' .codex/hooks/wiki-session-start.js
 grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
+# Code-evidence trust contract (B4 analogue) in the managed AGENTS.md block.
+grep -q "Code-evidence tool and report outputs" AGENTS.md
+grep -q -- "\`--code-status\`/\`code_status\` reports staleness" AGENTS.md
+# Bootstrap-managed MCP registration: Claude .mcp.json, Cursor .cursor/mcp.json,
+# and Gemini mcpServers inside .gemini/settings.json all register project-librarian.
+test -f .mcp.json
+test -f .cursor/mcp.json
+node -e 'const c=require("./.mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
+node -e 'const c=require("./.cursor/mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
+node -e 'const c=require("./.gemini/settings.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1); if (!Array.isArray(c.hooks&&c.hooks.SessionStart)) process.exit(1)'
+# Second run reports the registrations as idempotent.
+node "$CLI" --no-git-config > mcp-rerun.log
+grep -q "exists  .mcp.json" mcp-rerun.log
+grep -q "exists  .cursor/mcp.json" mcp-rerun.log
+grep -q "exists  .gemini/settings.json mcpServers" mcp-rerun.log
+# One stdio MCP handshake against the built server: initialize + tools/list.
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | node "$CLI" mcp 2>/dev/null > mcp-handshake.ndjson
+node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-handshake.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const init=lines.find((m)=>m.id===1); if (!init||init.result.protocolVersion!=="2025-06-18"||!init.result.capabilities.tools) process.exit(1); if (init.result.serverInfo.name!=="project-librarian") process.exit(1); const list=lines.find((m)=>m.id===2); const names=list.result.tools.map((t)=>t.name).sort().join(","); if (names!=="code_impact,code_ownership,code_search,code_status,code_workspace_graph") process.exit(1); for (const t of list.result.tools) if (!t.description.includes("do not re-verify with repo-wide greps unless `code_status` reports staleness")) process.exit(1)'
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
@@ -956,6 +978,13 @@ node "$CLI" --code-impact healthHandler > code-impact-health.json
 node -e 'const r=require("./code-impact-health.json"); if (r.target !== "healthHandler") process.exit(1); if (!r.matches.symbols.some((row) => row.name === "healthHandler")) process.exit(1); if (!r.matches.routes.some((row) => row.route === "/health")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "route_to_handler" && row.target === "healthHandler")) process.exit(1); if (!r.impacted_owners.some((row) => row.owner === "src" && row.codeowners.includes("@platform-team"))) process.exit(1)'
 node "$CLI" --code-impact express > code-impact-express.json
 node -e 'const r=require("./code-impact-express.json"); if (r.target !== "express") process.exit(1); if (!r.matches.imports.some((row) => row.to_ref === "express")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "import" && row.target === "express")) process.exit(1)'
+# MCP server over the built index: one code_ownership call returns the
+# answer-shaped response (first-line answer + grouped CODEOWNERS evidence).
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code_ownership","arguments":{"path":"src/app.js"}}}' \
+  | node "$CLI" mcp 2>/dev/null > mcp-ownership.ndjson
+node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-ownership.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const r=lines.find((m)=>m.id===2); if (!r||r.result.isError) process.exit(1); const text=r.result.content[0].text; const first=text.split("\n")[0]; if (!/^Owner of src\/app\.js is @platform-team /.test(first)) process.exit(1); if (!/last match/.test(first)) process.exit(1)'
 node "$CLI" --code-report > code-report.json
 node -e 'const r=require("./code-report.json"); if (r.schema_version !== 1) process.exit(1); if (!r.report_sections.includes("ownership_summary") || !r.report_sections.includes("parser_backend_summary") || !r.report_sections.includes("workspace_summary") || !r.report_sections.includes("workspace_dependency_graph")) process.exit(1); if (!r.evidence_coverage || r.evidence_coverage.files !== 6 || r.evidence_coverage.routes < 1) process.exit(1); if (!r.language_profile_summary.some((row) => row.language === "go" && row.profile === "go-light")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "typescript-ast" && row.backend === "typescript-compiler" && row.extraction_strength === "structural")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "go-light" && row.backend === "regex-light")) process.exit(1); if (!r.workspace_summary.workspace_packages.some((row) => row.root === "apps/web" && row.name === "@example/web" && row.files === 2)) process.exit(1); if (!r.workspace_summary.codeowners.some((row) => row.pattern === "/apps/web/" && row.owners === "@web-team")) process.exit(1); if (!r.workspace_dependency_graph.workspaces.some((row) => row.root === "apps/web" && row.name === "@example/web")) process.exit(1); if (!r.workspace_dependency_graph.lockfiles.some((row) => row.file_path === "package-lock.json" && row.package_manager === "npm")) process.exit(1); if (!r.workspace_dependency_graph.internal_dependencies.some((row) => row.from_package === "@example/web" && row.to_package === "@example/api")) process.exit(1); if (!r.workspace_dependency_graph.external_dependency_hotspots.some((row) => row.dependency === "express" && row.workspace_count >= 1)) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "apps/web" && row.owner_source === "workspace" && row.codeowners.includes("@web-team"))) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "src" && row.routes >= 1 && row.codeowners.includes("@platform-team"))) process.exit(1); if (!r.route_inventory.some((row) => row.route === "/health")) process.exit(1); if (!r.dependency_hotspots.package_dependencies.some((row) => row.package === "express")) process.exit(1); if (!r.edge_summary.by_kind.some((row) => row.kind === "route_to_handler")) process.exit(1)'
 node "$CLI" --code-report --code-report-section routes > code-report-routes.json

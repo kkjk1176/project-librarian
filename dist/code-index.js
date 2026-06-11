@@ -33,6 +33,19 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.CodeEvidenceIndexUnavailableError = void 0;
+exports.codeIndexStaleness = codeIndexStaleness;
+exports.codeownerRules = codeownerRules;
+exports.matchedCodeownerRules = matchedCodeownerRules;
+exports.ownershipContext = ownershipContext;
+exports.ownershipInfo = ownershipInfo;
+exports.evidenceCoverage = evidenceCoverage;
+exports.workspaceSummary = workspaceSummary;
+exports.workspaceDependencyGraph = workspaceDependencyGraph;
+exports.codeReportMetadata = codeReportMetadata;
+exports.codeImpact = codeImpact;
+exports.searchSymbols = searchSymbols;
+exports.openCodeEvidenceDatabaseForServing = openCodeEvidenceDatabaseForServing;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
@@ -1311,6 +1324,13 @@ function matchingCodeowners(filePath, rules) {
     const matches = rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
     return matches[matches.length - 1]?.owners ?? [];
 }
+// Return every CODEOWNERS rule that matches a path, in file order. The last entry
+// is the effective owner under last-match-wins; earlier entries are overridden.
+// Reuses the same matcher as matchingCodeowners so precedence answers stay
+// consistent with --code-report / --code-impact.
+function matchedCodeownerRules(filePath, rules) {
+    return rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
+}
 function ownershipContext() {
     return {
         codeownerRules: codeownerRules(),
@@ -1669,6 +1689,49 @@ function codeImpact(database, target) {
             sample_files: owner.sample_files,
         })).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner)),
     };
+}
+// Symbol search reusing the exact SELECT behind --code-search-symbol so the MCP
+// code_search tool returns identical rows without duplicating the query string.
+function searchSymbols(database, term) {
+    const like = `%${term}%`;
+    return database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like);
+}
+// Error thrown when the code-evidence index is missing or schema-incompatible.
+// The MCP server catches this to return an isError tool result (tools/list still
+// works); CLI modes keep their own process.exit path via requireExistingIndex.
+class CodeEvidenceIndexUnavailableError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "CodeEvidenceIndexUnavailableError";
+    }
+}
+exports.CodeEvidenceIndexUnavailableError = CodeEvidenceIndexUnavailableError;
+// Open the existing .project-wiki code-evidence index READ-ONLY for serving:
+// validates existence and schema version, then pins PRAGMA query_only = ON. Uses
+// the same path resolution and schema constant as the indexer so the server and
+// the writer share one contract. Throws CodeEvidenceIndexUnavailableError (never
+// exits) so the MCP server can answer with guidance to run --code-index.
+function openCodeEvidenceDatabaseForServing() {
+    const databasePath = codeEvidenceDatabasePath();
+    if (!fs.existsSync(databasePath.absolutePath)) {
+        throw new CodeEvidenceIndexUnavailableError(`missing code evidence index: ${databasePath.relativePath}; run \`project-librarian --code-index\` first`);
+    }
+    const database = openDatabase(databasePath.absolutePath);
+    let schemaVersion = "";
+    try {
+        schemaVersion = readMetaValue(database, "schema_version");
+    }
+    catch (error) {
+        database.close();
+        const message = error instanceof Error ? error.message : String(error);
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
+    }
+    if (schemaVersion !== codeIndexSchemaVersion) {
+        database.close();
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+    }
+    database.exec("PRAGMA query_only = ON");
+    return { database, relativePath: databasePath.relativePath };
 }
 function prepareOutputPath() {
     const databasePath = codeEvidenceDatabasePath();

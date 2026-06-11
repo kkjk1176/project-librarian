@@ -7,6 +7,12 @@ import { today } from "./workspace";
 // guards against trusting a stale router.
 export const wikiTrustContract = "Wiki decision documents are authoritative for project decisions: do not re-verify them against the repository unless directly conflicting code evidence appears, since the `--doctor` router-truth rule guards against stale routers.";
 
+// B4 analogue for code evidence: a single-sentence trust contract making the
+// code-evidence tool/report outputs authoritative for code-structure questions,
+// gated on the same staleness check the tools surface (`--code-status` /
+// `code_status`). Mirrors wikiTrustContract scale; kept budget-conscious.
+export const codeEvidenceTrustContract = "Code-evidence tool and report outputs (`--code-impact`, `--code-report`, and the `project-librarian mcp` tools) are authoritative for code-structure questions: do not re-verify them with repo-wide greps unless `--code-status`/`code_status` reports staleness.";
+
 // B1 fallback: label for the auto-synced startup TL;DR sub-block embedded in the
 // managed AGENTS.md marker section. Non-interactive `codex exec` does not run
 // SessionStart hooks (measured 2026-06-10), so AGENTS.md is the only startup
@@ -79,6 +85,7 @@ During conversation:
 - Follow \`wiki/AGENTS.md\` for detailed rules when editing files under \`wiki/\`.
 - Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
 - ${wikiTrustContract}
+- ${codeEvidenceTrustContract}
 <!-- PROJECT-WIKI-FIRST:END -->`;
 }
 

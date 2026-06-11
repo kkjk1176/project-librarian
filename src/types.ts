@@ -42,6 +42,17 @@ export interface HookConfig {
   [key: string]: unknown;
 }
 
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  [key: string]: unknown;
+}
+
+export interface McpServersConfig {
+  mcpServers?: Record<string, McpServerEntry>;
+  [key: string]: unknown;
+}
+
 export interface CursorHookCommand {
   command: string;
   [key: string]: unknown;

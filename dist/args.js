@@ -5,7 +5,7 @@ exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
-const knownCommands = new Set(["init", "install-skill"]);
+const knownCommands = new Set(["init", "install-skill", "mcp"]);
 const flagsWithoutValues = new Set([
     "--adopt-existing",
     "--capture-inbox",

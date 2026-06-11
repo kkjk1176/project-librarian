@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions } from "./args";
-import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertCursorHookConfig, upsertGeminiHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
+import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
@@ -19,6 +19,7 @@ function printUsage(): void {
   console.log(`Usage:
   project-librarian [init] [options]
   project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
+  project-librarian mcp
 
 Options:
   --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
@@ -51,6 +52,10 @@ Options:
   --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
   --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
   --code-search-symbol <term>      Search indexed symbols.
+
+Commands:
+  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
+
   --help                           Show this help.`);
 }
 
@@ -123,6 +128,17 @@ if (command === "install-skill") {
   process.exit(0);
 }
 
+if (command === "mcp") {
+  // Hand-rolled stdio MCP server over the existing code-evidence index. Lazy
+  // require keeps the server (and its node:sqlite dependency) out of the normal
+  // bootstrap path. The server roots at process.cwd() and runs until stdin ends,
+  // exiting from inside runMcpServerMode; the init flow below must not run.
+  (require("./mcp-server") as typeof import("./mcp-server")).runMcpServerMode();
+} else {
+  runInitCommand();
+}
+
+function runInitCommand(): void {
 const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
   console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
@@ -248,6 +264,14 @@ results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
 results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
 results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
 results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
+// Bootstrap-managed MCP registration (preservation-first, idempotent). Claude
+// Code reads `.mcp.json`, Cursor reads `.cursor/mcp.json`, and Gemini reads
+// `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
+// config (`codex mcp add` -> ~/.codex/config.toml), so it is intentionally not
+// registered at project level; the README documents the manual user-level step.
+results.push([".mcp.json", upsertClaudeMcpConfig()]);
+results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
+results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
 // Routers accumulate user-maintained project state after bootstrap, so they are
 // starter files: templates are written only when the file is absent, never rebuilt.
 results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);
@@ -286,4 +310,5 @@ if (noGitConfigMode) modes.push("no-git-config");
 console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
 for (const [relativePath, status] of results) {
   console.log(`${String(status).padEnd(7)} ${relativePath}`);
+}
 }

@@ -185,9 +185,27 @@ Wiki directories:
 - `wiki/sources/`
 - `wiki/migration/`
 
+MCP server registration (preservation-first merge into `mcpServers`):
+
+- `.mcp.json` (Claude Code)
+- `.cursor/mcp.json` (Cursor)
+- `.gemini/settings.json` `mcpServers` (Gemini CLI)
+
 Disposable code evidence cache:
 
 - `.project-wiki/code-evidence.sqlite`
+
+## Code Evidence MCP Server
+
+`project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no extra runtime dependencies) that serves the existing `.project-wiki` code-evidence index read-only. It exposes answer-shaped tools — `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
+
+Bootstrap registers the server for Claude Code (`.mcp.json`), Cursor (`.cursor/mcp.json`), and Gemini CLI (`mcpServers` in `.gemini/settings.json`), preserving any existing servers and keys and reporting `exists` on a re-run. When the repository contains a local runner the registration uses `node <runner> mcp`; otherwise it uses the installed `project-librarian mcp` binary.
+
+Codex registers MCP servers at the user level only (`codex mcp add`), so bootstrap does not write a project-level Codex MCP config. To use the server with Codex, run it once per machine:
+
+```bash
+codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/init-project-wiki.js mcp
+```
 
 ## How It Works
 
