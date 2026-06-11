@@ -62,32 +62,55 @@ test("code-graph expected-answer computation is deterministic per scale", () => 
   }
 });
 
-test("code-graph expectations encode the ring/CODEOWNERS facts", () => {
-  // medium has 5 workspaces: importer of workspace-0 is workspace-(W-1) = 4,
-  // first internal edge is workspace-0 -> workspace-1.
-  const impactMedium = codeGraphExpectation("impact_trace", "medium");
-  assert.deepEqual(impactMedium.required_terms, ["@benchmark/workspace-4"]);
-  assert.deepEqual(impactMedium.answer_key_terms, ["@benchmark/workspace-4"]);
-
-  const workspaceMedium = codeGraphExpectation("workspace_graph", "medium");
-  assert(workspaceMedium.required_terms.includes("@benchmark/workspace-0"));
-  assert(workspaceMedium.required_terms.includes("@benchmark/workspace-1"));
-  assert.deepEqual(workspaceMedium.answer_key_terms, ["@benchmark/workspace-1"]);
-
-  // small has 1 workspace: no ring, so no importer/edge answer key terms.
-  assert.deepEqual(codeGraphExpectation("impact_trace", "small").answer_key_terms, []);
-  assert.deepEqual(codeGraphExpectation("workspace_graph", "small").answer_key_terms, []);
-
-  // ownership is CODEOWNERS-derived and scale-independent.
+test("A7 impact_trace encodes the transitive file-chain importer set", () => {
+  // impact_trace asks for the TRANSITIVE importers of the file-chain root
+  // packages/workspace-0/src/mod-0.ts. The expected set is the whole chain tail
+  // {mod-1 .. mod-(C-1)} as relative paths; the count tracks scale.importChain - 1.
   for (const scale of Object.keys(scales)) {
-    assert.deepEqual(codeGraphExpectation("ownership_lookup", scale).answer_key_terms, ["@go-benchmark-team"]);
+    const impact = codeGraphExpectation("impact_trace", scale);
+    const chainLength = scales[scale].importChain;
+    assert.equal(impact.required_terms.length, chainLength - 1, `${scale} importer count`);
+    assert.equal(impact.required_terms[0], "packages/workspace-0/src/mod-1.ts");
+    assert.equal(impact.required_terms.at(-1), `packages/workspace-0/src/mod-${chainLength - 1}.ts`);
+    // mod-0 itself (the queried root) is NOT in its own importer set.
+    assert(!impact.required_terms.includes("packages/workspace-0/src/mod-0.ts"));
+    // The answer keys equal the importer set (all forbidden from Markdown).
+    assert.deepEqual(impact.answer_key_terms, impact.required_terms);
   }
 });
 
-test("large-scale impact/workspace answer keys track the workspace count", () => {
-  // large has 12 workspaces: importer of workspace-0 is workspace-11.
-  assert.deepEqual(codeGraphExpectation("impact_trace", "large").required_terms, ["@benchmark/workspace-11"]);
-  assert.deepEqual(codeGraphExpectation("workspace_graph", "large").answer_key_terms, ["@benchmark/workspace-1"]);
+test("A7 workspace_graph encodes the transitive spine dependency set", () => {
+  // workspace_graph asks for the transitive dependency set of the deepest
+  // workspace under the spine K -> K-1: every lower workspace package name.
+  for (const scale of Object.keys(scales)) {
+    const workspaceCount = scales[scale].workspaces;
+    const graph = codeGraphExpectation("workspace_graph", scale);
+    if (workspaceCount <= 1) {
+      assert.deepEqual(graph.answer_key_terms, []);
+      continue;
+    }
+    // leaf = workspace-(W-1); transitive deps = workspace-(W-2) .. workspace-0.
+    const expected = [];
+    for (let k = workspaceCount - 2; k >= 0; k -= 1) expected.push(`@benchmark/workspace-${k}`);
+    assert.deepEqual(graph.required_terms, expected, `${scale} transitive deps`);
+    assert(graph.required_terms.includes("@benchmark/workspace-0"), "deepest dep is workspace-0");
+    assert.deepEqual(graph.answer_key_terms, graph.required_terms);
+  }
+});
+
+test("A7 ownership_lookup encodes last-match precedence and the owned set", () => {
+  // ownership answer is the last-match owner (@benchmark-service-team) plus the
+  // full service-directory owned file set; the *.go extension owner is forbidden.
+  for (const scale of Object.keys(scales)) {
+    const ownership = codeGraphExpectation("ownership_lookup", scale);
+    assert.equal(ownership.required_terms[0], "@benchmark-service-team");
+    assert(ownership.forbidden_terms.includes("@go-benchmark-team"), "the *.go extension owner is the wrong answer");
+    // serviceFiles owned paths are required and forbidden from Markdown.
+    const ownedCount = scales[scale].serviceFiles;
+    assert.equal(ownership.required_terms.length, ownedCount + 1, `${scale} owner + ${ownedCount} owned files`);
+    assert(ownership.required_terms.includes("packages/workspace-0/src/service/handler.go"));
+    assert.deepEqual(ownership.answer_key_terms, ownership.required_terms);
+  }
 });
 
 test("codeGraphExpectationsForScale returns only code-graph families", () => {
@@ -114,28 +137,32 @@ test("docs-only answerability gate passes when answers are not in Markdown", () 
 test("docs-only answerability gate throws and names the file and term on violation", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "docs-gate-fail-"));
   try {
-    writeMarkdown(dir, "leak.md", "The Go files are owned by @go-benchmark-team per the docs.\n");
+    // The last-match owner is a code_graph answer key; leaking it into Markdown trips the gate.
+    writeMarkdown(dir, "leak.md", "The service files are owned by @benchmark-service-team per the docs.\n");
     const expectations = Object.values(codeGraphExpectationsForScale("medium"));
     assert.throws(
       () => assertDocsOnlyAnswerability(dir, expectations),
-      (error) => error.message.includes("@go-benchmark-team") && error.message.includes("leak.md"),
+      (error) => error.message.includes("@benchmark-service-team") && error.message.includes("leak.md"),
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("docs-only gate scans nested Markdown but skips empty answer-key sets", () => {
+test("docs-only gate scans nested Markdown and forbids transitive answer paths", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "docs-gate-nested-"));
   try {
-    writeMarkdown(path.join(dir, "wiki", "decisions"), "log.md", "Importer answer @benchmark/workspace-4 leaked here.\n");
-    // medium impact expectation has a non-empty answer key term.
+    // A transitive importer path (mod-13.ts is in the medium chain) leaking into a
+    // nested page must trip the gate.
+    writeMarkdown(path.join(dir, "wiki", "decisions"), "log.md", "Importer answer packages/workspace-0/src/mod-13.ts leaked here.\n");
     assert.throws(
       () => assertDocsOnlyAnswerability(dir, [codeGraphExpectation("impact_trace", "medium")]),
-      /@benchmark\/workspace-4/,
+      /mod-13\.ts/,
     );
-    // small impact expectation has an empty answer key set: nothing to forbid.
-    assert.doesNotThrow(() => assertDocsOnlyAnswerability(dir, [codeGraphExpectation("impact_trace", "small")]));
+    // A clean page with no answer key term does not trip the gate.
+    fs.rmSync(path.join(dir, "wiki", "decisions", "log.md"));
+    writeMarkdown(path.join(dir, "wiki"), "clean.md", "This repository has workspace packages and a CODEOWNERS file.\n");
+    assert.doesNotThrow(() => assertDocsOnlyAnswerability(dir, [codeGraphExpectation("impact_trace", "medium")]));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

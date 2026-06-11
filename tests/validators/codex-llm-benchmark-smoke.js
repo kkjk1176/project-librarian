@@ -108,8 +108,12 @@ function validateControlSampleJsonl() {
 // from a stored verdict. Both the runner-backed with sample and the grep-backed
 // control sample must pass against the same code-derived expectation.
 function validateCodeGraphSampleJsonl() {
+  // A7: impact_trace now asks for the TRANSITIVE importer set of the file-chain
+  // root packages/workspace-0/src/mod-0.ts; the expected answer is the chain tail
+  // (mod-1 .. mod-13 at medium), so the sample final text must list every path.
   const expectation = codeGraphExpectation("impact_trace", "medium");
-  assert(expectation.answer_key_terms.includes("@benchmark/workspace-4"));
+  assert(expectation.answer_key_terms.includes("packages/workspace-0/src/mod-13.ts"));
+  assert.equal(expectation.required_terms.length, 13);
   for (const [file, condition] of [
     ["benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl", "with_project_librarian"],
     ["benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl", "without_project_librarian"],
@@ -133,13 +137,26 @@ function validateCodeGraphSampleJsonl() {
   const missing = evaluateCorrectness({
     taskFamily: "impact_trace",
     condition: "with_project_librarian",
-    finalText: "@benchmark/workspace-4 imports",
+    finalText: "packages/workspace-0/src/mod-1.ts imports mod-0",
     fileChangeCount: 0,
     readOnly: true,
     expectation: null,
     benchmarkTrack: "code_graph",
   });
   assert.equal(missing.status, "needs_review");
+
+  // A partial answer (missing one transitive importer) must fail — the traversal
+  // requirement is not weakened: every expected path must be present.
+  const partial = evaluateCorrectness({
+    taskFamily: "impact_trace",
+    condition: "with_project_librarian",
+    finalText: expectation.required_terms.slice(0, -1).join(", "),
+    fileChangeCount: 0,
+    readOnly: true,
+    expectation,
+    benchmarkTrack: "code_graph",
+  });
+  assert.equal(partial.status, "failed");
 }
 
 // A3 multi_session: correctness is recomputed from the MEASURED session (session 2)
