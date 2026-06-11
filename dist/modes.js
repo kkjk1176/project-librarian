@@ -56,6 +56,7 @@ const fs = __importStar(require("node:fs"));
 const childProcess = __importStar(require("node:child_process"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const agent_state_1 = require("./agent-state");
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
@@ -721,33 +722,13 @@ function runDoctorMode(fix) {
 function runLintMode() {
     const errors = [];
     const warnings = [];
+    const agentSelection = (0, agent_state_1.resolveProjectAgents)();
+    const activeAgents = new Set(agentSelection.agents);
+    const hasAgent = (agent) => activeAgents.has(agent);
+    warnings.push(...agentSelection.warnings);
     const requiredFiles = [
-        "AGENTS.md",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "wiki/AGENTS.md",
-        "wiki/startup.md",
-        "wiki/index.md",
-        "wiki/canonical/project-brief.md",
-        "wiki/canonical/open-questions.md",
-        "wiki/canonical/assumptions.md",
-        "wiki/canonical/risks.md",
-        "wiki/decisions/log.md",
-        "wiki/decisions/recent.md",
-        "wiki/meta/operating-model.md",
-        "wiki/meta/decision-policy.md",
-        "wiki/meta/wiki-ops-v1-decisions.md",
-        ".githooks/prepare-commit-msg",
-        ".githooks/wiki-commit-trailers.js",
-        ".codex/hooks/wiki-session-start.js",
-        ".codex/hooks.json",
-        ".claude/hooks/wiki-session-start.js",
-        ".claude/settings.json",
-        ".cursor/rules/project-librarian.mdc",
-        ".cursor/hooks/wiki-session-start.js",
-        ".cursor/hooks.json",
-        ".gemini/hooks/wiki-session-start.js",
-        ".gemini/settings.json",
+        ...agent_state_1.commonRequiredFiles,
+        ...agentSelection.agents.flatMap((agent) => agent_state_1.agentRequiredFiles[agent]),
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))
@@ -776,11 +757,11 @@ function runLintMode() {
         warnings.push("startup uses Always Read First; prefer Read On Demand routing");
     if ((0, workspace_1.exists)("AGENTS.md") && !(0, workspace_1.read)("AGENTS.md").includes("wiki/AGENTS.md"))
         warnings.push("root AGENTS.md should point detailed wiki editing rules to wiki/AGENTS.md");
-    if ((0, workspace_1.exists)("CLAUDE.md") && !(0, workspace_1.read)("CLAUDE.md").includes("@AGENTS.md"))
+    if (hasAgent("claude") && (0, workspace_1.exists)("CLAUDE.md") && !(0, workspace_1.read)("CLAUDE.md").includes("@AGENTS.md"))
         errors.push("CLAUDE.md should import AGENTS.md for Claude Code compatibility");
-    if ((0, workspace_1.exists)("GEMINI.md") && !(0, workspace_1.read)("GEMINI.md").includes("@AGENTS.md"))
+    if (hasAgent("gemini") && (0, workspace_1.exists)("GEMINI.md") && !(0, workspace_1.read)("GEMINI.md").includes("@AGENTS.md"))
         errors.push("GEMINI.md should import AGENTS.md for Gemini CLI compatibility");
-    if ((0, workspace_1.exists)(".cursor/rules/project-librarian.mdc")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/rules/project-librarian.mdc")) {
         const cursorRule = (0, workspace_1.read)(".cursor/rules/project-librarian.mdc");
         if (!cursorRule.includes("alwaysApply: true") || !cursorRule.includes("@AGENTS.md"))
             errors.push("Cursor project rule should always apply and reference AGENTS.md");
@@ -791,27 +772,27 @@ function runLintMode() {
         if ((0, workspace_1.exists)(legacyFile))
             errors.push(`legacy wiki-ops file must move out of project canonical/decisions: ${legacyFile}`);
     }
-    if ((0, workspace_1.exists)(".codex/hooks/wiki-session-start.js")) {
+    if (hasAgent("codex") && (0, workspace_1.exists)(".codex/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".codex/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
             errors.push("startup hook does not clearly inject only startup/index with expected budgets");
     }
-    if ((0, workspace_1.exists)(".claude/hooks/wiki-session-start.js")) {
+    if (hasAgent("claude") && (0, workspace_1.exists)(".claude/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".claude/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
             errors.push("Claude startup hook does not clearly inject only startup/index with expected budgets");
     }
-    if ((0, workspace_1.exists)(".cursor/hooks/wiki-session-start.js")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".cursor/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("additional_context"))
             errors.push("Cursor startup hook does not clearly inject startup/index through additional_context");
     }
-    if ((0, workspace_1.exists)(".gemini/hooks/wiki-session-start.js")) {
+    if (hasAgent("gemini") && (0, workspace_1.exists)(".gemini/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".gemini/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("hookSpecificOutput"))
             errors.push("Gemini startup hook does not clearly inject startup/index through hookSpecificOutput");
     }
-    if ((0, workspace_1.exists)(".claude/settings.json")) {
+    if (hasAgent("claude") && (0, workspace_1.exists)(".claude/settings.json")) {
         const command = "node .claude/hooks/wiki-session-start.js";
         try {
             const settings = (0, workspace_1.parseJson)(".claude/settings.json", { hooks: {} });
@@ -832,7 +813,7 @@ function runLintMode() {
             errors.push(message);
         }
     }
-    if ((0, workspace_1.exists)(".cursor/hooks.json")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/hooks.json")) {
         const command = "node .cursor/hooks/wiki-session-start.js";
         try {
             const settings = (0, workspace_1.parseJson)(".cursor/hooks.json", { version: 1, hooks: {} });
@@ -849,7 +830,7 @@ function runLintMode() {
             errors.push(message);
         }
     }
-    if ((0, workspace_1.exists)(".gemini/settings.json")) {
+    if (hasAgent("gemini") && (0, workspace_1.exists)(".gemini/settings.json")) {
         const command = 'node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"';
         try {
             const settings = (0, workspace_1.parseJson)(".gemini/settings.json", { hooks: {} });

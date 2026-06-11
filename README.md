@@ -58,6 +58,8 @@ npx project-librarian install-skill --scope project --agents all
 
 `install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`.
 
+For `--scope project`, every install records the selected agents in `.project-librarian/install-state.json`. Re-running with more agents adds to the registered set, and `init`/`--lint` use that registered set to create and validate only the enabled agent surfaces.
+
 | Situation | Command |
 | --- | --- |
 | Install globally for all supported agents | `npx project-librarian install-skill --scope user --agents all` |
@@ -68,7 +70,7 @@ npx project-librarian install-skill --scope project --agents all
 | Install only Gemini CLI | `npx project-librarian install-skill --agents gemini` |
 | Preview install output | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
-`--agents` also accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent; `both` remains a Codex/Claude compatibility alias. `--scope` accepts `user` or `project`.
+`--agents` also accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent. `both` remains a deprecated Codex/Claude compatibility alias; prefer `codex,claude`. `--scope` accepts `user` or `project`.
 
 ## Agent Runner
 
@@ -211,7 +213,7 @@ Recognized but inventory-only extensions include `.rb`, `.vue`, and `.css`. Conf
 Use the local runner for agent execution:
 
 ```bash
-$PROJECT_LIBRARIAN [init] [options]
+$PROJECT_LIBRARIAN [init] [--agents codex|claude|cursor|gemini|all|both] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
@@ -220,6 +222,7 @@ Important options:
 | Option | Purpose |
 | --- | --- |
 | `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*` and create migration inboxes. |
+| `--agents` | Select registered agent surfaces for `init` or project-scoped `install-skill`; `--lint` validates the registered set. |
 | `--lint` | Validate generated setup without editing files. |
 | `--link-check` | Report broken wiki links, duplicate routes, and orphan pages. |
 | `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |

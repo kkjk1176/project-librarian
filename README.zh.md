@@ -68,6 +68,10 @@ npx project-librarian install-skill --scope project --agents all
 | 只安装 Gemini CLI | `npx project-librarian install-skill --agents gemini` |
 | 预览安装结果 | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
+`--scope project` 安装会把所选 agent 记录到 `.project-librarian/install-state.json`。之后再次安装更多 agent 时会累积到已注册集合中，`init` 和 `--lint` 只会创建和校验已注册的 agent surface。
+
+`--agents` 也接受 `codex,claude,cursor,gemini` 这样的逗号分隔值。`all` 表示所有支持的 agent。`both` 是 deprecated 的 Codex/Claude 兼容 alias，建议使用 `codex,claude`。`--scope` 接受 `user` 或 `project`。
+
 ## 代理运行路径
 
 安装后，代理应使用 `node` 运行已安装的本地副本，而不是 `npx`。这可以避免受限代理环境中的网络访问和未固定版本的包执行。

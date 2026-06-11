@@ -178,6 +178,29 @@ grep -q "ALREADY included" gemini-hook.json
 grep -q '"wiki/startup.md", 3500' .codex/hooks/wiki-session-start.js
 grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
 
+mkdir "$TMPDIR/agent-aware-lint"
+cd "$TMPDIR/agent-aware-lint"
+node "$CLI" init --agents codex,claude --no-git-config > partial-init.log
+test -f .project-librarian/install-state.json
+test -f AGENTS.md
+test -f CLAUDE.md
+test -f .codex/hooks/wiki-session-start.js
+test -f .claude/settings.json
+test ! -e GEMINI.md
+test ! -e .cursor
+test ! -e .gemini
+node "$CLI" --lint > partial-lint.log
+grep -q "passed:" partial-lint.log
+node "$CLI" init --agents gemini --no-git-config > add-gemini.log
+test -f GEMINI.md
+test -f .gemini/settings.json
+test ! -e .cursor
+node -e 'const s=require("./.project-librarian/install-state.json"); for (const a of ["codex","claude","gemini"]) if (!s.agents[a]?.installed) process.exit(1); if (s.agents.cursor?.installed) process.exit(1)'
+node "$CLI" --lint
+node "$CLI" init --agents both --no-git-config > both-deprecated.log
+grep -q -- "--agents both is deprecated" both-deprecated.log
+
+cd "$TMPDIR"
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
 node "$CLI" --refresh-index
@@ -1196,6 +1219,7 @@ cd "$TMPDIR/skill-install"
 HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
 grep -q "install-skill only installs the reusable skill files" user-skill-install.log
 grep -q "agents should run the installed local project-librarian runner" user-skill-install.log
+grep -q "registered agents: not recorded for user scope" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-librarian/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-librarian/SKILL.md"
@@ -1205,9 +1229,18 @@ test -x "$TMPDIR/home/.cursor/skills/project-librarian/dist/init-project-wiki.js
 test -f "$TMPDIR/home/.gemini/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.gemini/skills/project-librarian/dist/init-project-wiki.js"
 
+node "$CLI" install-skill --scope project --agents codex > project-skill-codex.log
+grep -q "registered agents: codex" project-skill-codex.log
+grep -q "added registered agents: codex" project-skill-codex.log
+node "$CLI" install-skill --scope project --agents claude > project-skill-claude.log
+grep -q "registered agents: codex, claude" project-skill-claude.log
+grep -q "added registered agents: claude" project-skill-claude.log
+node -e 'const s=require("./.project-librarian/install-state.json"); if (!s.agents.codex?.installed || !s.agents.claude?.installed || s.agents.cursor?.installed || s.agents.gemini?.installed) process.exit(1)'
 node "$CLI" install-skill --scope project --agents all > project-skill-install.log
 grep -q "install-skill only installs the reusable skill files" project-skill-install.log
 grep -q "agents should run the installed local project-librarian runner" project-skill-install.log
+grep -q "registered agents: codex, claude, cursor, gemini" project-skill-install.log
+grep -q "added registered agents: cursor, gemini" project-skill-install.log
 test -f .codex/skills/project-librarian/SKILL.md
 test -x .codex/skills/project-librarian/dist/init-project-wiki.js
 test -f .claude/skills/project-librarian/SKILL.md
@@ -1218,6 +1251,7 @@ test -f .gemini/skills/project-librarian/SKILL.md
 test -x .gemini/skills/project-librarian/dist/init-project-wiki.js
 node "$CLI" install-skill --scope project --agents both --dry-run > legacy-both-skill-install.log
 grep -q "agents: codex, claude" legacy-both-skill-install.log
+grep -q -- "--agents both is deprecated" legacy-both-skill-install.log
 
 mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"
