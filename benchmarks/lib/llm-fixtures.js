@@ -1053,45 +1053,60 @@ function runProjectLibrarian(cliPath, args, cwd) {
   });
 }
 
-// Code-graph families query the code-evidence index through the installed local
-// runner. The agent invokes it with a read-only SQL query against the generated
-// SQLite database; this command must succeed under the read-only sandbox the
-// scenario runs in. The list mirrors the schema in src/code-index.ts (imports,
-// configs) and is used both for the planted pointer and the post-build query
-// verification. It names the tool and query shape only, never an answer.
-const codeIndexQueryRelativeCommand = "node tools/project-librarian/dist/init-project-wiki.js --code-query \"<read-only SELECT>\"";
+// The benchmark measures the product CLI as shipped and documented: task-shaped
+// commands are the intended first interface; raw SQL is the documented fallback
+// for advanced use. This ordering is what agents should be taught — not the
+// inverse — so the pointer page and the build-time verification both use and
+// confirm the task-shaped commands before mentioning the SQL escape hatch.
 
-// A7: the example queries name the QUERY SHAPE only and embed no answer token.
-// They deliberately use placeholder targets (a generic module path, the
-// workspace-package LIKE prefix) so the pointer page teaches how to traverse the
-// import/dependency edges without containing any code_graph answer key term — the
-// docs-only gate would reject any answer-bearing string here. Transitive answers
-// (the full importer/dependency chains) are never queryable in one row; the agent
-// must follow from_file -> to_ref edges iteratively.
-const codeGraphQueryExamples = [
+// Base invocation prefix for the installed local runner.
+const codeRunnerBase = "node tools/project-librarian/dist/init-project-wiki.js";
+
+// Task-shaped commands: question-type → command mapping (the shipped interface).
+// These are the commands an agent should reach for first; the pointer page lists
+// them in this order so the first-match heuristic routes agents correctly.
+const codeTaskCommands = [
   {
     family: "impact_trace",
-    description: "direct importers of a module by its import specifier (follow edges transitively for the full set)",
-    sql: "SELECT DISTINCT from_file FROM imports WHERE to_ref = './mod-<n>'",
+    description: "transitive import/dependency impact for a module or term",
+    command: `${codeRunnerBase} --code-impact <term>`,
   },
   {
     family: "ownership_lookup",
-    description: "CODEOWNERS rules are in the CODEOWNERS file; read it and apply last-match-wins precedence",
-    sql: "SELECT path FROM files WHERE path = 'CODEOWNERS'",
+    description: "file ownership summary from CODEOWNERS",
+    command: `${codeRunnerBase} --code-report --code-report-section ownership`,
   },
   {
     family: "workspace_graph",
-    description: "workspace-to-workspace package.json dependency edges (traverse for the transitive set)",
-    sql: "SELECT file_path, key, value FROM configs WHERE key LIKE 'dependency:@benchmark/workspace-%'",
+    description: "workspace dependency graph (internal package-to-package edges)",
+    command: `${codeRunnerBase} --code-report --code-report-section workspace-graph`,
   },
 ];
 
-// A short planted wiki page that points the with-condition agent at the local
-// runner query path. It deliberately names the command and example queries only;
-// it never contains an answer key term (the docs-only gate would reject it).
+// Advanced fallback commands listed AFTER the task-shaped commands. The SQL
+// fallback exists for queries the task commands do not cover; status is for
+// confirming the index is populated. Neither is the recommended first step.
+const codeAdvancedCommands = [
+  {
+    description: "advanced: read-only SQL over the code evidence index (tables: files, imports, configs, symbols, edges)",
+    command: `${codeRunnerBase} --code-query "<read-only SELECT>"`,
+  },
+  {
+    description: "advanced: inspect index status and file count",
+    command: `${codeRunnerBase} --code-status`,
+  },
+];
+
+// The planted wiki pointer page teaches the question-type → command mapping.
+// It deliberately names command shapes only and never embeds an answer value —
+// the docs-only gate rejects any page that leaks an answer key term into Markdown.
+// Task commands are listed first (shipped interface); SQL fallback appears last.
 function codeEvidenceQueryPointerPage() {
-  const examples = codeGraphQueryExamples
-    .map((example) => `- ${example.description}:\n  \`${codeIndexQueryRelativeCommand.replace("<read-only SELECT>", example.sql)}\``)
+  const taskLines = codeTaskCommands
+    .map((entry) => `- ${entry.description}:\n  \`${entry.command}\``)
+    .join("\n");
+  const advancedLines = codeAdvancedCommands
+    .map((entry) => `- ${entry.description}:\n  \`${entry.command}\``)
     .join("\n");
   return `---
 status: active
@@ -1104,32 +1119,90 @@ review_trigger: benchmark fixture regeneration
 
 # Code Evidence Query
 
-This repository ships a local Project Librarian runner under \`tools/project-librarian/dist/\`. Query the code-evidence index with read-only SQL from the repository root:
+This repository ships a local Project Librarian runner under \`tools/project-librarian/dist/\`. Use the task-shaped commands below from the repository root to answer code-graph questions. All commands are read-only.
 
-\`${codeIndexQueryRelativeCommand}\`
+## Task commands (use these first)
 
-The index tables include \`files\`, \`imports\` (from_file, to_ref), \`configs\` (key, value, file_path), \`symbols\`, and \`edges\`. Example queries:
+${taskLines}
 
-${examples}
+## Advanced fallback
 
-Run \`node tools/project-librarian/dist/init-project-wiki.js --code-status\` to confirm the index is populated. Queries are read-only and must start with SELECT or WITH.
+${advancedLines}
 `;
 }
 
-// Verify the installed runner can answer a code-graph query against the freshly
-// built fixture under the same read-only invocation agents use. Throws loudly on
-// failure rather than degrading, per the no-fallback rule.
-function verifyInstalledRunnerQuery(root, installedCliRelative) {
-  const installedCli = path.join(root, installedCliRelative);
-  const output = runProjectLibrarian(installedCli, ["--code-query", "SELECT count(*) AS files FROM files"], root);
-  let rows;
+// Parse a JSON response from the installed runner. Throws with a descriptive
+// message if the output is not valid JSON, so failures are never silent.
+function parseRunnerJson(output, label) {
   try {
-    rows = JSON.parse(output);
+    return JSON.parse(output);
   } catch (error) {
-    throw new Error(`installed runner code-query did not return JSON rows: ${error.message}; output: ${output.slice(0, 200)}`);
+    throw new Error(`installed runner ${label} did not return valid JSON: ${error.message}; output: ${output.slice(0, 300)}`);
   }
-  if (!Array.isArray(rows) || rows.length !== 1 || !Number.isFinite(rows[0].files) || rows[0].files <= 0) {
-    throw new Error(`installed runner code-query returned no indexed files: ${output.slice(0, 200)}`);
+}
+
+// Verify the installed runner can execute all three task-shaped commands and the
+// legacy code-query fallback against the freshly built fixture, under the same
+// read-only invocation agents use. Hard-fails with a clear message on any error
+// or unexpectedly empty result — the fixture must contain the data each command
+// needs or the benchmark is measuring an unindexed fixture.
+//
+// Checks:
+//   1. --code-impact <chain-root>: the import chain root is indexed and has at
+//      least one importer in matches.imports (the chain is planted).
+//   2. --code-report --code-report-section ownership: the ownership section
+//      returns at least one owner row (CODEOWNERS + packages/ are scoped).
+//   3. --code-report --code-report-section workspace-graph: the workspace-graph
+//      section returns at least one internal dependency edge (the spine is
+//      planted at every scale with workspaces >= 2).
+//   4. --code-query count (legacy fallback): the index has indexed files.
+//
+// All commands are invoked read-only with the installed CLI so the same
+// invocation shape agents use in the sandbox is confirmed to work.
+function verifyInstalledRunnerCommands(root, installedCliRelative) {
+  const installedCli = path.join(root, installedCliRelative);
+
+  // 1. --code-impact: use the chain root filename as the term. The fixture plants
+  // mod-0.ts at packages/workspace-0/src/mod-0.ts; the term "mod-0" matches it
+  // by filename substring and the import chain guarantees at least mod-1.ts
+  // imports it, so matches.imports must be non-empty.
+  const impactOutput = runProjectLibrarian(installedCli, ["--code-impact", "mod-0"], root);
+  const impactJson = parseRunnerJson(impactOutput, "--code-impact mod-0");
+  const importers = impactJson.matches && Array.isArray(impactJson.matches.imports) ? impactJson.matches.imports : null;
+  if (!importers || importers.length === 0) {
+    throw new Error(
+      `installed runner --code-impact mod-0 returned no importers; the import chain may not be indexed. Output: ${impactOutput.slice(0, 300)}`,
+    );
+  }
+
+  // 2. --code-report --code-report-section ownership: data must be a non-empty
+  // array (at least one owner row — CODEOWNERS is scoped and packages/ are indexed).
+  const ownershipOutput = runProjectLibrarian(installedCli, ["--code-report", "--code-report-section", "ownership"], root);
+  const ownershipJson = parseRunnerJson(ownershipOutput, "--code-report --code-report-section ownership");
+  if (!Array.isArray(ownershipJson.data) || ownershipJson.data.length === 0) {
+    throw new Error(
+      `installed runner --code-report --code-report-section ownership returned no owner rows; CODEOWNERS or packages/ may not be indexed. Output: ${ownershipOutput.slice(0, 300)}`,
+    );
+  }
+
+  // 3. --code-report --code-report-section workspace-graph: internal_dependencies
+  // must be non-empty (the spine plants workspace-K -> workspace-(K-1) edges;
+  // scales with workspaces >= 2 always have at least one internal dep edge).
+  const wsGraphOutput = runProjectLibrarian(installedCli, ["--code-report", "--code-report-section", "workspace-graph"], root);
+  const wsGraphJson = parseRunnerJson(wsGraphOutput, "--code-report --code-report-section workspace-graph");
+  const internalDeps = wsGraphJson.data && Array.isArray(wsGraphJson.data.internal_dependencies) ? wsGraphJson.data.internal_dependencies : null;
+  if (!internalDeps || internalDeps.length === 0) {
+    throw new Error(
+      `installed runner --code-report --code-report-section workspace-graph returned no internal dependency edges; the workspace spine may not be indexed. Output: ${wsGraphOutput.slice(0, 300)}`,
+    );
+  }
+
+  // 4. --code-query count (legacy fallback path): confirms the SQL interface
+  // still works for agents that reach for it despite the pointer's task-first advice.
+  const queryOutput = runProjectLibrarian(installedCli, ["--code-query", "SELECT count(*) AS files FROM files"], root);
+  const queryRows = parseRunnerJson(queryOutput, "--code-query count");
+  if (!Array.isArray(queryRows) || queryRows.length !== 1 || !Number.isFinite(queryRows[0].files) || queryRows[0].files <= 0) {
+    throw new Error(`installed runner --code-query returned no indexed files: ${queryOutput.slice(0, 200)}`);
   }
 }
 
@@ -1507,7 +1580,7 @@ function materializeWithProjectLibrarian(root, scaleName, cliPath) {
   // freshly built fixture before returning.
   const installedCliRelative = installLocalRunner(root, cliPath);
   convertCodeIndexForReadOnlyQuery(path.join(root, codeEvidenceRelativeDatabasePath()));
-  verifyInstalledRunnerQuery(root, installedCliRelative);
+  verifyInstalledRunnerCommands(root, installedCliRelative);
 }
 
 // A2: control profiles. The control (without Project Librarian) is materialized
@@ -1919,8 +1992,12 @@ module.exports = {
   assertRouterTruthConsistency,
   benchmarkTracks,
   buildManifest,
+  codeAdvancedCommands,
+  codeEvidenceQueryPointerPage,
   codeGraphExpectation,
   codeGraphExpectationsForScale,
+  codeRunnerBase,
+  codeTaskCommands,
   codeownersRulePairs,
   conditions,
   controlProfiles,
@@ -1938,4 +2015,5 @@ module.exports = {
   trackForTaskFamily,
   transitiveImportersOfChainRoot,
   transitiveWorkspaceDependenciesOfLeaf,
+  verifyInstalledRunnerCommands,
 };
