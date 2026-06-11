@@ -48,15 +48,15 @@ Claim-grade cells (claim gate passed, every run passing correctness): large `dec
 
 ### Code-graph track (code evidence index)
 
-Reports: `benchmarks/reports/llm/stage2b-codegraph.*` and `benchmarks/reports/llm/stage2c-codegraph.*` (2026-06-11), measured on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop cross-workspace dependency chains, traversal-requiring questions). `ownership_lookup` and `workspace_graph` come from the gate-passing Stage 2c run; `impact_trace` from the correctness-stable Stage 2b cells. Cost-weighted deltas:
+Report: `benchmarks/reports/llm/stage2d-codegraph.*` (2026-06-11, claim gate passed 18/18) — measured on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop dependency chains, traversal-requiring questions), with fixtures advertising the product's task-shaped commands (`--code-impact`, `--code-report` sections). Cost-weighted deltas:
 
 | Scale | impact_trace | ownership_lookup | workspace_graph |
 | --- | ---: | ---: | ---: |
-| Small | +142% | +65% | +66% |
-| Medium | +90% | +52% | +12% |
-| Large | +103% | +102% | +36% |
+| Small | +101% | +47% | +79% |
+| Medium | +29% | +64% | -5% |
+| Large | +217% | +87% | +49% |
 
-The code-graph track shows claim-grade overhead in every family at every tested scale, so no code-graph performance claims are made — this is published as a measured boundary per the losing-scenarios policy. The control answers multi-hop structural questions with a handful of targeted greps (4-15 commands), while the code-evidence tool pays discovery and invocation overhead that does not amortize at these scales. Whether the tool pays off on far larger real repositories, with weaker agents, or on non-token value (correctness, structure reports) remains an open, untested question.
+The overhead replicated across three gate-valid variations (deepened structure, fixed evaluator, task-shaped interface), so no code-graph performance claims are made — published as a measured boundary per the losing-scenarios policy. The control answers multi-hop structural questions with 3-9 targeted greps, while any tool interaction (discovery, invocation, output verification) costs more than it saves at these fixture scales. Whether the tool pays off on far larger real repositories, with answer-shaped responses served over MCP, with an explicit trust contract, or on non-token value (correctness, structure reports) remains an open, untested question.
 
 ## Install
 
