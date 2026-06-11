@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MarkdownFileInfo, MetadataSummary, WikiLinkReference } from "./types";
-import { abs, exists, metadataValue, normalizePath, read, root, stripMetadataHeader, walkFilesUnder } from "./workspace";
+import { abs, metadataValue, normalizePath, read, root, stripMetadataHeader, walkFilesUnder } from "./workspace";
 
 export const standardWikiFiles: Set<string> = new Set([
   "AGENTS.md",
@@ -209,24 +209,6 @@ export function stripMarkedSection(text: string, startMarker: string, endMarker:
   const end = text.indexOf(endMarker);
   if (start < 0 || end <= start) return text;
   return `${text.slice(0, start).trimEnd()}\n\n${text.slice(end + endMarker.length).trimStart()}`.trim() + "\n";
-}
-
-export function extractMarkedSection(text: string, startMarker: string, endMarker: string): string {
-  const start = text.indexOf(startMarker);
-  const end = text.indexOf(endMarker);
-  if (start < 0 || end <= start) return "";
-  return text.slice(start, end + endMarker.length).trim();
-}
-
-export function withPreservedMarkedSections(relativePath: string, base: string, markerPairs: Array<[string, string]>): string {
-  if (!exists(relativePath)) return base;
-  const current = read(relativePath);
-  const preserved = markerPairs
-    .map(([startMarker, endMarker]) => extractMarkedSection(current, startMarker, endMarker))
-    .filter(Boolean)
-    .filter((section) => !base.includes(section));
-  if (preserved.length === 0) return base;
-  return `${base.trimEnd()}\n\n${preserved.join("\n\n")}\n`;
 }
 
 export function hasGlossaryNeedSignal(text: string): boolean {

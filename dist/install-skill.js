@@ -37,10 +37,9 @@ exports.runInstallSkillMode = runInstallSkillMode;
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const agent_state_1 = require("./agent-state");
 const args_1 = require("./args");
 const skillName = "project-librarian";
-const allAgentTargets = ["codex", "claude", "cursor", "gemini"];
-const legacyBothAgentTargets = ["codex", "claude"];
 const packageFiles = [
     "SKILL.md",
     "dist",
@@ -64,25 +63,13 @@ function installScope() {
 }
 function installAgents() {
     const value = (0, args_1.argValue)("--agents") || "all";
-    const parts = value.split(",").map((item) => item.trim()).filter(Boolean);
-    const agents = new Set();
-    for (const part of parts) {
-        if (part === "all") {
-            for (const agent of allAgentTargets)
-                agents.add(agent);
-        }
-        else if (part === "both") {
-            for (const agent of legacyBothAgentTargets)
-                agents.add(agent);
-        }
-        else if (allAgentTargets.includes(part)) {
-            agents.add(part);
-        }
-        else {
-            return fail(`invalid --agents entry: ${part}; expected codex, claude, cursor, gemini, all, or legacy both`);
-        }
+    try {
+        return (0, agent_state_1.parseAgentTargets)(value);
     }
-    return Array.from(agents);
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return fail(message);
+    }
 }
 function packageRoot() {
     return path.resolve(__dirname, "..");
@@ -138,7 +125,7 @@ function copyPath(source, target, dryRun) {
 }
 function runInstallSkillMode() {
     const scope = installScope();
-    const agents = installAgents();
+    const { agents, warnings } = installAgents();
     const dryRun = args_1.args.has("--dry-run");
     const root = packageRoot();
     const rows = [];
@@ -152,7 +139,20 @@ function runInstallSkillMode() {
     }
     console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
+    for (const warning of warnings)
+        console.log(`warn: ${warning}`);
     console.log(`agents: ${agents.join(", ")}`);
+    if (scope === "project" && !dryRun) {
+        const registration = (0, agent_state_1.registerProjectAgents)(agents);
+        console.log(`registered agents: ${registration.registered.join(", ")}`);
+        console.log(`added registered agents: ${registration.added.length > 0 ? registration.added.join(", ") : "none"}`);
+    }
+    else if (scope === "project") {
+        console.log("registered agents: dry-run");
+    }
+    else {
+        console.log("registered agents: not recorded for user scope");
+    }
     console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
     console.log("next: agents should run the installed local project-librarian runner from the target project root; direct shell users can still run `npx project-librarian` when registry access is available.");
     for (const [label, status] of rows) {

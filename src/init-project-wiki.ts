@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 import { captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions } from "./args";
+import { type AgentTarget, registerProjectAgents, resolveProjectAgents } from "./agent-state";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertCursorHookConfig, upsertGeminiHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
-import { agentsSection, claudeSection, cursorRule, decisionPolicy, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicy, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
-import { deleteIfGenerated, makeExecutable, mkdirp, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
-import { withPreservedMarkedSections } from "./wiki-files";
+import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 type CodeIndexModule = typeof import("./code-index");
 
@@ -18,7 +18,7 @@ function codeIndex(): CodeIndexModule {
 
 function printUsage(): void {
   console.log(`Usage:
-  project-librarian [init] [options]
+  project-librarian [init] [--agents codex|claude|cursor|gemini|all|both] [options]
   project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 
 Options:
@@ -210,44 +210,70 @@ if (lintMode) {
 const migrationState: MigrationState | null = migrateMode ? prepareMigrationMode() : null;
 const results: ResultRow[] = [];
 if (migrationState) results.push(["migration prepare", migrationState.note]);
+const projectAgentSelection = resolveProjectAgents();
+const projectAgents = new Set<AgentTarget>(projectAgentSelection.agents);
+const hasAgent = (agent: AgentTarget): boolean => projectAgents.has(agent);
+const agentMessages: string[] = [];
+if (projectAgentSelection.source !== "state") {
+  const registration = registerProjectAgents(projectAgentSelection.agents);
+  agentMessages.push(`registered agents: ${registration.registered.join(", ") || "none"}`);
+}
+for (const warning of projectAgentSelection.warnings) {
+  agentMessages.push(`warn: ${warning}`);
+}
 
 mkdirp("wiki/canonical");
 mkdirp("wiki/decisions");
 mkdirp("wiki/inbox");
 mkdirp("wiki/meta");
 mkdirp("wiki/sources");
-mkdirp(".codex/hooks");
-mkdirp(".claude/hooks");
-mkdirp(".cursor/hooks");
-mkdirp(".cursor/rules");
-mkdirp(".gemini/hooks");
+if (hasAgent("codex")) mkdirp(".codex/hooks");
+if (hasAgent("claude")) mkdirp(".claude/hooks");
+if (hasAgent("cursor")) {
+  mkdirp(".cursor/hooks");
+  mkdirp(".cursor/rules");
+}
+if (hasAgent("gemini")) mkdirp(".gemini/hooks");
 mkdirp(".githooks");
 
-results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection)]);
-results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
-results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
-results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
+// B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
+// so non-interactive `codex exec` (which does not run SessionStart hooks) still
+// gets compact startup context. Routers are starter files written later in this
+// flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
+// template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
+// an existing startup.md fails loudly inside extractStartupTldr (no fallback).
+const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
+const startupTldrForAgents = extractStartupTldr(startupForSync);
+results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection(startupTldrForAgents))]);
+if (hasAgent("claude")) results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
+if (hasAgent("gemini")) results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
+if (hasAgent("cursor")) results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
 results.push(["wiki/AGENTS.md", upsertMarkedSection("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", wikiAgentsSection)]);
 results.push([".githooks/prepare-commit-msg", writeManaged(".githooks/prepare-commit-msg", gitPrepareCommitMsgHook)]);
 makeExecutable(".githooks/prepare-commit-msg");
 results.push([".githooks/wiki-commit-trailers.js", writeManaged(".githooks/wiki-commit-trailers.js", gitWikiCommitTrailersScript)]);
 makeExecutable(".githooks/wiki-commit-trailers.js");
 results.push(["git core.hooksPath", upsertGitHooksPath()]);
-results.push([".codex/hooks.json", upsertHookConfig()]);
-results.push([".codex/hooks/wiki-session-start.js", writeManaged(".codex/hooks/wiki-session-start.js", hookScript)]);
-results.push([".claude/settings.json", upsertClaudeHookConfig()]);
-results.push([".claude/hooks/wiki-session-start.js", writeManaged(".claude/hooks/wiki-session-start.js", hookScript)]);
-results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
-results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
-results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
-results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
-results.push(["wiki/startup.md", writeManaged("wiki/startup.md", withPreservedMarkedSections("wiki/startup.md", startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
-results.push(["wiki/index.md", writeManaged("wiki/index.md", withPreservedMarkedSections("wiki/index.md", index, [
-  ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],
-  ["<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->"],
-  ["<!-- PROJECT-WIKI-INBOX:START -->", "<!-- PROJECT-WIKI-INBOX:END -->"],
-  ["<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->"],
-]))]);
+if (hasAgent("codex")) {
+  results.push([".codex/hooks.json", upsertHookConfig()]);
+  results.push([".codex/hooks/wiki-session-start.js", writeManaged(".codex/hooks/wiki-session-start.js", hookScript)]);
+}
+if (hasAgent("claude")) {
+  results.push([".claude/settings.json", upsertClaudeHookConfig()]);
+  results.push([".claude/hooks/wiki-session-start.js", writeManaged(".claude/hooks/wiki-session-start.js", hookScript)]);
+}
+if (hasAgent("cursor")) {
+  results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
+  results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
+}
+if (hasAgent("gemini")) {
+  results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
+  results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
+}
+// Routers accumulate user-maintained project state after bootstrap, so they are
+// starter files: templates are written only when the file is absent, never rebuilt.
+results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);
+results.push(["wiki/index.md", writeStarter("wiki/index.md", index)]);
 results.push(["wiki/meta/operating-model.md", writeManaged("wiki/meta/operating-model.md", wikiOperatingModel)]);
 results.push(["wiki/meta/decision-policy.md", writeManaged("wiki/meta/decision-policy.md", decisionPolicy)]);
 results.push(["wiki/canonical/wiki-operating-model.md", deleteIfGenerated("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);
@@ -280,6 +306,9 @@ if (captureInboxMode) modes.push("capture-inbox");
 if (refreshIndexMode) modes.push("refresh-index");
 if (noGitConfigMode) modes.push("no-git-config");
 console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
+for (const message of agentMessages) {
+  console.log(message);
+}
 for (const [relativePath, status] of results) {
   console.log(`${String(status).padEnd(7)} ${relativePath}`);
 }

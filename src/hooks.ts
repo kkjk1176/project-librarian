@@ -146,6 +146,8 @@ const sections = files
 
 const additionalContext = [
   "[Project wiki startup review]",
+  "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
+  "Do not re-read these two files this session; route any further reads through the index.",
   "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
   "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",
@@ -263,7 +265,25 @@ function wikiScope(files) {
   return scopes.length === 0 ? "none" : scopes.join(", ");
 }
 
+function installedAgents() {
+  const allAgents = ["codex", "claude", "cursor", "gemini"];
+  try {
+    const state = JSON.parse(existingFile(".project-librarian/install-state.json"));
+    const agents = allAgents.filter((agent) => state && state.agents && state.agents[agent] && state.agents[agent].installed === true);
+    if (agents.length > 0) return agents;
+  } catch {
+  }
+  const inferred = [];
+  if (fs.existsSync(".codex/hooks/wiki-session-start.js") || fs.existsSync(".codex/hooks.json")) inferred.push("codex");
+  if (fs.existsSync("CLAUDE.md") || fs.existsSync(".claude/hooks/wiki-session-start.js") || fs.existsSync(".claude/settings.json")) inferred.push("claude");
+  if (fs.existsSync(".cursor/rules/project-librarian.mdc") || fs.existsSync(".cursor/hooks/wiki-session-start.js") || fs.existsSync(".cursor/hooks.json")) inferred.push("cursor");
+  if (fs.existsSync("GEMINI.md") || fs.existsSync(".gemini/hooks/wiki-session-start.js") || fs.existsSync(".gemini/settings.json")) inferred.push("gemini");
+  return inferred.length > 0 ? inferred : allAgents;
+}
+
 function validationTrailers() {
+  const agents = installedAgents();
+  const hasAgent = (name) => agents.includes(name);
   const home = process.env.HOME || "";
   const lintScript = [
     "tools/project-librarian/dist/init-project-wiki.js",
@@ -273,27 +293,32 @@ function validationTrailers() {
     path.join(home, ".gemini/skills/project-librarian/dist/init-project-wiki.js"),
   ].find((candidate) => fs.existsSync(candidate));
   const lintOk = Boolean(lintScript) && commandOk("node", [lintScript, "--lint"]);
-  const codexSessionHookOk = fs.existsSync(".codex/hooks/wiki-session-start.js") && commandOk("node", [".codex/hooks/wiki-session-start.js"]);
-  const claudeSessionHookOk = fs.existsSync(".claude/hooks/wiki-session-start.js") && commandOk("node", [".claude/hooks/wiki-session-start.js"]);
-  const cursorSessionHookOk = fs.existsSync(".cursor/hooks/wiki-session-start.js") && commandOk("node", [".cursor/hooks/wiki-session-start.js"]);
-  const cursorHookConfigOk = fs.existsSync(".cursor/hooks.json") && existingFile(".cursor/hooks.json").includes("node .cursor/hooks/wiki-session-start.js");
-  const geminiSessionHookOk = fs.existsSync(".gemini/hooks/wiki-session-start.js") && commandOk("node", [".gemini/hooks/wiki-session-start.js"]);
-  const geminiHookConfigOk = fs.existsSync(".gemini/settings.json") && existingFile(".gemini/settings.json").includes('node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"');
-  const geminiInstructionsOk = fs.existsSync("GEMINI.md") && existingFile("GEMINI.md").includes("@AGENTS.md");
-  const cursorRuleOk = fs.existsSync(".cursor/rules/project-librarian.mdc") && existingFile(".cursor/rules/project-librarian.mdc").includes("@AGENTS.md");
+  const codexSessionHookOk = !hasAgent("codex") || (fs.existsSync(".codex/hooks/wiki-session-start.js") && commandOk("node", [".codex/hooks/wiki-session-start.js"]));
+  const claudeSessionHookOk = !hasAgent("claude") || (fs.existsSync(".claude/hooks/wiki-session-start.js") && commandOk("node", [".claude/hooks/wiki-session-start.js"]));
+  const cursorSessionHookOk = !hasAgent("cursor") || (fs.existsSync(".cursor/hooks/wiki-session-start.js") && commandOk("node", [".cursor/hooks/wiki-session-start.js"]));
+  const cursorHookConfigOk = !hasAgent("cursor") || (fs.existsSync(".cursor/hooks.json") && existingFile(".cursor/hooks.json").includes("node .cursor/hooks/wiki-session-start.js"));
+  const geminiSessionHookOk = !hasAgent("gemini") || (fs.existsSync(".gemini/hooks/wiki-session-start.js") && commandOk("node", [".gemini/hooks/wiki-session-start.js"]));
+  const geminiHookConfigOk = !hasAgent("gemini") || (fs.existsSync(".gemini/settings.json") && existingFile(".gemini/settings.json").includes('node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"'));
+  const geminiInstructionsOk = !hasAgent("gemini") || (fs.existsSync("GEMINI.md") && existingFile("GEMINI.md").includes("@AGENTS.md"));
+  const cursorRuleOk = !hasAgent("cursor") || (fs.existsSync(".cursor/rules/project-librarian.mdc") && existingFile(".cursor/rules/project-librarian.mdc").includes("@AGENTS.md"));
   if (lintOk && codexSessionHookOk && claudeSessionHookOk && cursorSessionHookOk && cursorHookConfigOk && geminiSessionHookOk && geminiHookConfigOk && geminiInstructionsOk && cursorRuleOk) {
-    return { tested: "project wiki lint; Codex, Claude, Cursor, and Gemini wiki session-start hooks; Cursor and Gemini instruction files", notTested: "none" };
+    const tested = ["project wiki lint"];
+    if (hasAgent("codex")) tested.push("Codex wiki session-start hook");
+    if (hasAgent("claude")) tested.push("Claude wiki session-start hook");
+    if (hasAgent("cursor")) tested.push("Cursor wiki session-start hook and project rule");
+    if (hasAgent("gemini")) tested.push("Gemini wiki SessionStart hook and instructions");
+    return { tested: tested.join("; "), notTested: "none" };
   }
   const gaps = [];
   if (!lintOk) gaps.push("project wiki lint");
-  if (!codexSessionHookOk) gaps.push("Codex wiki session-start hook");
-  if (!claudeSessionHookOk) gaps.push("Claude wiki session-start hook");
-  if (!cursorSessionHookOk) gaps.push("Cursor wiki session-start hook");
-  if (!cursorHookConfigOk) gaps.push("Cursor hook config");
-  if (!geminiSessionHookOk) gaps.push("Gemini wiki SessionStart hook");
-  if (!geminiHookConfigOk) gaps.push("Gemini hook config");
-  if (!cursorRuleOk) gaps.push("Cursor project rule");
-  if (!geminiInstructionsOk) gaps.push("Gemini instructions");
+  if (hasAgent("codex") && !codexSessionHookOk) gaps.push("Codex wiki session-start hook");
+  if (hasAgent("claude") && !claudeSessionHookOk) gaps.push("Claude wiki session-start hook");
+  if (hasAgent("cursor") && !cursorSessionHookOk) gaps.push("Cursor wiki session-start hook");
+  if (hasAgent("cursor") && !cursorHookConfigOk) gaps.push("Cursor hook config");
+  if (hasAgent("gemini") && !geminiSessionHookOk) gaps.push("Gemini wiki SessionStart hook");
+  if (hasAgent("gemini") && !geminiHookConfigOk) gaps.push("Gemini hook config");
+  if (hasAgent("cursor") && !cursorRuleOk) gaps.push("Cursor project rule");
+  if (hasAgent("gemini") && !geminiInstructionsOk) gaps.push("Gemini instructions");
   return { tested: "prepare-commit-msg generated wiki trailers", notTested: gaps.join("; ") || "unknown" };
 }
 

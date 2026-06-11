@@ -2,19 +2,19 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const args_1 = require("./args");
+const agent_state_1 = require("./agent-state");
 const hooks_1 = require("./hooks");
 const install_skill_1 = require("./install-skill");
 const modes_1 = require("./modes");
 const migration_1 = require("./migration");
 const templates_1 = require("./templates");
 const workspace_1 = require("./workspace");
-const wiki_files_1 = require("./wiki-files");
 function codeIndex() {
     return require("./code-index");
 }
 function printUsage() {
     console.log(`Usage:
-  project-librarian [init] [options]
+  project-librarian [init] [--agents codex|claude|cursor|gemini|all|both] [options]
   project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 
 Options:
@@ -191,42 +191,74 @@ const migrationState = args_1.migrateMode ? (0, migration_1.prepareMigrationMode
 const results = [];
 if (migrationState)
     results.push(["migration prepare", migrationState.note]);
+const projectAgentSelection = (0, agent_state_1.resolveProjectAgents)();
+const projectAgents = new Set(projectAgentSelection.agents);
+const hasAgent = (agent) => projectAgents.has(agent);
+const agentMessages = [];
+if (projectAgentSelection.source !== "state") {
+    const registration = (0, agent_state_1.registerProjectAgents)(projectAgentSelection.agents);
+    agentMessages.push(`registered agents: ${registration.registered.join(", ") || "none"}`);
+}
+for (const warning of projectAgentSelection.warnings) {
+    agentMessages.push(`warn: ${warning}`);
+}
 (0, workspace_1.mkdirp)("wiki/canonical");
 (0, workspace_1.mkdirp)("wiki/decisions");
 (0, workspace_1.mkdirp)("wiki/inbox");
 (0, workspace_1.mkdirp)("wiki/meta");
 (0, workspace_1.mkdirp)("wiki/sources");
-(0, workspace_1.mkdirp)(".codex/hooks");
-(0, workspace_1.mkdirp)(".claude/hooks");
-(0, workspace_1.mkdirp)(".cursor/hooks");
-(0, workspace_1.mkdirp)(".cursor/rules");
-(0, workspace_1.mkdirp)(".gemini/hooks");
+if (hasAgent("codex"))
+    (0, workspace_1.mkdirp)(".codex/hooks");
+if (hasAgent("claude"))
+    (0, workspace_1.mkdirp)(".claude/hooks");
+if (hasAgent("cursor")) {
+    (0, workspace_1.mkdirp)(".cursor/hooks");
+    (0, workspace_1.mkdirp)(".cursor/rules");
+}
+if (hasAgent("gemini"))
+    (0, workspace_1.mkdirp)(".gemini/hooks");
 (0, workspace_1.mkdirp)(".githooks");
-results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", templates_1.agentsSection)]);
-results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
-results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
-results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
+// B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
+// so non-interactive `codex exec` (which does not run SessionStart hooks) still
+// gets compact startup context. Routers are starter files written later in this
+// flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
+// template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
+// an existing startup.md fails loudly inside extractStartupTldr (no fallback).
+const startupForSync = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md") : templates_1.startup;
+const startupTldrForAgents = (0, templates_1.extractStartupTldr)(startupForSync);
+results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", (0, templates_1.agentsSection)(startupTldrForAgents))]);
+if (hasAgent("claude"))
+    results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
+if (hasAgent("gemini"))
+    results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
+if (hasAgent("cursor"))
+    results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
 results.push(["wiki/AGENTS.md", (0, workspace_1.upsertMarkedSection)("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", templates_1.wikiAgentsSection)]);
 results.push([".githooks/prepare-commit-msg", (0, workspace_1.writeManaged)(".githooks/prepare-commit-msg", hooks_1.gitPrepareCommitMsgHook)]);
 (0, workspace_1.makeExecutable)(".githooks/prepare-commit-msg");
 results.push([".githooks/wiki-commit-trailers.js", (0, workspace_1.writeManaged)(".githooks/wiki-commit-trailers.js", hooks_1.gitWikiCommitTrailersScript)]);
 (0, workspace_1.makeExecutable)(".githooks/wiki-commit-trailers.js");
 results.push(["git core.hooksPath", (0, hooks_1.upsertGitHooksPath)()]);
-results.push([".codex/hooks.json", (0, hooks_1.upsertHookConfig)()]);
-results.push([".codex/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".codex/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-results.push([".claude/settings.json", (0, hooks_1.upsertClaudeHookConfig)()]);
-results.push([".claude/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".claude/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
-results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
-results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
-results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-results.push(["wiki/startup.md", (0, workspace_1.writeManaged)("wiki/startup.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/startup.md", templates_1.startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
-results.push(["wiki/index.md", (0, workspace_1.writeManaged)("wiki/index.md", (0, wiki_files_1.withPreservedMarkedSections)("wiki/index.md", templates_1.index, [
-        ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],
-        ["<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->"],
-        ["<!-- PROJECT-WIKI-INBOX:START -->", "<!-- PROJECT-WIKI-INBOX:END -->"],
-        ["<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->"],
-    ]))]);
+if (hasAgent("codex")) {
+    results.push([".codex/hooks.json", (0, hooks_1.upsertHookConfig)()]);
+    results.push([".codex/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".codex/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+}
+if (hasAgent("claude")) {
+    results.push([".claude/settings.json", (0, hooks_1.upsertClaudeHookConfig)()]);
+    results.push([".claude/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".claude/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+}
+if (hasAgent("cursor")) {
+    results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
+    results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
+}
+if (hasAgent("gemini")) {
+    results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
+    results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+}
+// Routers accumulate user-maintained project state after bootstrap, so they are
+// starter files: templates are written only when the file is absent, never rebuilt.
+results.push(["wiki/startup.md", (0, workspace_1.writeStarter)("wiki/startup.md", templates_1.startup)]);
+results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
 results.push(["wiki/meta/operating-model.md", (0, workspace_1.writeManaged)("wiki/meta/operating-model.md", templates_1.wikiOperatingModel)]);
 results.push(["wiki/meta/decision-policy.md", (0, workspace_1.writeManaged)("wiki/meta/decision-policy.md", templates_1.decisionPolicy)]);
 results.push(["wiki/canonical/wiki-operating-model.md", (0, workspace_1.deleteIfGenerated)("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);
@@ -265,6 +297,9 @@ if (args_1.refreshIndexMode)
 if (args_1.noGitConfigMode)
     modes.push("no-git-config");
 console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
+for (const message of agentMessages) {
+    console.log(message);
+}
 for (const [relativePath, status] of results) {
     console.log(`${String(status).padEnd(7)} ${relativePath}`);
 }

@@ -49,12 +49,14 @@ exports.runQualityCheckMode = runQualityCheckMode;
 exports.runMigrationQualityCheckMode = runMigrationQualityCheckMode;
 exports.runMigrationLintMode = runMigrationLintMode;
 exports.runMigrationDoctorMode = runMigrationDoctorMode;
+exports.collectRouterTruthDiagnostics = collectRouterTruthDiagnostics;
 exports.runDoctorMode = runDoctorMode;
 exports.runLintMode = runLintMode;
 const fs = __importStar(require("node:fs"));
 const childProcess = __importStar(require("node:child_process"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const agent_state_1 = require("./agent-state");
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
@@ -631,6 +633,73 @@ function runMigrationDoctorMode() {
     if (!lintOk || !qualityOk)
         process.exit(1);
 }
+// B2 router-truth contradiction rule. A compact router that contradicts the
+// decision log is worse than none: the measured 2026-06-10 run spiraled into
+// post-answer verification because wiki/startup.md Recent Decisions and
+// wiki/decisions/recent.md said "None yet." while wiki/decisions/log.md held the
+// dated answer. This flags that exact contradiction as an error-level diagnostic.
+// "None yet." is the bootstrap template marker for an empty decision surface
+// (startup template "## Recent Project Decisions" and recent.md template
+// "## Decisions" both seed "- None yet."), so its presence while the log carries a
+// dated entry is the template-equivalent of an unmaintained router.
+//
+// SECTION-ANCHORED SCAN: the rule checks the relevant section body only, not the
+// whole file, to avoid false-positives on other sections (e.g. an open-questions
+// list that legitimately says "None yet." while Recent Decisions is maintained).
+//   wiki/startup.md   → "## Recent Project Decisions" section body
+//   decisions/recent.md → "## Decisions" section body
+//
+// MINOR 2: the marker regex is tolerant of trailing whitespace / omitted terminal
+// period ("None yet", "None yet. ") but stays anchored to the section scope above.
+// Coupling: this English-only marker matches the bootstrap template text only;
+// a project using a different language for these sections will not be checked.
+const ROUTER_TRUTH_NONE_YET_REGEX = /\bNone yet\.?\s*$/m;
+// Extract the body of a named heading section (from the heading line to the next
+// same-or-higher-level heading, or end of string). Returns empty string when the
+// heading is absent so the caller can decide whether to flag or skip.
+function extractSectionBody(markdown, headingText) {
+    // Match `## <headingText>` (level-2 only, matching the template structure).
+    const headingRe = new RegExp(`^##\\s+${headingText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+    const match = headingRe.exec(markdown);
+    if (!match)
+        return "";
+    const afterHeading = markdown.slice(match.index + match[0].length);
+    // Stop at the next ## heading (same or higher level), or end of string.
+    const nextHeading = /^##\s/m.exec(afterHeading);
+    return nextHeading ? afterHeading.slice(0, nextHeading.index) : afterHeading;
+}
+function collectRouterTruthDiagnostics() {
+    const logPath = "wiki/decisions/log.md";
+    if (!(0, workspace_1.exists)(logPath))
+        return [];
+    const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(logPath)));
+    if (!logHasDatedEntry)
+        return [];
+    const diagnostics = [];
+    // Each tuple: [file, headingText, surfaceLabel]
+    // headingText must match the bootstrap template section heading exactly so the
+    // section-anchored scan never accidentally reads unrelated sections.
+    const routers = [
+        ["wiki/startup.md", "Recent Project Decisions", "Recent Decisions"],
+        ["wiki/decisions/recent.md", "Decisions", "Decisions"],
+    ];
+    for (const [file, heading, surface] of routers) {
+        if (!(0, workspace_1.exists)(file))
+            continue;
+        const section = extractSectionBody((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file)), heading);
+        if (section === "")
+            continue; // section absent — skip rather than false-positive
+        if (ROUTER_TRUTH_NONE_YET_REGEX.test(section)) {
+            diagnostics.push({
+                code: "router-truth-contradiction",
+                severity: "error",
+                file,
+                message: `${file} ${surface} still says "None yet." while ${logPath} holds a dated decision entry; update ${file} to reflect the recorded decision`,
+            });
+        }
+    }
+    return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+}
 function runDoctorMode(fix) {
     if (fix) {
         console.log("Project wiki doctor --fix");
@@ -645,40 +714,21 @@ function runDoctorMode(fix) {
     const files = (0, wiki_files_1.wikiMarkdownFiles)();
     const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), files.length);
     const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), files.length);
+    const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(), files.length);
     runLintMode();
-    if (!linkOk || !qualityOk)
+    if (!linkOk || !qualityOk || !routerTruthOk)
         process.exit(1);
 }
 function runLintMode() {
     const errors = [];
     const warnings = [];
+    const agentSelection = (0, agent_state_1.resolveProjectAgents)();
+    const activeAgents = new Set(agentSelection.agents);
+    const hasAgent = (agent) => activeAgents.has(agent);
+    warnings.push(...agentSelection.warnings);
     const requiredFiles = [
-        "AGENTS.md",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "wiki/AGENTS.md",
-        "wiki/startup.md",
-        "wiki/index.md",
-        "wiki/canonical/project-brief.md",
-        "wiki/canonical/open-questions.md",
-        "wiki/canonical/assumptions.md",
-        "wiki/canonical/risks.md",
-        "wiki/decisions/log.md",
-        "wiki/decisions/recent.md",
-        "wiki/meta/operating-model.md",
-        "wiki/meta/decision-policy.md",
-        "wiki/meta/wiki-ops-v1-decisions.md",
-        ".githooks/prepare-commit-msg",
-        ".githooks/wiki-commit-trailers.js",
-        ".codex/hooks/wiki-session-start.js",
-        ".codex/hooks.json",
-        ".claude/hooks/wiki-session-start.js",
-        ".claude/settings.json",
-        ".cursor/rules/project-librarian.mdc",
-        ".cursor/hooks/wiki-session-start.js",
-        ".cursor/hooks.json",
-        ".gemini/hooks/wiki-session-start.js",
-        ".gemini/settings.json",
+        ...agent_state_1.commonRequiredFiles,
+        ...agentSelection.agents.flatMap((agent) => agent_state_1.agentRequiredFiles[agent]),
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))
@@ -707,11 +757,11 @@ function runLintMode() {
         warnings.push("startup uses Always Read First; prefer Read On Demand routing");
     if ((0, workspace_1.exists)("AGENTS.md") && !(0, workspace_1.read)("AGENTS.md").includes("wiki/AGENTS.md"))
         warnings.push("root AGENTS.md should point detailed wiki editing rules to wiki/AGENTS.md");
-    if ((0, workspace_1.exists)("CLAUDE.md") && !(0, workspace_1.read)("CLAUDE.md").includes("@AGENTS.md"))
+    if (hasAgent("claude") && (0, workspace_1.exists)("CLAUDE.md") && !(0, workspace_1.read)("CLAUDE.md").includes("@AGENTS.md"))
         errors.push("CLAUDE.md should import AGENTS.md for Claude Code compatibility");
-    if ((0, workspace_1.exists)("GEMINI.md") && !(0, workspace_1.read)("GEMINI.md").includes("@AGENTS.md"))
+    if (hasAgent("gemini") && (0, workspace_1.exists)("GEMINI.md") && !(0, workspace_1.read)("GEMINI.md").includes("@AGENTS.md"))
         errors.push("GEMINI.md should import AGENTS.md for Gemini CLI compatibility");
-    if ((0, workspace_1.exists)(".cursor/rules/project-librarian.mdc")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/rules/project-librarian.mdc")) {
         const cursorRule = (0, workspace_1.read)(".cursor/rules/project-librarian.mdc");
         if (!cursorRule.includes("alwaysApply: true") || !cursorRule.includes("@AGENTS.md"))
             errors.push("Cursor project rule should always apply and reference AGENTS.md");
@@ -722,27 +772,27 @@ function runLintMode() {
         if ((0, workspace_1.exists)(legacyFile))
             errors.push(`legacy wiki-ops file must move out of project canonical/decisions: ${legacyFile}`);
     }
-    if ((0, workspace_1.exists)(".codex/hooks/wiki-session-start.js")) {
+    if (hasAgent("codex") && (0, workspace_1.exists)(".codex/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".codex/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
             errors.push("startup hook does not clearly inject only startup/index with expected budgets");
     }
-    if ((0, workspace_1.exists)(".claude/hooks/wiki-session-start.js")) {
+    if (hasAgent("claude") && (0, workspace_1.exists)(".claude/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".claude/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
             errors.push("Claude startup hook does not clearly inject only startup/index with expected budgets");
     }
-    if ((0, workspace_1.exists)(".cursor/hooks/wiki-session-start.js")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".cursor/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("additional_context"))
             errors.push("Cursor startup hook does not clearly inject startup/index through additional_context");
     }
-    if ((0, workspace_1.exists)(".gemini/hooks/wiki-session-start.js")) {
+    if (hasAgent("gemini") && (0, workspace_1.exists)(".gemini/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".gemini/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]') || !hook.includes("hookSpecificOutput"))
             errors.push("Gemini startup hook does not clearly inject startup/index through hookSpecificOutput");
     }
-    if ((0, workspace_1.exists)(".claude/settings.json")) {
+    if (hasAgent("claude") && (0, workspace_1.exists)(".claude/settings.json")) {
         const command = "node .claude/hooks/wiki-session-start.js";
         try {
             const settings = (0, workspace_1.parseJson)(".claude/settings.json", { hooks: {} });
@@ -763,7 +813,7 @@ function runLintMode() {
             errors.push(message);
         }
     }
-    if ((0, workspace_1.exists)(".cursor/hooks.json")) {
+    if (hasAgent("cursor") && (0, workspace_1.exists)(".cursor/hooks.json")) {
         const command = "node .cursor/hooks/wiki-session-start.js";
         try {
             const settings = (0, workspace_1.parseJson)(".cursor/hooks.json", { version: 1, hooks: {} });
@@ -780,7 +830,7 @@ function runLintMode() {
             errors.push(message);
         }
     }
-    if ((0, workspace_1.exists)(".gemini/settings.json")) {
+    if (hasAgent("gemini") && (0, workspace_1.exists)(".gemini/settings.json")) {
         const command = 'node "$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js"';
         try {
             const settings = (0, workspace_1.parseJson)(".gemini/settings.json", { hooks: {} });

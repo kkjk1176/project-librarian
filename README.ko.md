@@ -68,7 +68,9 @@ npx project-librarian install-skill --scope project --agents all
 | Gemini CLI만 설치 | `npx project-librarian install-skill --agents gemini` |
 | 설치 결과 미리 보기 | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
-`--agents`는 `codex,claude,cursor,gemini` 같은 comma-separated 값도 받습니다. `all`은 지원하는 모든 agent를 대상으로 하며, `both`는 Codex/Claude 호환 alias입니다. `--scope`는 `user` 또는 `project`를 받습니다.
+`--scope project` 설치는 선택한 agent를 `.project-librarian/install-state.json`에 기록합니다. 이후 더 많은 agent로 다시 실행하면 등록 목록에 누적되며, `init`과 `--lint`는 등록된 agent surface만 생성하고 검증합니다.
+
+`--agents`는 `codex,claude,cursor,gemini` 같은 comma-separated 값도 받습니다. `all`은 지원하는 모든 agent를 대상으로 합니다. `both`는 deprecated Codex/Claude 호환 alias이므로 `codex,claude`를 선호하세요. `--scope`는 `user` 또는 `project`를 받습니다.
 
 ## 에이전트 실행 경로
 

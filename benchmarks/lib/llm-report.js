@@ -1,11 +1,16 @@
 "use strict";
 
+const DEFAULT_CACHE_DISCOUNT = 0.1;
+
 const metricFields = [
   "input_tokens",
   "cached_input_tokens",
+  "uncached_input_tokens",
   "output_tokens",
   "reasoning_output_tokens",
   "total_tokens",
+  "tool_output_bytes",
+  "request_count_estimate",
   "wall_ms",
   "first_response_ms",
   "tokens_per_second",
@@ -72,10 +77,42 @@ function measurementChecks(run) {
   const hasObservedModel = !unavailable.includes("model") && models.length > 0;
   const hasSingleObservedModel = !unavailable.includes("single_model") && models.length === 1 && metrics.model === models[0];
   const hasRequestedModel = requestedModel.length > 0;
+
+  // multi_session: ALL sessions must have completed execution, available usage,
+  // and a non-empty final text. A familiarization-session failure (session 1 down,
+  // session 2 healthy) still voids claimability. The reason names the offending
+  // session index so diagnostics are actionable.
+  let allSessionsCompleted = { passed: true, reason: "" };
+  if (Array.isArray(run.session_metrics) && run.session_metrics.length > 0) {
+    for (const session of run.session_metrics) {
+      const sessionIdx = session.session_index;
+      const sExec = session.execution || {};
+      const sMetrics = session.metrics || {};
+      const sUnavail = Array.isArray(sMetrics.unavailable_event_fields) ? sMetrics.unavailable_event_fields : [];
+      if (sExec.status !== "completed") {
+        allSessionsCompleted = { passed: false, reason: `session ${sessionIdx} execution not completed` };
+        break;
+      }
+      if (sUnavail.includes("usage") || !(sMetrics.codex_turn_count > 0)) {
+        allSessionsCompleted = { passed: false, reason: `session ${sessionIdx} usage unavailable` };
+        break;
+      }
+      if (sUnavail.includes("final_text") || typeof sMetrics.final_text !== "string" || sMetrics.final_text.length === 0) {
+        allSessionsCompleted = { passed: false, reason: `session ${sessionIdx} final text empty` };
+        break;
+      }
+    }
+  }
+
   return [
     {
       name: "execution completed",
       passed: !run.execution || run.execution.status === "completed",
+    },
+    {
+      name: "all sessions completed",
+      passed: allSessionsCompleted.passed,
+      reason: allSessionsCompleted.reason,
     },
     {
       name: "correctness passed",
@@ -121,7 +158,10 @@ function measurementStatus(run) {
   const failed = checks.filter((check) => !check.passed);
   return {
     status: failed.length === 0 ? "claimable" : "unclaimable",
-    reason: failed.map((check) => check.name).join("; "),
+    // For checks that carry a sub-reason (e.g. "all sessions completed" names the
+    // offending session index), use that sub-reason in preference to the check name
+    // so the top-level reason string is actionable.
+    reason: failed.map((check) => (check.reason ? check.reason : check.name)).join("; "),
     checks,
   };
 }
@@ -144,6 +184,48 @@ function formatPercent(value) {
 function percentDelta(current, baseline) {
   if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline === 0) return NaN;
   return ((current - baseline) / baseline) * 100;
+}
+
+// Cost-weighted tokens (A4): uncached input is paid at full weight, cached input
+// at the configurable cache discount (default 0.1 — cached resends must not count
+// at full weight), and output plus reasoning output at full weight. This is the
+// per-track HEADLINE metric; merged total_tokens (which counts cached resends at
+// full weight and penalizes turn-adding tools) is demoted to a secondary row.
+// Derived from the claimable median's component fields with the report-level
+// discount, never stored on a run, so it cannot drift from its inputs.
+function costWeightedTokens(metrics, cacheDiscount) {
+  if (!metrics) return NaN;
+  const uncached = Number(metrics.uncached_input_tokens) || 0;
+  const cached = Number(metrics.cached_input_tokens) || 0;
+  const output = Number(metrics.output_tokens) || 0;
+  const reasoning = Number(metrics.reasoning_output_tokens) || 0;
+  return uncached + (cacheDiscount * cached) + output + reasoning;
+}
+
+function resolveCacheDiscount(report) {
+  const fromConfig = report?.configuration?.cache_discount;
+  if (Number.isFinite(fromConfig)) return fromConfig;
+  const top = report?.cache_discount;
+  if (Number.isFinite(top)) return top;
+  return DEFAULT_CACHE_DISCOUNT;
+}
+
+function benchmarkTrackOf(scenario) {
+  return typeof scenario.benchmark_track === "string" && scenario.benchmark_track ? scenario.benchmark_track : "wiki";
+}
+
+function tracksPresent(scenarios) {
+  const order = ["wiki", "code_graph"];
+  const seen = new Set(scenarios.map(benchmarkTrackOf));
+  const ordered = order.filter((track) => seen.has(track));
+  for (const track of seen) {
+    if (!ordered.includes(track)) ordered.push(track);
+  }
+  return ordered;
+}
+
+function scenariosForTrack(scenarios, track) {
+  return scenarios.filter((scenario) => benchmarkTrackOf(scenario) === track);
 }
 
 function scenarioPairKey(scenario) {
@@ -193,9 +275,9 @@ function completePairCount(scenarios, conditions) {
   return [...groups.values()].filter((groupConditions) => conditions.every((condition) => groupConditions.has(condition))).length;
 }
 
-function evaluateClaimGate(report, { conditions = [], expectedScales = [], expectedTasks = [], fullMatrix = false, minRunsForClaim = 1 } = {}) {
+function evaluateClaimGate(report, { conditions = [], expectedScales = [], expectedTasks = [], fullMatrix = false, minRunsForClaim = 1, scenarios: scenariosOverride = null, comparisonPairCount = null } = {}) {
   const issues = [];
-  const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
+  const scenarios = Array.isArray(scenariosOverride) ? scenariosOverride : (Array.isArray(report.scenarios) ? report.scenarios : []);
   const expectedScenarioCount = expectedScales.length * expectedTasks.length * conditions.length;
 
   if (!Array.isArray(conditions) || conditions.length === 0) issues.push("missing condition set");
@@ -206,7 +288,10 @@ function evaluateClaimGate(report, { conditions = [], expectedScales = [], expec
   if (completePairCount(scenarios, conditions) * conditions.length !== scenarios.length) {
     issues.push("scenarios do not form complete with/without pairs");
   }
-  if (Number.isInteger(report.summary?.comparison_pair_count) && report.summary.comparison_pair_count !== completePairCount(scenarios, conditions)) {
+  // When a per-track comparison pair count is supplied, validate it against this
+  // scenario subset; otherwise validate the report-level summary count.
+  const expectedPairCount = Number.isInteger(comparisonPairCount) ? comparisonPairCount : report.summary?.comparison_pair_count;
+  if (Number.isInteger(expectedPairCount) && expectedPairCount !== completePairCount(scenarios, conditions)) {
     issues.push("summary comparison_pair_count does not match scenarios");
   }
 
@@ -252,6 +337,39 @@ function evaluateClaimGate(report, { conditions = [], expectedScales = [], expec
   };
 }
 
+// Per-track claim gates plus the overall gate. The overall gate passes only if
+// every present track passes; a win on one track never substitutes for a claim
+// on another (canonical Measurement Rules). expectedTasksByTrack maps each track
+// to the task families expected for that track within the selected matrix.
+function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [], expectedTasksByTrack = {}, fullMatrix = false, minRunsForClaim = 1 } = {}) {
+  const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
+  const present = tracksPresent(scenarios);
+  const perTrack = {};
+  for (const track of present) {
+    const trackScenarios = scenariosForTrack(scenarios, track);
+    perTrack[track] = evaluateClaimGate(report, {
+      conditions,
+      expectedScales,
+      expectedTasks: expectedTasksByTrack[track] || [],
+      fullMatrix,
+      minRunsForClaim,
+      scenarios: trackScenarios,
+      comparisonPairCount: completePairCount(trackScenarios, conditions),
+    });
+  }
+  const failedTracks = present.filter((track) => perTrack[track].status !== "passed");
+  const issues = [];
+  if (present.length === 0) issues.push("no benchmark tracks present");
+  for (const track of failedTracks) issues.push(`track ${track} claim gate failed`);
+  return {
+    status: present.length > 0 && failedTracks.length === 0 ? "passed" : "failed",
+    issues,
+    tracks_present: present,
+    per_track: perTrack,
+    min_runs_for_claim: minRunsForClaim,
+  };
+}
+
 function markdownCell(value) {
   return String(value).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
@@ -260,7 +378,131 @@ function tableRow(values) {
   return `| ${values.map(markdownCell).join(" | ")} |`;
 }
 
+const trackTitles = {
+  wiki: "Wiki Track",
+  code_graph: "Code Graph Track",
+};
+
+function trackTitle(track) {
+  return trackTitles[track] || `${track} Track`;
+}
+
+function scenarioMetricsRows(scenarios, cacheDiscount) {
+  return scenarios.map((scenario) => {
+    const median = scenario.median;
+    const status = scenario.claimable_run_count > 0 ? "claimable" : "unclaimable";
+    return tableRow([
+      scenario.scale,
+      scenario.task_family,
+      scenario.condition,
+      status,
+      median ? formatNumber(costWeightedTokens(median, cacheDiscount), 0) : "n/a",
+      median ? formatNumber(median.uncached_input_tokens, 0) : "n/a",
+      median ? formatNumber(median.cached_input_tokens, 0) : "n/a",
+      median ? formatNumber(median.tool_output_bytes, 0) : "n/a",
+      median ? formatNumber(median.output_tokens, 0) : "n/a",
+      median ? `${formatNumber(median.wall_ms / 1000, 2)}s` : "n/a",
+      median ? formatNumber(median.command_invocation_count, 0) : "n/a",
+      scenario.model || "n/a",
+      median ? formatNumber(median.total_tokens, 0) : "n/a",
+    ]);
+  });
+}
+
+// Cache-split delta table rows (A4): the cost-weighted delta is the HEADLINE
+// (leftmost) column, followed by the decomposed cache-split fields (uncached input,
+// cached input, tool-output bytes). Merged total_tokens is NOT in this table; it is
+// rendered separately and labeled secondary so it never reads as a headline.
+function cacheSplitDeltaRows(scenarios, cacheDiscount) {
+  return pairedScenarioGroups(scenarios).map((pair) => {
+    const withMedian = pair.with_project_librarian?.median;
+    const withoutMedian = pair.without_project_librarian?.median;
+    if (!withMedian || !withoutMedian) {
+      return tableRow([pair.scale, pair.task_family, "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"]);
+    }
+    const withCost = costWeightedTokens(withMedian, cacheDiscount);
+    const withoutCost = costWeightedTokens(withoutMedian, cacheDiscount);
+    return tableRow([
+      pair.scale,
+      pair.task_family,
+      formatPercent(percentDelta(withCost, withoutCost)),
+      formatNumber(withCost, 0),
+      formatNumber(withoutCost, 0),
+      formatPercent(percentDelta(withMedian.uncached_input_tokens, withoutMedian.uncached_input_tokens)),
+      formatPercent(percentDelta(withMedian.cached_input_tokens, withoutMedian.cached_input_tokens)),
+      formatPercent(percentDelta(withMedian.tool_output_bytes, withoutMedian.tool_output_bytes)),
+    ]);
+  });
+}
+
+// Secondary merged-total delta rows. Merged total_tokens is retained for audit but
+// demoted: it counts cached resends at full weight and penalizes turn-adding tools,
+// so it is never a headline (canonical Measurement Rules / decision A4).
+function secondaryMergedDeltaRows(scenarios) {
+  return pairedScenarioGroups(scenarios).map((pair) => {
+    const withMedian = pair.with_project_librarian?.median;
+    const withoutMedian = pair.without_project_librarian?.median;
+    if (!withMedian || !withoutMedian) {
+      return tableRow([pair.scale, pair.task_family, "n/a", "n/a", "n/a", "n/a", "n/a"]);
+    }
+    return tableRow([
+      pair.scale,
+      pair.task_family,
+      formatPercent(percentDelta(withMedian.total_tokens, withoutMedian.total_tokens)),
+      formatNumber(withMedian.total_tokens, 0),
+      formatNumber(withoutMedian.total_tokens, 0),
+      formatPercent(percentDelta(withMedian.wall_ms, withoutMedian.wall_ms)),
+      formatPercent(percentDelta(withMedian.command_invocation_count, withoutMedian.command_invocation_count)),
+    ]);
+  });
+}
+
+function renderTrackSection(report, track, cacheDiscount) {
+  const scenarios = scenariosForTrack(report.scenarios, track);
+  const trackReport = report.tracks?.[track];
+  const trackGate = trackReport?.claim_gate?.status || report.claim_gate?.per_track?.[track]?.status || "not evaluated";
+  const summary = trackReport?.summary;
+  const lines = [
+    `## ${trackTitle(track)}`,
+    "",
+    summary
+      ? `Scenarios: ${summary.scenario_count}, complete pairs: ${summary.comparison_pair_count}, claimable scenarios: ${summary.claimable_scenario_count}`
+      : `Scenarios: ${scenarios.length}`,
+    "",
+    `Track claim gate: ${trackGate}`,
+    "",
+    `### ${trackTitle(track)} Scenario Metrics`,
+    "",
+    "| Scale | Task | Condition | Status | Cost-Weighted Tokens | Uncached Input | Cached Input | Tool Output Bytes | Output Tokens | Wall Time | Command Invocations | Model | Total Tokens (secondary) |",
+    "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+    ...scenarioMetricsRows(scenarios, cacheDiscount),
+    "",
+    `### ${trackTitle(track)} With vs Without Delta (headline: cost-weighted)`,
+    "",
+    `Headline metric: cost-weighted tokens (uncached input + ${formatNumber(cacheDiscount, 3)} x cached input + output + reasoning output). Negative deltas mean the Project Librarian condition cost fewer cost-weighted tokens than the control. Cache-split fields decompose the cost.`,
+    "",
+    "| Scale | Task | Cost-Weighted Delta | With Cost-Weighted | Without Cost-Weighted | Uncached Input Delta | Cached Input Delta | Tool Output Bytes Delta |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...cacheSplitDeltaRows(scenarios, cacheDiscount),
+    "",
+    `### ${trackTitle(track)} Merged Total Tokens (secondary, not a headline)`,
+    "",
+    "Secondary only: merged total tokens counts cached resends at full weight and penalizes turn-adding tools, so it is not a headline. Use the cost-weighted delta above for claims.",
+    "",
+    "| Scale | Task | Total Tokens Delta | With Total | Without Total | Wall-Time Delta | Command Delta |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ...secondaryMergedDeltaRows(scenarios),
+  ];
+  return lines;
+}
+
 function renderLlmMarkdownReport(report) {
+  const present = tracksPresent(report.scenarios);
+  const cacheDiscount = resolveCacheDiscount(report);
+  const overallGate = report.claim_gate?.status || "not evaluated";
+  const perTrackSummary = present
+    .map((track) => `${trackTitle(track)}: ${report.claim_gate?.per_track?.[track]?.status || report.tracks?.[track]?.claim_gate?.status || "not evaluated"}`)
+    .join(", ");
   const lines = [
     "# Codex Actual LLM Benchmark Report",
     "",
@@ -273,73 +515,28 @@ function renderLlmMarkdownReport(report) {
     "",
     "Claim boundary: values below are real Codex JSONL usage and local wall-clock measurements for claimable runs only. `model_source=requested` means the run used an explicit `--model` request because Codex JSONL did not expose a model field.",
     "",
-    "## Scenario Metrics",
+    "Tracks are reported separately. Wiki canonical routing and the code-graph code-evidence index are not merged into a single headline; a win on one track does not back a claim about the other.",
     "",
-    `Claim gate: ${report.claim_gate?.status || "not evaluated"}`,
+    `Headline metric per track: cost-weighted tokens (uncached input + ${formatNumber(cacheDiscount, 3)} x cached input + output + reasoning output; cache discount ${formatNumber(cacheDiscount, 3)}). Merged total tokens is retained as a secondary row only.`,
     "",
-    "| Scale | Task | Condition | Status | Total Tokens | Input Tokens | Output Tokens | Wall Time | First Response | Output tok/s | Command Invocations | Wall CV | Model | Model Source |",
-    "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    `Overall claim gate: ${overallGate} (passes only if every track passes).`,
+    perTrackSummary ? `Per-track claim gates: ${perTrackSummary}.` : "",
+    "",
   ];
-
-  for (const scenario of report.scenarios) {
-    const median = scenario.median;
-    const status = scenario.claimable_run_count > 0 ? "claimable" : "unclaimable";
-    lines.push(tableRow([
-      scenario.scale,
-      scenario.task_family,
-      scenario.condition,
-      status,
-      median ? formatNumber(median.total_tokens, 0) : "n/a",
-      median ? formatNumber(median.input_tokens, 0) : "n/a",
-      median ? formatNumber(median.output_tokens, 0) : "n/a",
-      median ? `${formatNumber(median.wall_ms / 1000, 2)}s` : "n/a",
-      median && median.first_response_ms > 0 ? `${formatNumber(median.first_response_ms / 1000, 2)}s` : "n/a",
-      median ? formatNumber(median.tokens_per_second, 3) : "n/a",
-      median ? formatNumber(median.command_invocation_count, 0) : "n/a",
-      scenario.dispersion?.wall_ms ? formatPercent(scenario.dispersion.wall_ms.cv_percent) : "n/a",
-      scenario.model || "n/a",
-      scenario.model_source || "n/a",
-    ]));
+  for (const track of present) {
+    lines.push(...renderTrackSection(report, track, cacheDiscount), "");
   }
-
-  lines.push(
-    "",
-    "## With vs Without Delta",
-    "",
-    "Negative token/time deltas mean the Project Librarian condition used fewer tokens or less wall-clock time than the control condition.",
-    "",
-    "| Scale | Task | Token Delta | Wall-Time Delta | Command Delta | With Tokens | Without Tokens | With Time | Without Time |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-  );
-
-  for (const pair of pairedScenarioGroups(report.scenarios)) {
-    const withMedian = pair.with_project_librarian?.median;
-    const withoutMedian = pair.without_project_librarian?.median;
-    if (!withMedian || !withoutMedian) {
-      lines.push(tableRow([pair.scale, pair.task_family, "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"]));
-      continue;
-    }
-    lines.push(tableRow([
-      pair.scale,
-      pair.task_family,
-      formatPercent(percentDelta(withMedian.total_tokens, withoutMedian.total_tokens)),
-      formatPercent(percentDelta(withMedian.wall_ms, withoutMedian.wall_ms)),
-      formatPercent(percentDelta(withMedian.command_invocation_count, withoutMedian.command_invocation_count)),
-      formatNumber(withMedian.total_tokens, 0),
-      formatNumber(withoutMedian.total_tokens, 0),
-      `${formatNumber(withMedian.wall_ms / 1000, 2)}s`,
-      `${formatNumber(withoutMedian.wall_ms / 1000, 2)}s`,
-    ]));
-  }
-
-  lines.push("");
   return `${lines.join("\n")}\n`;
 }
 
 module.exports = {
+  DEFAULT_CACHE_DISCOUNT,
+  benchmarkTrackOf,
   claimableRuns,
   completePairCount,
+  costWeightedTokens,
   evaluateClaimGate,
+  evaluateTracksClaimGate,
   measurementStatus,
   medianMetrics,
   metricStats,
@@ -347,5 +544,8 @@ module.exports = {
   pairedScenarioGroups,
   passedRuns,
   renderLlmMarkdownReport,
+  resolveCacheDiscount,
+  scenariosForTrack,
   selectPairedScenarios,
+  tracksPresent,
 };

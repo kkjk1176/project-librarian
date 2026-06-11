@@ -68,6 +68,10 @@ npx project-librarian install-skill --scope project --agents all
 | Gemini CLI のみ | `npx project-librarian install-skill --agents gemini` |
 | インストール結果をプレビュー | `npx project-librarian install-skill --scope project --agents all --dry-run` |
 
+`--scope project` のインストールは、選択した agent を `.project-librarian/install-state.json` に記録します。後から別の agent を追加すると登録済みセットに累積され、`init` と `--lint` は登録済み agent surface だけを作成・検証します。
+
+`--agents` は `codex,claude,cursor,gemini` のような comma-separated 値も受け付けます。`all` は対応するすべての agent を対象にします。`both` は deprecated な Codex/Claude 互換 alias なので、`codex,claude` を推奨します。`--scope` は `user` または `project` です。
+
 ## エージェント実行経路
 
 インストール後、エージェントは `npx` ではなく、インストール済みのローカルコピーを `node` で実行してください。これにより、制限されたエージェント環境でネットワークアクセスと固定されていないパッケージ実行を避けられます。
