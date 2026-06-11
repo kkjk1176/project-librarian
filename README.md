@@ -30,17 +30,33 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 
 ## Benchmark Results
 
-Benchmarks are maintainer release evidence, not a public user workflow. They exist so README and release notes can make bounded claims with numbers instead of vague performance language.
+Benchmarks are maintainer release evidence, not a public user workflow. They exist so README and release notes can make bounded claims with numbers instead of vague performance language. All values are real Codex JSONL usage and local wall-clock measurements (ChatGPT/Codex auth, `gpt-5.5`), measured hermetically (isolated Codex home, allowlist-only env, clean tree, post-run fixture validation) with 3 measured runs plus 1 warmup per scenario against an `organic` no-Project-Librarian control. Negative deltas mean the Project Librarian condition cost less than the control.
 
-Current local measured report: `benchmarks/reports/llm/current-local.json` and `benchmarks/reports/llm/current-local.md`, generated 2026-06-10 with ChatGPT/Codex auth, `gpt-5.5`, `decision_lookup`, 1 measured run per condition, no warmup. These values are real Codex JSONL usage and local wall-clock measurements. Positive deltas mean the Project Librarian condition used more than the no-Project-Librarian control.
+The headline metric is cost-weighted tokens (uncached input + 0.1 × cached input + output + reasoning output): cached resends are discounted because they do not cost full price, and merged totals would structurally penalize any tool that adds turns. The wiki routing track and the code-graph (code evidence) track are measured and reported separately — a win on one track does not back a claim about the other. The earlier 2026-06-10 one-run report (`current-local.*`) is superseded by these hermetic measurements.
 
-| Scale | Without Project Librarian | With Project Librarian | Actual delta |
+### Wiki track (planning-doc routing)
+
+Reports: `benchmarks/reports/llm/stage1-organic.*` and `benchmarks/reports/llm/stage1-large-retry.*` (2026-06-11). Cost-weighted deltas, with vs without Project Librarian:
+
+| Scale | decision_lookup | aggregation | multi_session (2nd session) |
 | --- | ---: | ---: | ---: |
-| Small | 102,655 total tokens; 101,226 input; 37.15s; 9 command invocations | 176,104 total tokens; 173,733 input; 61.04s; 15 command invocations | +71.55% tokens; +64.33% time; +66.67% commands |
-| Medium | 79,340 total tokens; 78,348 input; 44.28s; 5 command invocations | 165,840 total tokens; 163,856 input; 48.48s; 10 command invocations | +109.02% tokens; +9.5% time; +100% commands |
-| Large | 197,097 total tokens; 195,278 input; 45.87s; 10 command invocations | 183,959 total tokens; 181,897 input; 49.42s; 13 command invocations | -6.67% tokens; +7.72% time; +30% commands |
+| Small | -7.9% | +7.0% | -30.4% |
+| Medium | -69.5% | +8.8% | -56.6% |
+| Large (gate-passed retry) | -62.6% | -45.0%* | -70.7% |
 
-Claim boundary: this approved local run passed the benchmark claim gate, but it is not a clean release baseline. It used a dirty worktree, one run per condition, and post-run fixture fingerprint validation needs a clean isolated rerun because runtime state files touched the generated fixture directories. Do not claim token or time improvement from Project Librarian until repeated clean actual-LLM runs show stable deltas.
+Claim-grade cells (claim gate passed, every run passing correctness): large `decision_lookup` (-62.6% cost-weighted, -41.5% wall time) and large `multi_session` (-70.7% cost-weighted, -33.9% wall time). Boundaries disclosed with the claims: `aggregation` at small/medium is a published loss (+7-9%), aggregation wall time is longer with the wiki at every scale even where tokens drop, and *large aggregation (-45.0%) comes from the Stage 1 run whose track gate failed on control-side correctness flakes, so it remains investigation evidence rather than a claim.
+
+### Code-graph track (code evidence index)
+
+Report: `benchmarks/reports/llm/stage2-codegraph.*` (2026-06-11). Cost-weighted deltas:
+
+| Scale | impact_trace | ownership_lookup | workspace_graph |
+| --- | ---: | ---: | ---: |
+| Small | +275%* | +3.5% | +7.4% |
+| Medium | +39% | +8.8% | +36% |
+| Large | +61% | +56% | +45% |
+
+The code-graph track currently shows overhead in every cell, so no code-graph performance claims are made. Diagnosis from the raw transcripts: the generated fixtures' structural questions are answerable by reading one tiny file (control scans of 125B-23KB with 2-5 commands), so grep is near-free while the code-evidence tool pays a fixed discovery and invocation cost that cannot amortize. This is an open boundary: fixture-structure deepening (representativeness) is planned before re-measuring, and fixtures are never tuned toward a desired delta. *impact_trace-small was correctness-unstable in both conditions and is not interpretable.
 
 ## Install
 
