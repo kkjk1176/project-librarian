@@ -37,6 +37,8 @@ const {
 } = require("../../benchmarks/lib/real-corpus");
 const { buildRealCorpusManifest } = require("../../benchmarks/lib/real-corpus-manifest");
 const { buildMcpServerToml, injectMcpServerConfig } = require("../../benchmarks/lib/hermetic");
+const { conditions } = require("../../benchmarks/lib/llm-fixtures");
+const { completePairCount, evaluateTracksClaimGate, selectPairedScenarios } = require("../../benchmarks/lib/llm-report");
 
 const skip = !fs.existsSync(cliPath) ? "dist CLI not built (run npm run build)" : false;
 
@@ -767,6 +769,143 @@ test("buildRealCorpusManifest builds a corpus 'real' manifest with mcp:true with
   } finally {
     for (const dir of [repo, corpusDir, keysDir, work]) fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- scenario cap + coverage-completeness tests (offline, no network) ----------
+//
+// These tests exercise the two harness gaps fixed in this session:
+//
+// GAP 1 — silent scenario cap: for --corpus real the default must be FULL coverage
+//   of the selected repos' key questions. selectPairedScenarios with the full
+//   manifest count selects every question-pair; an explicit N-cap selects only N/2
+//   pairs and the rest are the "dropped" set.
+//
+// GAP 2 — real-corpus claim gate does not enforce coverage completeness:
+//   evaluateTracksClaimGate must list issues for every selected repo×question_id
+//   missing from the report (like synthetic "missing expected scale/task" issues).
+
+// Minimal real-corpus scenario factory (no network, no git, no filesystem).
+function realScenario({ repo, questionId, condition, claimable = true, track = "code_graph" }) {
+  const median = { total_tokens: 100, input_tokens: 80, output_tokens: 20, wall_ms: 1000, command_invocation_count: 1, tokens_per_second: 20, first_response_ms: 0 };
+  return {
+    scale: "real",
+    condition,
+    benchmark_track: track,
+    corpus: "real",
+    repo,
+    question_id: questionId,
+    task_family: "impact_trace",
+    prompt_id: `${repo}-${questionId}-${condition}`,
+    runs: [{ execution: { status: "completed" } }],
+    correctness: [{ status: "passed" }],
+    claimable_run_count: claimable ? 1 : 0,
+    median: claimable ? median : null,
+    fixture_fingerprint: { algorithm: "pinned-sha-git-clean", repo_sha: "abc", materialization_sha: "def", value: "v" },
+  };
+}
+
+function realPair(repo, questionId) {
+  return conditions.map((condition) => realScenario({ repo, questionId, condition }));
+}
+
+function baseRealReport(scenarios) {
+  return {
+    scenarios,
+    configuration: { runs: 1, require_clean: false },
+    source_control: { available: true, dirty: false },
+    summary: { comparison_pair_count: completePairCount(scenarios, conditions) },
+  };
+}
+
+test("(a) real-corpus: default run plan covers ALL question-pairs (no silent cap)", () => {
+  // Simulate a 5-question manifest (the R1 scenario: 5 pairs for excalidraw).
+  // selectPairedScenarios with fullManifestCount as maxScenarios selects all pairs.
+  const question_ids = ["q1", "q2", "q3", "q4", "q5"];
+  const allScenarios = question_ids.flatMap((qid) => realPair("excalidraw", qid));
+  const fullCount = allScenarios.length; // 10 scenarios = 5 pairs × 2 conditions
+
+  // Verify: the full-count cap selects every pair (no dropping).
+  const selected = selectPairedScenarios(allScenarios, fullCount, conditions);
+  assert.equal(selected.length, fullCount, "full manifest count must select all scenarios");
+  assert.equal(completePairCount(selected, conditions), question_ids.length, "all question pairs must be selected");
+
+  // Verify: the old synthetic default (conditions.length = 2) would silently drop 4 pairs.
+  const capped = selectPairedScenarios(allScenarios, conditions.length, conditions);
+  assert.equal(completePairCount(capped, conditions), 1, "old default of conditions.length only selects 1 pair");
+  assert.equal(capped.length, conditions.length, "old default returns only 2 scenarios (1 pair)");
+});
+
+test("(b) explicit --max-scenarios cap: dropped scenarios are identified by prompt_id", () => {
+  // Simulate 3 question-pairs; explicit cap of 2 (=1 pair) drops 2 pairs.
+  // The dropped set is: manifest scenarios whose prompt_id is NOT in the selected set.
+  const question_ids = ["impact-1", "ownership-1", "workspace-1"];
+  const allScenarios = question_ids.flatMap((qid) => realPair("excalidraw", qid));
+
+  const capN = conditions.length; // 2 = 1 pair worth
+  const selectedPairKeys = new Set(
+    selectPairedScenarios(allScenarios, capN, conditions).map((s) => s.prompt_id),
+  );
+  const dropped = allScenarios.filter((s) => !selectedPairKeys.has(s.prompt_id));
+
+  // 3 pairs × 2 conditions = 6 total; cap selects 1 pair (2 scenarios); dropped = 4 scenarios.
+  assert.equal(selectedPairKeys.size, conditions.length);
+  assert.equal(dropped.length, (question_ids.length - 1) * conditions.length);
+
+  // Every dropped scenario has a distinct prompt_id naming the repo + question_id.
+  const droppedIds = dropped.map((s) => s.prompt_id);
+  assert(droppedIds.every((id) => typeof id === "string" && id.includes("excalidraw")),
+    "all dropped scenario prompt_ids must name the repo");
+  // The two un-measured question_ids must appear in the dropped set.
+  const droppedQuestions = new Set(dropped.map((s) => s.question_id));
+  for (const qid of question_ids.slice(1)) {
+    assert(droppedQuestions.has(qid), `dropped set must include ${qid}`);
+  }
+});
+
+test("(c) real-corpus claim gate FAILS with named missing-question issues on partial run", () => {
+  // 5 questions in the manifest, only 1 in the measured report.
+  // The gate must list 4 missing pairs by repo/question_id.
+  const allQuestions = ["impact-1", "impact-2", "ownership-1", "workspace-1", "workspace-2"];
+  const measuredQuestions = ["impact-1"]; // only 1 pair measured (the R1 partial run)
+
+  const measuredScenarios = measuredQuestions.flatMap((qid) => realPair("excalidraw", qid));
+  const report = baseRealReport(measuredScenarios);
+
+  // expectedRealCoverage = all 5 questions from the full manifest.
+  const expectedRealCoverage = allQuestions.map((qid) => ({
+    repo: "excalidraw",
+    question_id: qid,
+    benchmark_track: "code_graph",
+  }));
+
+  const gate = evaluateTracksClaimGate(report, {
+    conditions,
+    expectedScales: [],
+    expectedTasksByTrack: {},
+    minRunsForClaim: 1,
+    expectedRealCoverage,
+  });
+
+  assert.equal(gate.status, "failed", "gate must fail when questions are missing");
+  // The code_graph track exists (from the measured scenario).
+  assert(Object.hasOwn(gate.per_track, "code_graph"));
+  const realCorpusGate = gate.per_track.code_graph.per_corpus.real;
+  assert.equal(realCorpusGate.status, "failed");
+
+  // Each missing question produces a named issue.
+  const missingQuestions = allQuestions.filter((qid) => !measuredQuestions.includes(qid));
+  for (const qid of missingQuestions) {
+    assert(
+      realCorpusGate.issues.some((issue) => issue.includes(`excalidraw/${qid}`)),
+      `gate issues must name missing pair excalidraw/${qid}; got: ${JSON.stringify(realCorpusGate.issues)}`,
+    );
+  }
+
+  // The one measured question is NOT listed as missing.
+  assert(
+    !realCorpusGate.issues.some((issue) => issue.includes(`excalidraw/impact-1`)),
+    "measured pair must NOT appear in missing issues",
+  );
 });
 
 // --- the candidate manifest's placeholder sha is recognized -------------------

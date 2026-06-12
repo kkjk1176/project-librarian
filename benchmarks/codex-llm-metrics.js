@@ -450,7 +450,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, droppedScenarios = [] }) {
   requireMeasuredAuth(authMode);
   const rawRoot = path.join(root, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
   if (maxScenarios < conditions.length) {
@@ -653,6 +653,9 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
+      // For real-corpus runs with an explicit --max-scenarios cap, records which
+      // prompt_ids were dropped so the partial run is transparent in the report.
+      dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((s) => s.prompt_id) : undefined,
       full_manifest_fingerprint: manifest.manifest_fingerprint,
       manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
         scale: scenario.scale,
@@ -678,12 +681,22 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   // Per-track grouping: each track carries its own scenario subset summary plus
   // its own claim gate. The Markdown renderer reads report.tracks for separate
   // Wiki Track and Code Graph Track sections; no merged cross-track headline.
+  //
+  // For real-corpus runs, the claim gate enforces COVERAGE COMPLETENESS: every
+  // repo×question_id pair in the full manifest must be present in the measured
+  // scenarios (issues list any missing pairs by name). expectedRealCoverage is
+  // derived from the FULL manifest (before any --max-scenarios cap) so a partial
+  // run produces named missing-pair issues rather than silently passing.
+  const expectedRealCoverage = manifest.corpus === "real"
+    ? [...new Map(manifest.scenarios.filter((s) => s.corpus === "real").map((s) => [`${s.repo}\0${s.question_id}`, { repo: s.repo, question_id: s.question_id, benchmark_track: s.benchmark_track }])).values()]
+    : [];
   const overallGate = evaluateTracksClaimGate(report, {
     conditions,
     expectedScales: selectedScales,
     expectedTasksByTrack: expectedByTrack,
     fullMatrix,
     minRunsForClaim,
+    expectedRealCoverage,
   });
   report.tracks = {};
   for (const track of presentTracks) {
@@ -736,10 +749,21 @@ function main() {
   const minRunsForClaim = positiveIntegerArgValue("--min-runs-for-claim", 1);
   const cacheDiscount = cacheDiscountArgValue("--cache-discount", DEFAULT_CACHE_DISCOUNT);
   const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
-  const maxScenarios = positiveIntegerArgValue("--max-scenarios", fullMatrix ? fullMatrixScenarioCount : conditions.length);
+  // For --corpus real, --max-scenarios defaults to Infinity (full key coverage) and
+  // is resolved to the actual manifest size after building the manifest. The explicit
+  // flag is still accepted (for probe/debug runs) but logs the dropped scenarios by
+  // name so no cap is ever silent. For --corpus synthetic, the default is conditions.length
+  // (unchanged behaviour).
+  const maxScenariosExplicit = hasArg("--max-scenarios");
   const requestedModel = optionalStringArgValue("--model");
   const corpus = argValue("--corpus", "synthetic");
   if (!["synthetic", "real"].includes(corpus)) fail(`invalid --corpus value: ${corpus} (expected synthetic or real)`);
+  const syntheticDefaultMax = fullMatrix ? fullMatrixScenarioCount : conditions.length;
+  // For real corpus we compute the effective maxScenarios after building the manifest;
+  // for synthetic we compute it now.
+  let maxScenarios = corpus === "real"
+    ? positiveIntegerArgValue("--max-scenarios", Number.MAX_SAFE_INTEGER)
+    : positiveIntegerArgValue("--max-scenarios", syntheticDefaultMax);
   const corpusDir = optionalStringArgValue("--corpus-dir");
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
 
@@ -785,8 +809,32 @@ function main() {
   } else {
     manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel, controlProfile });
   }
+
+  // For real-corpus runs, resolve the effective maxScenarios NOW that we have the
+  // manifest. Default (no --max-scenarios flag) = full key coverage = all manifest
+  // scenarios. Explicit --max-scenarios N is a probe/debug cap: it MUST log every
+  // dropped scenario by prompt_id so no cap is ever silent.
+  let droppedScenarios = [];
+  if (corpus === "real") {
+    const fullManifestCount = manifest.scenarios.length;
+    if (!maxScenariosExplicit) {
+      // No cap: run every question-pair in the key. Override the sentinel value.
+      maxScenarios = fullManifestCount;
+    } else if (maxScenarios < fullManifestCount) {
+      // Explicit cap: compute which scenarios would NOT be selected so we can log them.
+      const selectedPairKeys = new Set(
+        selectPairedScenarios(manifest.scenarios, maxScenarios, conditions).map((s) => s.prompt_id),
+      );
+      droppedScenarios = manifest.scenarios.filter((s) => !selectedPairKeys.has(s.prompt_id));
+      console.error(
+        `[real-corpus] --max-scenarios ${maxScenarios} caps ${fullManifestCount} manifest scenarios; ` +
+        `dropping ${droppedScenarios.length} scenario(s): ${droppedScenarios.map((s) => s.prompt_id).join(", ")}`,
+      );
+    }
+  }
+
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, droppedScenarios });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));

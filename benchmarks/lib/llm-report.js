@@ -255,7 +255,15 @@ function scenariosForTrackCorpus(scenarios, track, corpus) {
   return scenarios.filter((scenario) => benchmarkTrackOf(scenario) === track && corpusOf(scenario) === corpus);
 }
 
+// Real-corpus scenarios share scale "real" and may share task_family across
+// multiple questions for the same repo, so the scale+task_family key used for
+// synthetic scenarios is not unique enough. For real-corpus scenarios, include
+// repo and question_id so each question forms its own distinct pair group.
+// Synthetic scenarios have no question_id and continue to use the original key.
 function scenarioPairKey(scenario) {
+  if (scenario.repo && scenario.question_id) {
+    return `${scenario.scale}\0${scenario.task_family}\0${scenario.repo}\0${scenario.question_id}`;
+  }
   return `${scenario.scale}\0${scenario.task_family}`;
 }
 
@@ -302,7 +310,7 @@ function completePairCount(scenarios, conditions) {
   return [...groups.values()].filter((groupConditions) => conditions.every((condition) => groupConditions.has(condition))).length;
 }
 
-function evaluateClaimGate(report, { conditions = [], expectedScales = [], expectedTasks = [], fullMatrix = false, minRunsForClaim = 1, scenarios: scenariosOverride = null, comparisonPairCount = null } = {}) {
+function evaluateClaimGate(report, { conditions = [], expectedScales = [], expectedTasks = [], fullMatrix = false, minRunsForClaim = 1, scenarios: scenariosOverride = null, comparisonPairCount = null, expectedRealCoverage = [] } = {}) {
   const issues = [];
   const scenarios = Array.isArray(scenariosOverride) ? scenariosOverride : (Array.isArray(report.scenarios) ? report.scenarios : []);
   const expectedScenarioCount = expectedScales.length * expectedTasks.length * conditions.length;
@@ -329,6 +337,21 @@ function evaluateClaimGate(report, { conditions = [], expectedScales = [], expec
   const tasks = new Set(scenarios.map((scenario) => scenario.task_family));
   for (const task of expectedTasks) {
     if (!tasks.has(task)) issues.push(`missing expected task: ${task}`);
+  }
+
+  // Real-corpus coverage completeness: every repo×question_id pair from the full
+  // manifest must be present in the measured scenarios. Missing pairs are listed by
+  // name so a partial run (e.g. due to an explicit --max-scenarios cap) never passes
+  // the gate. This mirrors the synthetic "missing expected scale/task" issues.
+  if (Array.isArray(expectedRealCoverage) && expectedRealCoverage.length > 0) {
+    const measuredPairs = new Set(
+      scenarios.filter((s) => s.repo && s.question_id).map((s) => `${s.repo}\0${s.question_id}`),
+    );
+    for (const { repo, question_id } of expectedRealCoverage) {
+      if (!measuredPairs.has(`${repo}\0${question_id}`)) {
+        issues.push(`missing real-corpus pair: ${repo}/${question_id}`);
+      }
+    }
   }
 
   if (report.configuration?.runs < minRunsForClaim) {
@@ -377,9 +400,15 @@ function evaluateClaimGate(report, { conditions = [], expectedScales = [], expec
 // report), per_corpus has a single "synthetic" entry whose gate equals the track
 // gate, so existing reports are unchanged. expectedScales/expectedTasks gates are
 // applied to the synthetic corpus only (the real corpus has its own repo/question
-// coverage, validated by its scenario presence rather than the synthetic
-// scale×task matrix).
-function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [], expectedTasksByTrack = {}, fullMatrix = false, minRunsForClaim = 1 } = {}) {
+// coverage enforced by expectedRealCoverage).
+//
+// expectedRealCoverage: array of { repo, question_id, benchmark_track } derived
+// from the full manifest (before any --max-scenarios cap). Every expected
+// repo×question_id pair that is absent from the measured scenarios produces a
+// named issue ("missing real-corpus pair: <repo>/<question_id>") so a partial run
+// can never present as gate-passed for claims. Defaults to [] (no real-corpus
+// coverage check) for backward-compat with synthetic-only reports.
+function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [], expectedTasksByTrack = {}, fullMatrix = false, minRunsForClaim = 1, expectedRealCoverage = [] } = {}) {
   const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
   const present = tracksPresent(scenarios);
   const perTrack = {};
@@ -390,9 +419,13 @@ function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [],
     for (const corpus of corpora) {
       const corpusScenarios = scenariosForTrackCorpus(scenarios, track, corpus);
       // The synthetic corpus is gated against the configured scale×task matrix; the
-      // real corpus is gated on its own scenario set (no synthetic scale/task
-      // expectations) so its repo/question coverage drives the gate.
+      // real corpus is gated against expectedRealCoverage (every repo×question_id
+      // that the full manifest contained must be present in the measured scenarios).
       const isSynthetic = corpus === "synthetic";
+      // Filter expectedRealCoverage to this track only.
+      const trackExpectedCoverage = isSynthetic
+        ? []
+        : expectedRealCoverage.filter((entry) => entry.benchmark_track === track);
       perCorpus[corpus] = evaluateClaimGate(report, {
         conditions,
         expectedScales: isSynthetic ? expectedScales : [],
@@ -401,6 +434,7 @@ function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [],
         minRunsForClaim,
         scenarios: corpusScenarios,
         comparisonPairCount: completePairCount(corpusScenarios, conditions),
+        expectedRealCoverage: trackExpectedCoverage,
       });
     }
     const failedCorpora = corpora.filter((corpus) => perCorpus[corpus].status !== "passed");
