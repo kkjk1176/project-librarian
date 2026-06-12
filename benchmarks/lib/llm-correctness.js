@@ -138,18 +138,34 @@ function includesInsensitive(text, term) {
 //      designation signal word ("owner", "owned", "owns").  The strip step
 //      prevents the common agent pattern `*.go @go-team at CODEOWNERS:2` from
 //      triggering on the "owner" inside "codeowners".
-//   3. The line does NOT also contain the correct owner handle — if both appear,
+//   3. The line is NOT a rule-chain enumeration entry.  Agents that explain
+//      last-match-wins precedence enumerate each matching rule with its owner
+//      in a structured list (e.g. "Line 33: `/packages` matches, owner
+//      `@backstage/framework-maintainers`").  Such lines mention the intermediate
+//      owner only as evidence for the chain, not as the final designation.
+//      A line is treated as a rule-chain enumeration (and skipped) when it
+//      matches either of:
+//        • "Line N:" / "line N:" at the start of the trimmed line (numbered rule)
+//        • a backtick-wrapped path pattern followed by "matches" anywhere on the line
+//      These patterns capture both the "Line N: ..." format (backstage real-corpus)
+//      and the "- `pattern` matches, owner `@team`" format (synthetic stage2b).
+//   4. The line does NOT also contain the correct owner handle — if both appear,
 //      the line is explaining the precedence override ("*.go → @go-team, but
 //      service/ → @service-team wins"), which is fine.
 //
 // CODEOWNERS rule-list lines look like:
-//   "*.go @go-benchmark-team"                      → no designation word → pass
-//   "- `*.go @go-benchmark-team` at CODEOWNERS:2"  → "owner" only in "codeowners" → pass
-//   "The owner is @go-benchmark-team"              → standalone "owner" → FAIL
-//   "@go-benchmark-team owns .go but @service wins" → correct owner present → pass
+//   "*.go @go-benchmark-team"                              → no designation word → pass
+//   "- `*.go @go-benchmark-team` at CODEOWNERS:2"         → "owner" only in "codeowners" → pass
+//   "Line 33: `/packages` matches, owner `@framework-team`" → rule-chain enumeration → pass
+//   "- `/packages/` matches, owner `@framework-team`"     → rule-chain enumeration → pass
+//   "The owner is @go-benchmark-team"                     → standalone "owner" → FAIL
+//   "@go-benchmark-team owns .go but @service wins"       → correct owner present → pass
 //
 // This is deliberately conservative: only lines that explicitly designate the
 // wrong team as owner (without also naming the correct winner) fail.
+//
+// Rule-chain enumeration detection is additive: any line that was previously
+// passing (no designation signal) continues to pass unchanged.
 function isDesignatedOwner(text, forbiddenTeam, correctOwner) {
   const forbiddenLower = forbiddenTeam.toLowerCase();
   const correctLower = correctOwner.toLowerCase();
@@ -162,6 +178,13 @@ function isDesignatedOwner(text, forbiddenTeam, correctOwner) {
     const line = rawLine.replace(/code[-_]?owners/g, "");
     const hasDesignationSignal = designationSignals.some((signal) => line.includes(signal));
     if (!hasDesignationSignal) continue;
+    // Skip rule-chain enumeration lines: these mention an intermediate owner
+    // as evidence for precedence reasoning, not as the final designation.
+    // Pattern 1: "Line N:" or "line N:" at the start of the trimmed line.
+    // Pattern 2: a backtick-wrapped path/pattern followed by "matches" anywhere.
+    const trimmed = line.trimStart();
+    if (/^line\s+\d+\s*:/.test(trimmed)) continue;
+    if (/`[^`]+`\s+matches/.test(line)) continue;
     // The line designates an owner.  Pass if the correct owner is also on the
     // line (the agent is explaining the override, not reporting the wrong winner).
     if (!rawLine.includes(correctLower)) return true;
@@ -218,6 +241,33 @@ function conditionEvidenceMapFor(benchmarkTrack) {
   return benchmarkTrack === "code_graph" ? codeGraphEvidenceByCondition : evidenceByCondition;
 }
 
+// Resolve the condition-evidence terms for a specific run.
+//
+// For real-corpus scenarios the synthetic fixture constants (codeGraphEvidenceByCondition)
+// are wrong: they were authored for the benchmark fixture repo (packages/, CODEOWNERS,
+// .project-wiki, @benchmark/workspace-*) which has nothing to do with the real repo
+// under test.  Real-corpus answer keys embed their own evidence_by_condition arrays in
+// the scenario expectation — e.g. ["packages/", "plugins/", "stringifyEntityRef"] for
+// a backstage impact-trace question.  When the expectation carries a per-condition
+// array (not a profile-keyed object), use it directly.
+//
+// For synthetic scenarios the expectation.evidence_by_condition is absent or contains
+// profile-keyed control objects, so we fall back to the track-level map exactly as
+// before.  This change is additive: synthetic correctness is unchanged.
+function resolveConditionEvidenceTerms(benchmarkTrack, condition, expectation) {
+  if (expectation && expectation.evidence_by_condition) {
+    const raw = expectation.evidence_by_condition[condition];
+    // Real-corpus answer keys embed a flat string array of evidence terms for each
+    // condition — use them verbatim.  Distinguish from the static-expectation shape,
+    // where evidence_by_condition carries per-group arrays (array-of-arrays used by
+    // resolveExpectedEvidenceGroups, not here): check that every element is a string.
+    if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "string") return raw;
+  }
+  // Synthetic path: use the track-level map.
+  const map = conditionEvidenceMapFor(benchmarkTrack);
+  return map[condition] || [];
+}
+
 function evaluateCorrectness({ taskFamily, condition, finalText, fileChangeCount = 0, readOnly = true, expectation: scenarioExpectation = null, controlProfile = "organic", benchmarkTrack = "wiki" }) {
   const resolved = resolveExpectation(taskFamily, scenarioExpectation);
   const expectation = resolved.expectation;
@@ -228,7 +278,6 @@ function evaluateCorrectness({ taskFamily, condition, finalText, fileChangeCount
       checks: [],
     };
   }
-  const conditionEvidenceMap = conditionEvidenceMapFor(benchmarkTrack);
 
   const checks = [];
   const text = finalText || "";
@@ -268,7 +317,7 @@ function evaluateCorrectness({ taskFamily, condition, finalText, fileChangeCount
     });
   }
 
-  const evidenceTerms = conditionEvidenceMap[condition] || [];
+  const evidenceTerms = resolveConditionEvidenceTerms(benchmarkTrack, condition, expectation);
   checks.push({
     name: `condition evidence: ${evidenceTerms.join(" | ")}`,
     passed: evidenceTerms.length === 0 || evidenceTerms.some((term) => includesInsensitive(text, term)),

@@ -729,7 +729,167 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   return report;
 }
 
+// Rescore an existing measured report by re-reading each run's raw JSONL and
+// re-running evaluateCorrectness with the current evaluator.  No codex execution.
+// The original report file is never modified; a new file with a "-rescored" suffix
+// is written alongside it.  This implements the recompute-from-raw policy:
+//   - final_text is re-extracted from the raw JSONL (not taken from the stored report)
+//   - correctness is fully recomputed from the re-extracted text + stored expectation
+//   - measurement status, passed/claimable counts, summaries, and the claim gate are
+//     all recomputed from the fresh correctness verdicts
+//   - all other fields (metrics, commands, prompts, provenance) are carried verbatim
+function rescoreReport(reportPath) {
+  if (!fs.existsSync(reportPath)) {
+    fail(`--rescore: report file not found: ${reportPath}`);
+  }
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  if (!report.scenarios || !Array.isArray(report.scenarios)) {
+    fail(`--rescore: report has no scenarios array: ${reportPath}`);
+  }
+
+  const rescoredScenarios = report.scenarios.map((scenario) => {
+    if (!Array.isArray(scenario.runs)) return scenario;
+    const rescoredRuns = scenario.runs.map((run) => {
+      // Re-extract final_text from the raw JSONL and merge it into the stored
+      // metrics record.  Only final_text is re-extracted: all other metric fields
+      // (tokens, timing, model, unavailable_event_fields) are carried verbatim from
+      // the stored run so that claimability checks that depend on usage/model
+      // availability continue to reflect the original measurement.  final_text alone
+      // was absent from the stored record (the report strips it to save space) and
+      // must be read back from the JSONL to re-run the evaluator.
+      const rawPath = run.raw_jsonl_path;
+      let finalText = (run.metrics && run.metrics.final_text) || "";
+      let fileChangeCount = (run.metrics && run.metrics.file_change_event_count) || 0;
+      if (rawPath && fs.existsSync(rawPath)) {
+        const content = fs.readFileSync(rawPath, "utf8");
+        const freshMetrics = summarizeJsonlSafely(content, { wall_ms: run.metrics ? run.metrics.wall_ms : 0 });
+        finalText = freshMetrics.final_text || finalText;
+        fileChangeCount = freshMetrics.file_change_event_count || fileChangeCount;
+      }
+      // Re-run the evaluator with the current (fixed) logic.
+      const correctness = evaluateCorrectness({
+        taskFamily: scenario.task_family,
+        condition: scenario.condition,
+        finalText,
+        fileChangeCount,
+        readOnly: true,
+        expectation: scenario.expectation || null,
+        controlProfile: scenario.control_profile || "organic",
+        benchmarkTrack: scenario.benchmark_track,
+      });
+      // Merge the re-extracted final_text back into stored metrics so the rescored
+      // run record is self-contained (the Markdown renderer reads run.metrics.final_text
+      // for display).  All other metric fields are unchanged.
+      const metrics = run.metrics ? { ...run.metrics, final_text: finalText } : run.metrics;
+      const rescoredRun = { ...run, metrics, correctness };
+      rescoredRun.measurement = measurementStatus(rescoredRun);
+      return rescoredRun;
+    });
+
+    const correctnessPassedRuns = passedRuns(rescoredRuns);
+    const actualClaimableRuns = claimableRuns(rescoredRuns);
+    return {
+      ...scenario,
+      runs: rescoredRuns,
+      passed_run_count: correctnessPassedRuns.length,
+      claimable_run_count: actualClaimableRuns.length,
+      correctness: rescoredRuns.map((run) => run.correctness),
+      median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
+      median_all_runs: medianMetrics(rescoredRuns),
+      dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
+      dispersion_all_runs: metricStats(rescoredRuns),
+    };
+  });
+
+  // Recompute report-level summary.
+  const rescoredReport = {
+    ...report,
+    rescored_at: new Date().toISOString(),
+    rescored_from: reportPath,
+    scenarios: rescoredScenarios,
+    summary: summarizeScenarios(rescoredScenarios),
+  };
+
+  // Recompute tracks and claim gate.
+  const presentTracks = tracksPresent(rescoredScenarios);
+  const selectedTasks = (report.configuration && report.configuration.selected_tasks) || Object.keys(taskFamilies);
+  const selectedScales = (report.configuration && report.configuration.selected_scales) || Object.keys(scales);
+  const fullMatrix = Boolean(report.configuration && report.configuration.full_matrix);
+  const minRunsForClaim = (report.configuration && report.configuration.min_runs_for_claim) || 1;
+  const expectedByTrack = expectedTasksByTrack(selectedTasks);
+
+  const expectedRealCoverage = rescoredReport.corpus === "real"
+    ? [...new Map(rescoredScenarios.filter((s) => s.corpus === "real").map((s) => [`${s.repo}\0${s.question_id}`, { repo: s.repo, question_id: s.question_id, benchmark_track: s.benchmark_track }])).values()]
+    : [];
+
+  const overallGate = evaluateTracksClaimGate(rescoredReport, {
+    conditions,
+    expectedScales: selectedScales,
+    expectedTasksByTrack: expectedByTrack,
+    fullMatrix,
+    minRunsForClaim,
+    expectedRealCoverage,
+  });
+
+  rescoredReport.tracks = {};
+  for (const track of presentTracks) {
+    const trackScenarios = scenariosForTrack(rescoredScenarios, track);
+    const trackCorpora = corporaPresent(trackScenarios);
+    const corpora = {};
+    for (const corpus of trackCorpora) {
+      const corpusScenarios = scenariosForTrackCorpus(rescoredScenarios, track, corpus);
+      corpora[corpus] = {
+        corpus,
+        summary: summarizeScenarios(corpusScenarios),
+        prompt_ids: corpusScenarios.map((s) => s.prompt_id),
+        claim_gate: overallGate.per_track[track].per_corpus[corpus],
+      };
+    }
+    rescoredReport.tracks[track] = {
+      benchmark_track: track,
+      expected_tasks: expectedByTrack[track] || [],
+      summary: summarizeScenarios(trackScenarios),
+      prompt_ids: trackScenarios.map((s) => s.prompt_id),
+      corpora_present: trackCorpora,
+      corpora,
+      claim_gate: overallGate.per_track[track],
+    };
+  }
+  rescoredReport.claim_gate = overallGate;
+
+  // Write alongside the original with a "-rescored" suffix (immutability: original untouched).
+  const ext = path.extname(reportPath);
+  const base = reportPath.slice(0, -ext.length || undefined);
+  const outPath = `${base}-rescored${ext}`;
+  writeJson(outPath, rescoredReport);
+
+  const mdBase = `${base}-rescored.md`;
+  writeText(mdBase, renderLlmMarkdownReport(rescoredReport));
+
+  console.log(JSON.stringify({
+    status: "ok",
+    mode: "rescore",
+    original: reportPath,
+    out: outPath,
+    markdown: mdBase,
+    scenario_count: rescoredScenarios.length,
+    passed_correctness_count: rescoredReport.summary.passed_correctness_count,
+    failed_correctness_count: rescoredReport.summary.failed_correctness_count,
+    claim_gate: overallGate.status,
+    claim_gate_issues: overallGate.issues,
+  }, null, 2));
+}
+
 function main() {
+  // --rescore <report.json>: recompute correctness/gates from raw JSONL without any
+  // codex execution.  Must be the first flag check so it short-circuits main().
+  const rescoreArg = optionalArgValue("--rescore");
+  if (rescoreArg !== null) {
+    if (!rescoreArg) fail("--rescore requires a path to an existing report JSON file");
+    rescoreReport(path.resolve(rescoreArg));
+    return;
+  }
+
   const dryRun = hasFlag("--dry-run");
   const allowCodexRun = hasFlag("--allow-codex-run");
   const fullMatrix = hasFlag("--full-matrix");

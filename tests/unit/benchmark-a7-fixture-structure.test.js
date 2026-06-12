@@ -376,6 +376,163 @@ test("workspace_graph condition evidence check passes on workspace-name-only ans
   assert.equal(pass.status, "passed", `expected pass but got: ${JSON.stringify(pass.checks.filter((c) => !c.passed))}`);
 });
 
+// --- FP fixes: real-corpus condition evidence and rule-chain designation -------
+//
+// FALSE POSITIVE 1: real-corpus condition evidence check
+// The synthetic codeGraphEvidenceByCondition tokens (packages/, CODEOWNERS,
+// .project-wiki, tools/project-librarian, @benchmark/workspace-) are wrong for
+// real repos.  A real-corpus answer key embeds its own evidence_by_condition array
+// in the scenario expectation (e.g. ["packages/", "plugins/", "stringifyEntityRef"]
+// for backstage/impact-trace).  evaluateCorrectness must use the expectation's
+// array verbatim when it is a plain array, not the synthetic fixture constants.
+
+test("FP1: real-corpus with_project_librarian condition evidence uses expectation.evidence_by_condition not synthetic constants", () => {
+  // Replicate the backstage impact-trace run-2 shape exactly.
+  // The expectation carries a plain-array evidence_by_condition for both conditions
+  // (real-corpus answer-key shape); the answer cites "plugins/" + "stringifyEntityRef"
+  // but NOT "packages/", ".project-wiki", etc.  Must PASS.
+  const expectation = {
+    required_terms: [
+      "plugins/catalog/src/components/CatalogTable/CatalogTable.tsx",
+      "plugins/catalog/src/components/AboutCard/AboutCard.tsx",
+    ],
+    any_terms: [["import", "call", "depends", "transitive", "uses", "dependent"]],
+    forbidden_terms: ["I cannot access", "no such file"],
+    evidence_by_condition: {
+      with_project_librarian: ["packages/", "plugins/", "stringifyEntityRef"],
+      without_project_librarian: ["packages/", "plugins/", "stringifyEntityRef"],
+    },
+  };
+  // Answer cites plugins/ paths (correct for backstage) but not packages/, CODEOWNERS,
+  // .project-wiki, tools/project-librarian, @benchmark/workspace- (synthetic constants).
+  const realCorpusAnswer = [
+    "Using local source evidence only, I found these plugins/catalog* source files",
+    "importing or calling stringifyEntityRef from @backstage/catalog-model:",
+    "plugins/catalog/src/components/CatalogTable/CatalogTable.tsx",
+    "plugins/catalog/src/components/AboutCard/AboutCard.tsx",
+    "plugins/catalog-react/src/hooks/useEntityOwnership.ts",
+  ].join("\n");
+  const result = evaluateCorrectness({
+    taskFamily: "impact_trace",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: realCorpusAnswer,
+    fileChangeCount: 0,
+  });
+  assert.equal(result.status, "passed", `expected pass but got: ${JSON.stringify(result.checks.filter((c) => !c.passed))}`);
+  // The condition evidence check name must reflect the real-corpus terms, not synthetic ones.
+  const evidenceCheck = result.checks.find((c) => c.name.startsWith("condition evidence:"));
+  assert(evidenceCheck, "condition evidence check must exist");
+  assert(evidenceCheck.name.includes("plugins/"), `check name must include real-corpus term 'plugins/', got: ${evidenceCheck.name}`);
+  assert(!evidenceCheck.name.includes(".project-wiki"), `check name must NOT include synthetic term '.project-wiki', got: ${evidenceCheck.name}`);
+});
+
+test("FP1: synthetic code_graph scenario still uses synthetic codeGraphEvidenceByCondition constants", () => {
+  // Ensure the real-corpus fix is additive: a synthetic scenario with no
+  // evidence_by_condition array in expectation still uses the track-level map.
+  const expectation = codeGraphExpectation("impact_trace", "small");
+  // Synthetic expectation has no evidence_by_condition (it uses the shared map).
+  // The answer cites "packages/" which satisfies synthetic with_project_librarian evidence.
+  const ownedList = expectation.required_terms.slice(0, 2).join(", ");
+  const syntheticAnswer = `packages/workspace-0/src/mod-0.ts imports the target symbol.\nDependent files: ${ownedList}.`;
+  const result = evaluateCorrectness({
+    taskFamily: "impact_trace",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: syntheticAnswer,
+    fileChangeCount: 0,
+  });
+  const evidenceCheck = result.checks.find((c) => c.name.startsWith("condition evidence:"));
+  assert(evidenceCheck, "condition evidence check must exist");
+  assert(evidenceCheck.name.includes(".project-wiki"), `synthetic check name must include '.project-wiki', got: ${evidenceCheck.name}`);
+});
+
+// FALSE POSITIVE 2: rule-chain enumeration lines must not count as designations.
+// The backstage ownership-lookup run-3 answer showed a precedence chain:
+//   "Line 7: `*` matches, owner `@backstage/maintainers`"
+//   "Line 33: `/packages` matches, owner `@backstage/framework-maintainers`"
+//   "Line 37: `/packages/cli` matches, owner `@backstage/tooling-maintainers`"
+// The final designation is correct (@backstage/tooling-maintainers), but the old
+// isDesignatedOwner fired on "Line 33" because it contained the forbidden team +
+// "owner" signal.  Must PASS.
+
+test("FP2: backstage-style rule-chain enumeration (Line N: ...) does NOT trigger designation check", () => {
+  // Exact format from the backstage ownership-lookup run-3 answer.
+  const precedenceChainAnswer = [
+    "The effective owning team for `packages/cli/src/index.ts` is:",
+    "",
+    "`@backstage/tooling-maintainers`",
+    "",
+    "Local CODEOWNERS evidence, in order:",
+    "",
+    "- Line 7: `*` matches, owner `@backstage/maintainers`",
+    "- Line 33: `/packages` matches, owner `@backstage/framework-maintainers`",
+    "- Line 37: `/packages/cli` matches, owner `@backstage/tooling-maintainers`",
+    "",
+    "No later pattern matches `packages/cli/src/index.ts`, so line 37 wins under",
+    "GitHub's last-matching-pattern-wins rule.",
+  ].join("\n");
+
+  const expectation = {
+    required_terms: ["@backstage/tooling-maintainers"],
+    any_terms: [["last match", "last-match", "last matching", "precedence", "wins", "CODEOWNERS"]],
+    forbidden_terms: ["I cannot access", "no such file"],
+    designation_forbidden: [
+      { team: "@backstage/framework-maintainers", correct_owner: "@backstage/tooling-maintainers" },
+    ],
+  };
+
+  const result = evaluateCorrectness({
+    taskFamily: "ownership_lookup",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: precedenceChainAnswer,
+    fileChangeCount: 0,
+  });
+  assert.equal(result.status, "passed", `expected pass (correct final designation) but got: ${JSON.stringify(result.checks.filter((c) => !c.passed))}`);
+  const designationCheck = result.checks.find((c) => c.name === "not designated owner: @backstage/framework-maintainers");
+  assert(designationCheck, "designation check must exist");
+  assert.equal(designationCheck.passed, true, "Line-N enumeration must not be treated as a wrong final designation");
+});
+
+test("FP2: wrong final designation still fails even when correct team appears in chain enumeration", () => {
+  // If the agent CONCLUDES with the wrong team, even after citing the correct team
+  // as a chain entry, it must FAIL.  The rule-chain exemption must not suppress
+  // genuine wrong final designations.
+  const wrongFinalAnswer = [
+    "The owner of `packages/cli/src/index.ts` is @backstage/framework-maintainers.",
+    "",
+    "CODEOWNERS evidence:",
+    "- Line 37: `/packages/cli` matches, owner `@backstage/tooling-maintainers`",
+  ].join("\n");
+
+  const expectation = {
+    required_terms: ["@backstage/tooling-maintainers"],
+    any_terms: [["last match", "last-match", "last matching", "precedence", "wins", "CODEOWNERS"]],
+    forbidden_terms: ["I cannot access", "no such file"],
+    designation_forbidden: [
+      { team: "@backstage/framework-maintainers", correct_owner: "@backstage/tooling-maintainers" },
+    ],
+  };
+
+  const result = evaluateCorrectness({
+    taskFamily: "ownership_lookup",
+    condition: "with_project_librarian",
+    benchmarkTrack: "code_graph",
+    expectation,
+    finalText: wrongFinalAnswer,
+    fileChangeCount: 0,
+  });
+  // The wrong-final-designation line ("The owner of ... is @backstage/framework-maintainers")
+  // is NOT a Line-N enumeration, so it must be caught.
+  const designationCheck = result.checks.find((c) => c.name === "not designated owner: @backstage/framework-maintainers");
+  assert(designationCheck, "designation check must exist");
+  assert.equal(designationCheck.passed, false, "Non-enumeration wrong-final-designation line must still fail");
+});
+
 // --- end-to-end: a real small build passes every A7 assert --------------------
 
 test("a real small fixture build passes the A7 structural asserts in both conditions", { skip }, () => {
