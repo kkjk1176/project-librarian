@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Candidate public OSS corpus for the real-repository benchmark track. SHA values are placeholders (PIN-AT-PREP) until corpus-prep pins each repo at a measured commit. Selection gates (validated by benchmarks/lib/real-corpus.js assertSelectionGate): >=4 supported parser languages across the corpus, >=1 repo over 5000 approx_files, >=2 repos with real CODEOWNERS, >=2 workspace monorepos. Fetch is gated behind --allow-corpus-fetch and is never exercised by the offline tests.",
+  "description": "Candidate public OSS corpus for the real-repository benchmark track. SHA values are placeholders (PIN-AT-PREP) until corpus-prep pins each repo at a measured commit; the two Stage R1 repos (excalidraw, backstage) are pinned. Selection gates (validated by benchmarks/lib/real-corpus.js assertSelectionGate): >=4 supported parser languages across the corpus, >=1 repo over 5000 approx_files, >=2 repos with real CODEOWNERS, >=2 workspace monorepos. approx_files is the crude `git ls-files | wc -l` count; for backstage that raw count (11833) is inflated by a large JSON/snapshot fixture mass, while the actual parseable TS/TSX source it indexes is ~4961-6901 files (in the Stage R1 1k-8k target). Fetch is gated behind --allow-corpus-fetch and is never exercised by the offline tests.",
   "candidates": [
     {
       "name": "vscode",
@@ -14,9 +14,9 @@
     {
       "name": "excalidraw",
       "url": "https://github.com/excalidraw/excalidraw.git",
-      "sha": "PIN-AT-PREP",
+      "sha": "a83ac488536dbf4bc4dcf1f472f72ce3b4bd2073",
       "language": "typescript",
-      "approx_files": 1200,
+      "approx_files": 1228,
       "has_codeowners": false,
       "workspace_monorepo": true
     },
@@ -48,11 +48,11 @@
       "workspace_monorepo": false
     },
     {
-      "name": "codeowners-monorepo-a",
-      "url": "PIN-AT-PREP",
-      "sha": "PIN-AT-PREP",
+      "name": "backstage",
+      "url": "https://github.com/backstage/backstage.git",
+      "sha": "73d8ac07b9ab9989057655b937fe63c7d88cc491",
       "language": "typescript",
-      "approx_files": 6000,
+      "approx_files": 11833,
       "has_codeowners": true,
       "workspace_monorepo": true
     },

@@ -240,7 +240,13 @@ function gitStatusPorcelain(repoDir) {
 // unknown task_family, or a malformed expectation all HARD-FAIL (no silent
 // tolerance), so a typo in a hand-authored key is caught at load time rather than
 // producing a meaningless measurement.
-const KEY_TOP_FIELDS = new Set(["repo", "sha", "code_scopes", "questions"]);
+// `notes` is an OPTIONAL free-text provenance field on a key file: the recorded
+// anti-circularity decision asks the author to document how each expectation was
+// independently derived and to record any index/source reconciliation. It is
+// key-level metadata only (never propagated into scenarios or the manifest), so it
+// does not affect any downstream consumer; when present it must be a non-empty
+// string (validated below), so a malformed notes field still fails loudly.
+const KEY_TOP_FIELDS = new Set(["repo", "sha", "code_scopes", "questions", "notes"]);
 const KEY_QUESTION_FIELDS = new Set(["question_id", "task_family", "prompt", "expectation"]);
 const EXPECTATION_FIELDS = new Set([
   "required_terms",
@@ -283,6 +289,11 @@ function validateAnswerKey(key, label) {
   if (Object.hasOwn(key, "code_scopes")) {
     if (!Array.isArray(key.code_scopes) || key.code_scopes.some((scope) => typeof scope !== "string" || scope.length === 0)) {
       throw new Error(`real corpus answer key ${label} "code_scopes" must be an array of non-empty strings`);
+    }
+  }
+  if (Object.hasOwn(key, "notes")) {
+    if (typeof key.notes !== "string" || key.notes.length === 0) {
+      throw new Error(`real corpus answer key ${label} "notes" must be a non-empty string`);
     }
   }
   if (!Array.isArray(key.questions) || key.questions.length === 0) {
