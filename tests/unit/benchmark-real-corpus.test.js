@@ -304,7 +304,7 @@ test("copyPristineClone refuses to overwrite an existing destination", () => {
 // --- with-arm materialization incl. MCP handshake ----------------------------
 
 test("materializeWithArm bootstraps+indexes+installs the runner and the MCP handshake succeeds", { skip }, () => {
-  const { repo } = buildStubRepo("rc-with-arm-");
+  const { repo, sha: corpusSha } = buildStubRepo("rc-with-arm-");
   const work = makeTmpDir("rc-with-arm-work-");
   try {
     const withArm = materializeWithArm({
@@ -319,6 +319,19 @@ test("materializeWithArm bootstraps+indexes+installs the runner and the MCP hand
     // The MCP handshake returned the project-librarian tools.
     assert(withArm.mcp_handshake.tool_count > 0, "MCP handshake must list tools");
     assert(withArm.mcp_handshake.tool_names.includes("code_impact"), `expected code_impact tool, got ${JSON.stringify(withArm.mcp_handshake.tool_names)}`);
+    // Post-materialization commit: corpus_sha is the pristine HEAD (pinned);
+    // materialization_sha is the new commit that sealed all bootstrap output.
+    assert.equal(withArm.corpus_sha, corpusSha, "corpus_sha must match the pristine pinned HEAD");
+    assert(typeof withArm.materialization_sha === "string" && withArm.materialization_sha.length === 40, "materialization_sha must be a 40-char sha");
+    assert.notEqual(withArm.materialization_sha, corpusSha, "materialization_sha must differ from corpus_sha");
+    // The with-arm copy is fully clean after the materialization commit.
+    const { gitStatusPorcelain: statusFn, gitRevParseHead: headFn } = require("../../benchmarks/lib/real-corpus");
+    assert.equal(statusFn(withArm.dir), "", "with-arm copy must be fully clean after materialization commit");
+    assert.equal(headFn(withArm.dir), withArm.materialization_sha, "copy HEAD must be materialization_sha");
+    // checkRealRepoPreRun passes using materializationSha (the new invariant).
+    const { checkRealRepoPreRun: checkFn } = require("../../benchmarks/lib/real-corpus");
+    const preRun = checkFn({ cwd: withArm.dir, expectedSha: withArm.corpus_sha, materializationSha: withArm.materialization_sha });
+    assert.equal(preRun.clean, true);
     // The pristine repo was NOT mutated (no .project-wiki, no tools/ runner in it).
     assert.equal(fs.existsSync(path.join(repo, ".project-wiki")), false, "pristine must not gain a code-evidence index");
     assert.equal(fs.existsSync(path.join(repo, "tools", "project-librarian")), false, "pristine must not gain the installed runner");
@@ -446,37 +459,172 @@ test("checkRealRepoPreRun HARD-FAILS on a TRACKED-file modification before the r
   const { repo, sha } = buildStubRepo("rc-prerun-dirty-");
   try {
     // README.md is a tracked file in the committed stub; modifying it dirties the
-    // pinned checkout.
+    // working tree (even after the materialization commit approach, a modified tracked
+    // file still makes porcelain non-empty).
     writeFile(path.join(repo, "README.md"), "# pre-run dirt\n");
-    assert.throws(() => checkRealRepoPreRun({ cwd: repo, expectedSha: sha }), /tracked-file modifications before the run/);
+    assert.throws(() => checkRealRepoPreRun({ cwd: repo, expectedSha: sha }), /working tree is not clean before the run/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
 
-test("checkRealRepoPreRun PASSES when only UNTRACKED bootstrap output is present (with-arm)", () => {
-  // The with-arm copy carries untracked bootstrap output (.project-wiki/, wiki/,
-  // tools/, AGENTS.md) BEFORE the measured run; that must not fail the pre-run
-  // check — only a tracked modification means the pinned checkout is dirty.
-  const { repo, sha } = buildStubRepo("rc-prerun-bootstrap-");
+test("checkRealRepoPreRun with materializationSha: PASSES on a clean with-arm copy (post-materialization-commit baseline)", () => {
+  // This is the new with-arm invariant: after materializeWithArm creates its local
+  // commit, HEAD == materialization_sha and porcelain is fully empty. The pre-run
+  // check uses materializationSha (not expectedSha) as the required HEAD. This is
+  // the fix for the baseline-design flaw where bootstrap legitimately modifies
+  // tracked files (CLAUDE.md, AGENTS.md) that the real repo already tracked.
+  const { repo: pristine, sha: corpusSha } = buildStubRepo("rc-prerun-mat-pass-");
+  const work = makeTmpDir("rc-prerun-mat-work-");
   try {
-    writeFile(path.join(repo, ".project-wiki", "code-evidence.sqlite"), "binary");
-    writeFile(path.join(repo, "wiki", "startup.md"), "# Startup\n");
-    writeFile(path.join(repo, "AGENTS.md"), "# Agents\n");
-    const result = checkRealRepoPreRun({ cwd: repo, expectedSha: sha });
-    assert.equal(result.head, sha);
+    // Simulate what materializeWithArm does: copy, add bootstrap output as tracked
+    // modifications + new files, then create the materialization commit.
+    const copy = path.join(work, "with_project_librarian");
+    fs.cpSync(pristine, copy, { recursive: true });
+    // Simulate bootstrap upsertng a tracked CLAUDE.md (the flaw scenario).
+    writeFile(path.join(copy, "CLAUDE.md"), "# managed block added by bootstrap\n");
+    writeFile(path.join(copy, "wiki", "startup.md"), "# Startup\n");
+    writeFile(path.join(copy, "AGENTS.md"), "# Agents\n");
+    // Create the materialization commit (like materializeWithArm does).
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+    const materializationSha = git(copy, ["rev-parse", "HEAD"]).trim();
+    // Pre-run check with materializationSha: must pass (fully clean after commit).
+    const result = checkRealRepoPreRun({ cwd: copy, expectedSha: corpusSha, materializationSha });
+    assert.equal(result.head, materializationSha);
     assert.equal(result.clean, true);
   } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("checkRealRepoPreRun HARD-FAILS when HEAD drifted from the expected sha", () => {
+  const { repo } = buildStubRepo("rc-prerun-sha-");
+  try {
+    assert.throws(() => checkRealRepoPreRun({ cwd: repo, expectedSha: "0".repeat(40) }), /does not match expected sha/);
+  } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
 
-test("checkRealRepoPreRun HARD-FAILS when HEAD drifted from the pinned sha", () => {
-  const { repo } = buildStubRepo("rc-prerun-sha-");
+// --- regression: stub repo that TRACKS CLAUDE.md and AGENTS.md ------------------
+// This is the exact shape that caused the live R1 launch failure: excalidraw/with_project_librarian
+// hard-failed on "M CLAUDE.md" because bootstrap upserted managed blocks into a
+// tracked file and checkRealRepoPreRun compared against the original pinned checkout.
+// The fix is the materialization commit: all bootstrap output is committed first,
+// and the pre-run check uses materializationSha as the expected HEAD.
+
+function buildStubRepoWithTrackedAgentFiles(prefix) {
+  // Same structure as buildStubRepo but also commits CLAUDE.md and AGENTS.md so
+  // bootstrap upserts are modifications of tracked files (not new files).
+  const repo = makeTmpDir(prefix);
+  git(repo, ["init", "-q"]);
+  git(repo, ["config", "user.email", "stub@example.com"]);
+  git(repo, ["config", "user.name", "Stub"]);
+  git(repo, ["config", "commit.gpgsign", "false"]);
+  writeFile(path.join(repo, "CODEOWNERS"), "* @stub-org\n");
+  writeFile(path.join(repo, "README.md"), "# Stub\n");
+  // Pre-commit CLAUDE.md and AGENTS.md (like excalidraw, tokio, gin, django do).
+  writeFile(path.join(repo, "CLAUDE.md"), "# Claude instructions (original)\n");
+  writeFile(path.join(repo, "AGENTS.md"), "# Agents instructions (original)\n");
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "stub with agent files"]);
+  const sha = git(repo, ["rev-parse", "HEAD"]).trim();
+  return { repo, sha };
+}
+
+test("regression: stub with tracked CLAUDE.md + AGENTS.md — materialization succeeds and pre-run check PASSES", () => {
+  // Replays the exact flaw: bootstrap modifies CLAUDE.md and AGENTS.md (tracked in
+  // the real repo). Without the materialization commit the pre-run check would
+  // hard-fail on "working tree is not clean". With it, the commit seals bootstrap
+  // output and the pre-run check passes using materializationSha.
+  const { repo: pristine, sha: corpusSha } = buildStubRepoWithTrackedAgentFiles("rc-regression-agent-files-");
+  const work = makeTmpDir("rc-regression-work-");
   try {
-    assert.throws(() => checkRealRepoPreRun({ cwd: repo, expectedSha: "0".repeat(40) }), /does not match pinned sha/);
+    const copy = path.join(work, "with_project_librarian");
+    fs.cpSync(pristine, copy, { recursive: true });
+    // Bootstrap upserts managed blocks into the TRACKED files.
+    writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- PROJECT-WIKI-MANAGED-BLOCK -->\n# Added by bootstrap\n<!-- /PROJECT-WIKI-MANAGED-BLOCK -->\n");
+    writeFile(path.join(copy, "AGENTS.md"), "# Agents instructions (original)\n\n<!-- PROJECT-WIKI-MANAGED-BLOCK -->\n# Added by bootstrap\n<!-- /PROJECT-WIKI-MANAGED-BLOCK -->\n");
+    writeFile(path.join(copy, "wiki", "startup.md"), "# Startup\n");
+    // Without the materialization commit, checkRealRepoPreRun would hard-fail here.
+    // Verify that (expected FAILURE without commit):
+    assert.throws(
+      () => checkRealRepoPreRun({ cwd: copy, expectedSha: corpusSha }),
+      /working tree is not clean before the run/,
+      "must fail before materialization commit (regression guard)",
+    );
+    // Now create the materialization commit (what materializeWithArm does).
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+    const materializationSha = git(copy, ["rev-parse", "HEAD"]).trim();
+    // After the commit, pre-run check PASSES.
+    const result = checkRealRepoPreRun({ cwd: copy, expectedSha: corpusSha, materializationSha });
+    assert.equal(result.head, materializationSha);
+    assert.equal(result.clean, true);
+    // The pristine is untouched.
+    assert.equal(fs.readFileSync(path.join(pristine, "CLAUDE.md"), "utf8"), "# Claude instructions (original)\n");
+    assert.equal(fs.readFileSync(path.join(pristine, "AGENTS.md"), "utf8"), "# Agents instructions (original)\n");
   } finally {
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("regression: simulated post-run tracked edit FAILS after materialization commit", () => {
+  // After materialization the copy is at a clean materialization_sha. A codex-written
+  // tracked change during the run must still be a hard failure.
+  const { repo: pristine, sha: corpusSha } = buildStubRepoWithTrackedAgentFiles("rc-regression-postrun-edit-");
+  const work = makeTmpDir("rc-regression-postrun-edit-work-");
+  try {
+    const copy = path.join(work, "with_project_librarian");
+    fs.cpSync(pristine, copy, { recursive: true });
+    // Simulate bootstrap upserts (like materializeWithArm): modify tracked files and
+    // add new files, then commit — this is the materialization commit.
+    writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- BLOCK -->\n# bootstrap\n<!-- /BLOCK -->\n");
+    writeFile(path.join(copy, "wiki", "startup.md"), "# Startup\n");
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+    const materializationSha = git(copy, ["rev-parse", "HEAD"]).trim();
+    // Simulate a codex run that writes a tracked file.
+    writeFile(path.join(copy, "README.md"), "# modified by run\n");
+    assert.throws(
+      () => validateRealRepoAfterRun({ cwd: copy, expectedSha: materializationSha, preRunUntracked: new Set() }),
+      /has tracked-file changes after the run/,
+    );
+  } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("regression: planted untracked .omx/state/x FAILS with denylist message after materialization commit", () => {
+  // After materialization the baseline snapshot is empty. A new untracked runtime-state
+  // path written during the run must trigger the denylist message.
+  const { repo: pristine } = buildStubRepoWithTrackedAgentFiles("rc-regression-omx-");
+  const work = makeTmpDir("rc-regression-omx-work-");
+  try {
+    const copy = path.join(work, "with_project_librarian");
+    fs.cpSync(pristine, copy, { recursive: true });
+    // Simulate bootstrap upserts (like materializeWithArm): modify tracked files and
+    // add new files, then commit — this is the materialization commit.
+    writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- BLOCK -->\n# bootstrap\n<!-- /BLOCK -->\n");
+    writeFile(path.join(copy, "wiki", "startup.md"), "# Startup\n");
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+    git(copy, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+    const materializationSha = git(copy, ["rev-parse", "HEAD"]).trim();
+    const preRunUntracked = snapshotRealRepoUntracked(copy); // empty after commit
+    assert.equal(preRunUntracked.size, 0, "pre-run snapshot must be empty after materialization commit");
+    // Simulate codex leaking runtime state.
+    writeFile(path.join(copy, ".omx", "state", "x"), "session-state");
+    assert.throws(
+      () => validateRealRepoAfterRun({ cwd: copy, expectedSha: materializationSha, preRunUntracked }),
+      (error) => error.message.includes("runtime-state paths appeared during the run") && error.message.includes(".omx"),
+    );
+  } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
   }
 });
 
@@ -524,9 +672,11 @@ test("validateRealRepoAfterRun HARD-FAILS when a NEW runtime-state dir appears (
   }
 });
 
-test("validateRealRepoAfterRun does NOT flag a PRE-EXISTING untracked runtime-state path (with-arm bootstrap)", () => {
-  // A with-arm copy may carry untracked bootstrap dot-dirs BEFORE the run; those are
-  // captured in the pre-run baseline and must not be re-flagged post-run.
+test("validateRealRepoAfterRun does NOT flag a path that was in the pre-run untracked baseline", () => {
+  // The preRunUntracked baseline API is preserved for callers that snapshot before the
+  // run. With the materialization commit in place, a freshly materialized with-arm copy
+  // has an empty baseline; but if something pre-exists in the snapshot (e.g. a caller
+  // that snapshots a partially-constructed copy), pre-existing paths must not be flagged.
   const { repo, sha } = buildStubRepo("rc-postrun-prebootstrap-");
   try {
     writeFile(path.join(repo, ".codex", "hooks.json"), "{}\n");
@@ -582,24 +732,36 @@ test("buildRealCorpusManifest builds a corpus 'real' manifest with mcp:true with
     assert.equal(manifest.scenarios.length, 2);
     const withScenario = manifest.scenarios.find((s) => s.condition === "with_project_librarian");
     const controlScenario = manifest.scenarios.find((s) => s.condition === "without_project_librarian");
-    // Corpus dimension fields populated.
+    // Corpus dimension fields populated on both scenarios.
     for (const scenario of manifest.scenarios) {
       assert.equal(scenario.corpus, "real");
       assert.equal(scenario.repo, "stub");
-      assert.equal(scenario.repo_sha, sha);
       assert.equal(scenario.question_id, "impact-1");
       assert.equal(scenario.benchmark_track, "code_graph");
       assert.equal(scenario.fixture_fingerprint.algorithm, "pinned-sha-git-clean");
+      // The pinned corpus sha is recorded in the fingerprint and corpus_sha field.
       assert.equal(scenario.fixture_fingerprint.repo_sha, sha);
+      assert.equal(scenario.corpus_sha, sha);
     }
+    // With-arm: repo_sha is the materialization_sha (post-commit HEAD); corpus_sha is the pinned sha.
+    assert(typeof withScenario.materialization_sha === "string" && withScenario.materialization_sha.length === 40);
+    assert.notEqual(withScenario.materialization_sha, sha, "with-arm materialization_sha must differ from corpus sha");
+    assert.equal(withScenario.repo_sha, withScenario.materialization_sha, "with-arm repo_sha must equal materialization_sha");
+    assert.equal(withScenario.fixture_fingerprint.materialization_sha, withScenario.materialization_sha);
+    // Control: no materialization_sha; repo_sha is the pinned corpus sha.
+    assert.equal(controlScenario.materialization_sha, null);
+    assert.equal(controlScenario.repo_sha, sha, "control repo_sha must be the pinned corpus sha");
+    assert.equal(controlScenario.fixture_fingerprint.materialization_sha, null);
     // MCP is marked on the with arm only, with a runner path; the control has none.
     assert.equal(withScenario.mcp, true);
     assert(withScenario.mcp_runner_path && fs.existsSync(withScenario.mcp_runner_path));
     assert.equal(controlScenario.mcp, false);
     assert.equal(controlScenario.mcp_runner_path, null);
-    // The repo provenance records the MCP handshake result.
+    // The repo provenance records the MCP handshake result and both shas.
     assert(Array.isArray(manifest.repos) && manifest.repos.length === 1);
     assert(manifest.repos[0].mcp_handshake.tool_count > 0);
+    assert.equal(manifest.repos[0].corpus_sha, sha);
+    assert(typeof manifest.repos[0].materialization_sha === "string");
     // The pristine clone under corpusDir was not mutated (the work copies are separate).
     assert.equal(fs.existsSync(path.join(corpusDir, "stub", ".project-wiki")), false);
   } finally {

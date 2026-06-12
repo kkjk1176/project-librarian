@@ -468,8 +468,16 @@ function verifyMcpHandshake(runnerAbsolutePath, cwd, { timeoutMs = 10000 } = {})
 // build + scope the code-evidence index from the key file's code_scopes, install
 // the local runner, convert the index out of WAL mode for read-only query, verify
 // the installed runner's task commands, AND verify the in-fixture MCP handshake.
-// Every step hard-fails on error (no fallback). Returns provenance including the
-// installed runner path, the MCP handshake result, and the post-build clean state.
+// After all of that, create a LOCAL COMMIT in the copy (git add -A + git commit)
+// so that the post-materialization state becomes the pre-run baseline. This is the
+// fix for the baseline-design flaw: real repos track their own CLAUDE.md/AGENTS.md,
+// and bootstrap legitimately upserts managed blocks into them. Comparing the with-arm
+// copy against the original pinned checkout is the wrong baseline; the synthetic
+// track fingerprints AFTER materialization and the git-based substitute must too.
+// The materialization_sha (new commit HEAD) and corpus_sha (pinned parent) are both
+// returned so callers can record provenance. The commit's parent is asserted to equal
+// the pinned corpus sha (provenance integrity check).
+// Every step hard-fails on error (no fallback).
 //
 // cliPath is the repo's built CLI used to bootstrap/index the copy (the same
 // installer the synthetic fixtures use). codeScopes default to the key file's
@@ -479,6 +487,8 @@ function materializeWithArm({ pristineDir, destDir, cliPath, codeScopes }) {
   if (!cliPath || !fs.existsSync(cliPath)) {
     throw new Error(`materializeWithArm: built CLI missing (run npm run build): ${cliPath}`);
   }
+  // Record the corpus sha BEFORE materialization (the pristine pinned HEAD).
+  const corpusSha = gitRevParseHead(destDir);
   const scopes = Array.isArray(codeScopes) && codeScopes.length > 0 ? codeScopes : ["packages", "package.json", "CODEOWNERS"];
   const runCli = (args) => childProcess.execFileSync(process.execPath, [cliPath, ...args], { cwd: destDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
   // Bootstrap without touching git config (the copy carries the pristine repo's
@@ -499,9 +509,27 @@ function materializeWithArm({ pristineDir, destDir, cliPath, codeScopes }) {
   const runnerVerification = verifyRealRunnerCommands(destDir, installedCliRelative);
   const installedCliAbsolute = path.join(destDir, installedCliRelative);
   const mcp = verifyMcpHandshake(installedCliAbsolute, destDir);
+  // Commit all materialization output (bootstrap files, code-evidence index, installed
+  // runner, MCP configs) as a single local commit so the post-materialization state
+  // is a CLEAN committed baseline. This fixes the baseline-design flaw: without this
+  // commit, checkRealRepoPreRun sees git-tracked-file modifications (e.g. CLAUDE.md
+  // upserted by bootstrap) and hard-fails before any codex spawn. With this commit,
+  // both the pre-run and post-run checks use the simple fully-empty-porcelain invariant.
+  // The commit carries explicit git identity so it works without any global git config.
+  const runGit = (args) => childProcess.execFileSync("git", args, { cwd: destDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  runGit(["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+  runGit(["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+  const materializationSha = gitRevParseHead(destDir);
+  // Provenance integrity check: the new commit's parent must be the corpus sha.
+  const parentSha = childProcess.execFileSync("git", ["rev-parse", "HEAD^"], { cwd: destDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }).trim();
+  if (parentSha !== corpusSha) {
+    throw new Error(`materializeWithArm: materialization commit parent ${parentSha} does not match corpus sha ${corpusSha} — provenance broken`);
+  }
   return {
     condition: "with_project_librarian",
     dir: destDir,
+    corpus_sha: corpusSha,
+    materialization_sha: materializationSha,
     installed_cli: installedCliRelative,
     installed_cli_absolute: installedCliAbsolute,
     code_scopes: scopes,
@@ -560,44 +588,56 @@ function materializeControlArm({ pristineDir, destDir }) {
 
 // --- real-corpus fingerprinting ----------------------------------------------
 
-// Pre-run integrity check for a real-corpus working copy. Unlike the synthetic
-// full-file-hash fingerprint (too slow for large repos), this checks the pinned
-// SHA (HEAD === expectedSha) and that no TRACKED files are modified. The control
-// arm is a pristine copy, so its `git status --porcelain` is fully empty; the
-// with arm carries UNTRACKED bootstrap output (.project-wiki/, wiki/, tools/,
-// AGENTS.md, the per-agent MCP configs) added during materialization, which is
-// legitimate and captured as the pre-run untracked BASELINE — only tracked
-// modifications mean the pinned checkout itself was perturbed. Throws on a sha
-// mismatch or any tracked-file change BEFORE the run consumes quota. (The post-run
-// validator additionally enforces that no NEW untracked runtime-state path appears.)
-function checkRealRepoPreRun({ cwd, expectedSha }) {
+// Pre-run integrity check for a real-corpus working copy.
+//
+// Control arm: HEAD must equal the pinned corpus sha and git status --porcelain
+// must be fully empty (pristine copy, nothing changed).
+//
+// With arm: HEAD must equal the materialization_sha (the local commit created at the
+// end of materializeWithArm that bundles all bootstrap output). git status --porcelain
+// must also be fully empty — the materialization commit IS the clean baseline. Passing
+// materializationSha makes this the with-arm check; omitting it (or passing null)
+// falls back to the control-arm check against expectedSha.
+//
+// This fixes the baseline-design flaw: before the materialization commit was
+// introduced, comparing the with-arm copy against the pinned checkout hard-failed on
+// tracked files legitimately modified by bootstrap (e.g. CLAUDE.md / AGENTS.md). Now
+// both arms start from a clean committed state so the simple fully-empty invariant
+// works for both.
+function checkRealRepoPreRun({ cwd, expectedSha, materializationSha = null }) {
   if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
     throw new Error(`real corpus pre-run check: working copy missing: ${cwd}`);
   }
   const head = gitRevParseHead(cwd);
-  if (expectedSha && expectedSha !== PIN_PLACEHOLDER && head !== expectedSha) {
-    throw new Error(`real corpus pre-run check FAILED: ${cwd} HEAD ${head} does not match pinned sha ${expectedSha}`);
+  // Choose the expected HEAD: with-arm uses materialization_sha; control uses corpus sha.
+  const expectedHead = materializationSha || expectedSha;
+  if (expectedHead && expectedHead !== PIN_PLACEHOLDER && head !== expectedHead) {
+    throw new Error(`real corpus pre-run check FAILED: ${cwd} HEAD ${head} does not match expected sha ${expectedHead}`);
   }
-  // Tracked-modification check only: any porcelain line that is NOT an untracked
-  // ("?? ") entry is a modification of a tracked file, which means the pinned
-  // checkout is dirty (not just carrying bootstrap output).
-  const trackedChanges = gitStatusPorcelain(cwd).split("\n").filter((line) => line.length > 0 && !line.startsWith("?? "));
-  if (trackedChanges.length > 0) {
-    throw new Error(`real corpus pre-run check FAILED: ${cwd} has tracked-file modifications before the run (the pinned checkout is dirty):\n${trackedChanges.join("\n")}`);
+  // Fully-empty porcelain: both arms start from a clean committed state. Any non-empty
+  // output means something changed after the materialization commit (with-arm) or after
+  // the pristine copy (control arm) — both are hard failures.
+  const porcelain = gitStatusPorcelain(cwd);
+  if (porcelain.length > 0) {
+    throw new Error(`real corpus pre-run check FAILED: ${cwd} working tree is not clean before the run:\n${porcelain}`);
   }
   return { head, clean: true };
 }
 
 // Post-run validation for a real-corpus working copy. Two checks:
-//   1. `git status --porcelain` must be empty (the run changed no tracked or
-//      newly-added file under git). A dirty tree is a HARD FAILURE.
-//   2. Runtime-state denylist from git-untracked paths: any new untracked path
-//      whose basename is a runtime-state dir (.omx/.omc/.codex/.claude/.gemini/
-//      .cursor) that was NOT in the pre-run untracked baseline is a HARD FAILURE
-//      (isolation leak). Pre-existing untracked bootstrap dot-dirs in the with-arm
-//      copy are captured in the baseline so they are not re-flagged.
-// The git-untracked baseline replaces the synthetic path snapshot: for a real repo
-// we ask git what is untracked rather than walking the whole tree.
+//   1. `git status --porcelain` must be fully empty (the run changed nothing relative
+//      to the pre-run committed baseline). Any modification — tracked or untracked —
+//      is a HARD FAILURE. With the materialization commit in place, the with-arm copy
+//      starts from a clean committed state just like the control arm, so the simple
+//      fully-empty invariant works for both arms.
+//   2. Runtime-state denylist from git-untracked paths: any untracked path whose
+//      segment is a runtime-state dir (.omx/.omc/.codex/.claude/.gemini/.cursor) is
+//      a HARD FAILURE (isolation leak). The materialization commit absorbed all
+//      legitimate bootstrap output (installed runner, wiki, agent files, MCP configs)
+//      so there is no longer a "pre-existing untracked bootstrap" category to exclude.
+//
+// expectedSha is the materialization_sha for with-arm scenarios and the pinned corpus
+// sha for control scenarios — in both cases HEAD must not move during the run.
 const REAL_RUNTIME_STATE_BASENAMES = [".omx", ".omc", ".codex", ".claude", ".gemini", ".cursor"];
 
 function gitUntrackedPaths(cwd) {
@@ -609,10 +649,10 @@ function gitUntrackedPaths(cwd) {
   return untracked;
 }
 
-// Snapshot the set of git-untracked paths (and the runtime-state basenames among
-// them) BEFORE the run so the post-run denylist scan only flags NEWLY-appeared
-// runtime-state paths. For a clean checked-out repo this is empty; for a with-arm
-// copy it captures the bootstrap dot-dirs and the installed runner output.
+// Snapshot the set of git-untracked paths BEFORE the run. After the materialization
+// commit all bootstrap output is committed, so a freshly materialized with-arm copy
+// has an empty untracked set and this snapshot is likewise empty. Kept for API
+// compatibility with callers that pass preRunUntracked to validateRealRepoAfterRun.
 function snapshotRealRepoUntracked(cwd) {
   return new Set(gitUntrackedPaths(cwd));
 }
@@ -628,25 +668,25 @@ function validateRealRepoAfterRun({ cwd, expectedSha, preRunUntracked }) {
   if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
     throw new Error(`real corpus post-run validation: working copy missing: ${cwd}`);
   }
-  // 1. Pinned sha still matches (a run must not move HEAD).
+  // 1. HEAD must not have moved during the run (a codex run must not commit anything).
   const head = gitRevParseHead(cwd);
   if (expectedSha && expectedSha !== PIN_PLACEHOLDER && head !== expectedSha) {
-    throw new Error(`real corpus post-run validation failed: ${cwd} HEAD ${head} drifted from pinned sha ${expectedSha}`);
+    throw new Error(`real corpus post-run validation failed: ${cwd} HEAD ${head} drifted from expected sha ${expectedSha}`);
   }
-  // 2. Tracked-file cleanliness: porcelain (default untracked mode = normal) must
-  //    show no tracked modifications. We compute the NEW untracked set separately
-  //    so untracked bootstrap output (with-arm) does not, by itself, fail the run.
+  // 2. Fully-empty porcelain: the run must have left the working tree exactly as it
+  //    found it. Any non-empty output is a hard failure (tracked modifications OR new
+  //    untracked paths that were not committed as part of materialization).
   const allUntracked = gitUntrackedPaths(cwd);
   const baseline = preRunUntracked instanceof Set ? preRunUntracked : new Set();
   const newUntracked = allUntracked.filter((p) => !baseline.has(p));
-  // Tracked-modification check: porcelain with tracked changes only (strip the
-  // untracked lines). Any non-untracked porcelain line is a tracked mutation.
   const porcelain = gitStatusPorcelain(cwd);
-  const trackedChanges = porcelain.split("\n").map((line) => line).filter((line) => line.length > 0 && !line.startsWith("?? "));
+  const trackedChanges = porcelain.split("\n").filter((line) => line.length > 0 && !line.startsWith("?? "));
   if (trackedChanges.length > 0) {
     throw new Error(`real corpus post-run validation failed: ${cwd} has tracked-file changes after the run:\n${trackedChanges.join("\n")}`);
   }
-  // 3. Runtime-state denylist over NEW untracked paths only.
+  // 3. Runtime-state denylist over ALL untracked paths not in the pre-run baseline.
+  //    After the materialization commit the baseline is empty for both arms, so any
+  //    new untracked runtime-state path is a clean isolation failure.
   const newDenylistHits = denylistHitsAmong(newUntracked);
   if (newDenylistHits.length > 0) {
     throw new Error(`real corpus post-run validation failed: runtime-state paths appeared during the run in ${cwd}: ${newDenylistHits.join(", ")}. Isolation failed (codex/plugins wrote runtime state into the working copy); this is a hard failure.`);

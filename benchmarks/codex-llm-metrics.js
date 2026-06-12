@@ -244,7 +244,11 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
   let preRunSnapshot = null;
   let preRunUntracked = null;
   if (real) {
-    checkRealRepoPreRun({ cwd: scenario.cwd, expectedSha: scenario.fixture_fingerprint.repo_sha });
+    checkRealRepoPreRun({
+      cwd: scenario.cwd,
+      expectedSha: scenario.fixture_fingerprint.repo_sha,
+      materializationSha: scenario.materialization_sha || null,
+    });
     preRunUntracked = snapshotRealRepoUntracked(scenario.cwd);
   } else {
     checkPreRunFingerprint({ cwd: scenario.cwd, expectedFingerprint: scenario.fixture_fingerprint });
@@ -271,7 +275,9 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
   const fixtureValidation = real
     ? validateRealRepoAfterRun({
       cwd: scenario.cwd,
-      expectedSha: scenario.fixture_fingerprint.repo_sha,
+      // With-arm: use materialization_sha (HEAD after the materialization commit).
+      // Control-arm: use the pinned corpus sha (no materialization commit on control).
+      expectedSha: scenario.materialization_sha || scenario.fixture_fingerprint.repo_sha,
       preRunUntracked,
     })
     : validateFixtureAfterRun({

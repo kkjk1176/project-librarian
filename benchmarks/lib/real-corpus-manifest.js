@@ -107,13 +107,17 @@ function buildRealCorpusManifest({ corpusDir, keysDir, workDir, cliPath, repos, 
       with_project_librarian: withArm,
       without_project_librarian: controlArm,
     };
+    // With-arm HEAD is materialization_sha (post-materialization commit); control HEAD
+    // is the pinned corpus sha. Both are recorded per-condition for scenario provenance.
     const repoShaByCondition = {
-      with_project_librarian: gitRevParseHead(withArm.dir),
+      with_project_librarian: withArm.materialization_sha,
       without_project_librarian: gitRevParseHead(controlArm.dir),
     };
     repoProvenance.push({
       repo,
       sha: key.sha,
+      corpus_sha: withArm.corpus_sha,
+      materialization_sha: withArm.materialization_sha,
       with_dir: withArm.dir,
       control_dir: controlArm.dir,
       mcp_handshake: withArm.mcp_handshake,
@@ -125,18 +129,27 @@ function buildRealCorpusManifest({ corpusDir, keysDir, workDir, cliPath, repos, 
         const arm = armByCondition[condition];
         const cwd = arm.dir;
         const repoSha = repoShaByCondition[condition];
+        const isWith = condition === "with_project_librarian";
+        // Provenance: with-arm uses the materialization_sha as the expected HEAD for
+        // pre/post-run checks; control uses the pinned corpus sha. Both are carried in
+        // the scenario so the runner can pass the right value to checkRealRepoPreRun.
+        const corpusSha = withArm.corpus_sha;
+        const materializationSha = isWith ? withArm.materialization_sha : null;
         const prompt = frameRealPrompt(question.prompt, repo, condition, question.task_family);
         // Real-corpus fingerprint: pinned sha + git-clean (a content hash of a
         // multi-thousand-file repo is impractical and unnecessary). The verified
         // pre-run check is the live integrity gate; this record carries the sha
         // and a fixed algorithm tag so reports/validators can tell it apart from
-        // the synthetic content-hash fingerprint.
+        // the synthetic content-hash fingerprint. The fingerprint value incorporates
+        // the materialization_sha for with-arm scenarios so any re-materialization
+        // produces a different value (the commit absorbs the bootstrap output).
+        const fingerprintBasis = isWith ? `${repo}\0${corpusSha}\0${materializationSha}\0${condition}` : `${repo}\0${corpusSha}\0${condition}`;
         const fixtureFingerprint = {
           algorithm: "pinned-sha-git-clean",
-          repo_sha: repoSha,
-          value: sha256(`${repo}\0${repoSha}\0${condition}`),
+          repo_sha: corpusSha,
+          materialization_sha: materializationSha,
+          value: sha256(fingerprintBasis),
         };
-        const isWith = condition === "with_project_librarian";
         scenarios.push({
           scale: "real",
           condition,
@@ -144,6 +157,8 @@ function buildRealCorpusManifest({ corpusDir, keysDir, workDir, cliPath, repos, 
           corpus: "real",
           repo,
           repo_sha: repoSha,
+          corpus_sha: corpusSha,
+          materialization_sha: materializationSha,
           question_id: question.question_id,
           control_profile: "organic",
           task_family: question.task_family,
