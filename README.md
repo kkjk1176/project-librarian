@@ -58,9 +58,9 @@ Report: `benchmarks/reports/llm/stage2d-codegraph.*` (2026-06-11, claim gate pas
 
 The overhead replicated across three gate-valid variations (deepened structure, fixed evaluator, task-shaped interface), so no code-graph performance claims are made — published as a measured boundary per the losing-scenarios policy. The control answers multi-hop structural questions with 3-9 targeted greps, while any tool interaction (discovery, invocation, output verification) costs more than it saves at these fixture scales.
 
-#### Real-repository corpus (investigation evidence)
+#### Real-repository corpus (claim gate passed)
 
-Report: `benchmarks/reports/llm/stageR1-real.*` (2026-06-12) — SHA-pinned excalidraw (~1.2k files) and backstage (~11.8k files), hand-authored answer keys, and the answer-shaped MCP tools injected into the hermetic Codex home. Cost-weighted deltas:
+Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (2026-06-12, claim gate passed with 30/30 runs correct after two evaluator false positives were fixed and the report was re-scored from its raw JSONL — originals preserved, recompute-from-raw is the standing audit policy). SHA-pinned excalidraw (~1.2k files) and backstage (~11.8k files), hand-authored answer keys, and the answer-shaped MCP tools injected into the hermetic Codex home. Cost-weighted deltas:
 
 | Question | excalidraw (~1.2k files) | backstage (~11.8k files) |
 | --- | ---: | ---: |
@@ -68,7 +68,7 @@ Report: `benchmarks/reports/llm/stageR1-real.*` (2026-06-12) — SHA-pinned exca
 | workspace_graph | +106% | -2.6% |
 | ownership_lookup | — | +99% |
 
-A scale crossover is visible: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace, with scan bytes -24.5%) and break-evens the workspace graph, while everything loses on the small repository, and cheap lookups (CODEOWNERS ownership) lose at every scale. This run's claim gate failed solely because one with-arm run missed correctness on backstage ownership (2/3 passing), so these numbers are investigation evidence rather than claims until a gate-passing rerun.
+A scale crossover is the claim: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace -27.7% cost-weighted, scan bytes -24.5%) and break-evens the workspace graph, while everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale — the losing cells are published with the winning one. This boundary is what the scale-aware gates in the CLI now encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
 
 ## Install
 
