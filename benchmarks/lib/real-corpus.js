@@ -406,7 +406,12 @@ function copyPristineClone(pristineDir, destDir) {
     throw new Error(`copyPristineClone: destination already exists (each condition copy must be fresh): ${destDir}`);
   }
   fs.mkdirSync(path.dirname(destDir), { recursive: true });
-  fs.cpSync(pristineDir, destDir, { recursive: true });
+  // verbatimSymlinks: true is REQUIRED: the default resolves relative symlinks to
+  // absolute paths (e.g. .claude/CLAUDE.md -> ../AGENTS.md becomes
+  // /private/tmp/.../pristine/AGENTS.md), which (1) makes git report 'M' on the
+  // link text before any run (breaking checkRealRepoPreRun on the control copy) and
+  // (2) lets an agent traverse the link into the PRISTINE clone, breaking isolation.
+  fs.cpSync(pristineDir, destDir, { recursive: true, verbatimSymlinks: true });
 }
 
 // In-fixture MCP handshake verification (with-arm). Spawns the installed runner's

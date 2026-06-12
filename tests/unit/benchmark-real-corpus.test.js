@@ -482,7 +482,7 @@ test("checkRealRepoPreRun with materializationSha: PASSES on a clean with-arm co
     // Simulate what materializeWithArm does: copy, add bootstrap output as tracked
     // modifications + new files, then create the materialization commit.
     const copy = path.join(work, "with_project_librarian");
-    fs.cpSync(pristine, copy, { recursive: true });
+    fs.cpSync(pristine, copy, { recursive: true, verbatimSymlinks: true });
     // Simulate bootstrap upsertng a tracked CLAUDE.md (the flaw scenario).
     writeFile(path.join(copy, "CLAUDE.md"), "# managed block added by bootstrap\n");
     writeFile(path.join(copy, "wiki", "startup.md"), "# Startup\n");
@@ -545,7 +545,7 @@ test("regression: stub with tracked CLAUDE.md + AGENTS.md — materialization su
   const work = makeTmpDir("rc-regression-work-");
   try {
     const copy = path.join(work, "with_project_librarian");
-    fs.cpSync(pristine, copy, { recursive: true });
+    fs.cpSync(pristine, copy, { recursive: true, verbatimSymlinks: true });
     // Bootstrap upserts managed blocks into the TRACKED files.
     writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- PROJECT-WIKI-MANAGED-BLOCK -->\n# Added by bootstrap\n<!-- /PROJECT-WIKI-MANAGED-BLOCK -->\n");
     writeFile(path.join(copy, "AGENTS.md"), "# Agents instructions (original)\n\n<!-- PROJECT-WIKI-MANAGED-BLOCK -->\n# Added by bootstrap\n<!-- /PROJECT-WIKI-MANAGED-BLOCK -->\n");
@@ -581,7 +581,7 @@ test("regression: simulated post-run tracked edit FAILS after materialization co
   const work = makeTmpDir("rc-regression-postrun-edit-work-");
   try {
     const copy = path.join(work, "with_project_librarian");
-    fs.cpSync(pristine, copy, { recursive: true });
+    fs.cpSync(pristine, copy, { recursive: true, verbatimSymlinks: true });
     // Simulate bootstrap upserts (like materializeWithArm): modify tracked files and
     // add new files, then commit — this is the materialization commit.
     writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- BLOCK -->\n# bootstrap\n<!-- /BLOCK -->\n");
@@ -608,7 +608,7 @@ test("regression: planted untracked .omx/state/x FAILS with denylist message aft
   const work = makeTmpDir("rc-regression-omx-work-");
   try {
     const copy = path.join(work, "with_project_librarian");
-    fs.cpSync(pristine, copy, { recursive: true });
+    fs.cpSync(pristine, copy, { recursive: true, verbatimSymlinks: true });
     // Simulate bootstrap upserts (like materializeWithArm): modify tracked files and
     // add new files, then commit — this is the materialization commit.
     writeFile(path.join(copy, "CLAUDE.md"), "# Claude instructions (original)\n\n<!-- BLOCK -->\n# bootstrap\n<!-- /BLOCK -->\n");
@@ -906,6 +906,224 @@ test("(c) real-corpus claim gate FAILS with named missing-question issues on par
     !realCorpusGate.issues.some((issue) => issue.includes(`excalidraw/impact-1`)),
     "measured pair must NOT appear in missing issues",
   );
+});
+
+// --- symlink-preservation regression tests (backstage shape) ------------------
+//
+// Real repos (backstage, etc.) commit RELATIVE symlinks that point inside the
+// repo tree: .claude/CLAUDE.md -> ../AGENTS.md, mode 120000 in git. The old
+// fs.cpSync default resolved those to ABSOLUTE paths (pointing into the PRISTINE
+// clone), which (1) made `git status --porcelain` report 'M' on the copy's link
+// text, causing checkRealRepoPreRun to hard-fail on the control copy, and (2)
+// let an agent follow the link straight into the pristine tree, breaking the
+// isolation contract. The fix is fs.cpSync with verbatimSymlinks:true so the
+// copied link target byte-equals the original.
+
+// Build a stub repo that TRACKS a relative symlink (the backstage shape):
+//   .claude/CLAUDE.md -> ../AGENTS.md   (relative, stays inside the repo)
+// Committed so the pinned-sha and git-clean checks work exactly like a real repo.
+function buildStubRepoWithSymlink(prefix) {
+  const repo = makeTmpDir(prefix);
+  git(repo, ["init", "-q"]);
+  git(repo, ["config", "user.email", "stub@example.com"]);
+  git(repo, ["config", "user.name", "Stub"]);
+  git(repo, ["config", "commit.gpgsign", "false"]);
+
+  writeFile(path.join(repo, "CODEOWNERS"), "* @stub-org\n");
+  writeFile(path.join(repo, "README.md"), "# Stub with symlink\n");
+  writeFile(path.join(repo, "AGENTS.md"), "# Agents\n");
+
+  // Create .claude/ dir and a relative symlink: .claude/CLAUDE.md -> ../AGENTS.md
+  // This exactly mirrors the backstage layout that caused the live failure.
+  fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
+  fs.symlinkSync("../AGENTS.md", path.join(repo, ".claude", "CLAUDE.md"));
+
+  // Also add the .cursor variant from the bug report.
+  fs.mkdirSync(path.join(repo, ".cursor", "rules"), { recursive: true });
+  fs.symlinkSync("../../AGENTS.md", path.join(repo, ".cursor", "rules", "backstage-project.mdc"));
+
+  git(repo, ["add", "-A"]);
+  git(repo, ["commit", "-q", "-m", "stub with symlinks"]);
+  const sha = git(repo, ["rev-parse", "HEAD"]).trim();
+  return { repo, sha };
+}
+
+test("symlink regression (a): control copy has verbatim relative link, git status clean, resolved path stays inside copy", () => {
+  // The backstage bug: control copy's .claude/CLAUDE.md was rewritten from
+  // ../AGENTS.md to /private/tmp/.../pristine/AGENTS.md, making git report 'M'
+  // before any run and letting agents escape the isolation boundary.
+  const { repo: pristine, sha } = buildStubRepoWithSymlink("rc-symlink-control-");
+  const work = makeTmpDir("rc-symlink-control-work-");
+  try {
+    const controlDir = path.join(work, "without_project_librarian");
+    copyPristineClone(pristine, controlDir);
+
+    // (1) The link target must byte-equal the original (relative, not absolute).
+    const claudeLink = path.join(controlDir, ".claude", "CLAUDE.md");
+    const cursorLink = path.join(controlDir, ".cursor", "rules", "backstage-project.mdc");
+    assert.equal(
+      fs.readlinkSync(claudeLink),
+      "../AGENTS.md",
+      ".claude/CLAUDE.md link target must be verbatim '../AGENTS.md', not an absolute path",
+    );
+    assert.equal(
+      fs.readlinkSync(cursorLink),
+      "../../AGENTS.md",
+      ".cursor/rules/backstage-project.mdc link target must be verbatim '../../AGENTS.md'",
+    );
+
+    // (2) git status must be fully empty (no 'M' on the link text).
+    const { gitStatusPorcelain } = require("../../benchmarks/lib/real-corpus");
+    assert.equal(
+      gitStatusPorcelain(controlDir),
+      "",
+      "control copy git status must be empty (no 'M' from rewritten symlink target)",
+    );
+
+    // (3) The resolved path must stay inside the copy, not escape into the pristine.
+    // Normalize both sides with realpathSync to handle macOS /var -> /private/var.
+    const resolvedClaude = fs.realpathSync(claudeLink);
+    const realControlDir = fs.realpathSync(controlDir);
+    const realPristine = fs.realpathSync(pristine);
+    assert(
+      resolvedClaude.startsWith(realControlDir),
+      `resolved .claude/CLAUDE.md must be inside the copy (${realControlDir}), got ${resolvedClaude}`,
+    );
+    assert(
+      !resolvedClaude.startsWith(realPristine),
+      `resolved path must NOT point into the pristine clone (${realPristine})`,
+    );
+
+    // (4) checkRealRepoPreRun must pass (the old bug caused a hard-fail here).
+    const { checkRealRepoPreRun } = require("../../benchmarks/lib/real-corpus");
+    const result = checkRealRepoPreRun({ cwd: controlDir, expectedSha: sha });
+    assert.equal(result.clean, true, "checkRealRepoPreRun must pass on a control copy with symlinks");
+  } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("symlink regression (b): with-arm copy has verbatim relative link BEFORE the materialization commit (commit cannot mask a rewrite)", () => {
+  // The materialization commit re-baselines the with-arm copy — so a symlink rewrite
+  // that happens during the copy but before the commit would be silently committed and
+  // hidden. This test asserts the link is verbatim BEFORE the commit is made, ensuring
+  // the fix is in the copy step, not papered over by the commit.
+  const { repo: pristine, sha: corpusSha } = buildStubRepoWithSymlink("rc-symlink-witharm-");
+  const work = makeTmpDir("rc-symlink-witharm-work-");
+  try {
+    const withDir = path.join(work, "with_project_librarian");
+    copyPristineClone(pristine, withDir);
+
+    // Assert the link is verbatim BEFORE adding any bootstrap output or committing.
+    const claudeLink = path.join(withDir, ".claude", "CLAUDE.md");
+    assert.equal(
+      fs.readlinkSync(claudeLink),
+      "../AGENTS.md",
+      ".claude/CLAUDE.md link must be verbatim relative BEFORE the materialization commit",
+    );
+
+    // The resolved path must stay inside the copy, not escape into the pristine.
+    // Normalize both sides with realpathSync to handle macOS /var -> /private/var.
+    const resolvedClaude = fs.realpathSync(claudeLink);
+    const realWithDir = fs.realpathSync(withDir);
+    const realPristine = fs.realpathSync(pristine);
+    assert(
+      resolvedClaude.startsWith(realWithDir),
+      `pre-commit: resolved link must be inside the copy (${realWithDir}), got ${resolvedClaude}`,
+    );
+    assert(
+      !resolvedClaude.startsWith(realPristine),
+      `pre-commit: resolved path must NOT point into the pristine (${realPristine})`,
+    );
+
+    // git status is empty before any bootstrap changes.
+    const { gitStatusPorcelain } = require("../../benchmarks/lib/real-corpus");
+    assert.equal(gitStatusPorcelain(withDir), "");
+
+    // Now simulate the materialization commit (add bootstrap files + commit).
+    writeFile(path.join(withDir, "wiki", "startup.md"), "# Startup\n");
+    git(withDir, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "add", "-A"]);
+    git(withDir, ["-c", "user.name=benchmark-harness", "-c", "user.email=benchmark@localhost", "commit", "-q", "-m", "benchmark with-arm materialization"]);
+    const materializationSha = git(withDir, ["rev-parse", "HEAD"]).trim();
+
+    // After the commit: link is still verbatim (the commit didn't change it).
+    assert.equal(fs.readlinkSync(claudeLink), "../AGENTS.md", "link must still be verbatim after commit");
+
+    // checkRealRepoPreRun with materializationSha must pass (not fail on link text 'M').
+    const { checkRealRepoPreRun } = require("../../benchmarks/lib/real-corpus");
+    const result = checkRealRepoPreRun({ cwd: withDir, expectedSha: corpusSha, materializationSha });
+    assert.equal(result.clean, true);
+  } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("symlink regression (c): walk all symlinks in both copies — none resolve into the pristine dir", () => {
+  // Isolation contract: no path in either condition copy may resolve to a file
+  // inside the pristine clone. Walk all symlinks (tracked by git) and assert
+  // every resolved target is inside the respective copy directory.
+  const { repo: pristine, sha } = buildStubRepoWithSymlink("rc-symlink-isolation-");
+  const work = makeTmpDir("rc-symlink-isolation-work-");
+  try {
+    const controlDir = path.join(work, "without_project_librarian");
+    const withDir = path.join(work, "with_project_librarian");
+    copyPristineClone(pristine, controlDir);
+    copyPristineClone(pristine, withDir);
+
+    // Collect all symlinks by walking the two copies (skip .git internals).
+    function collectSymlinks(dir) {
+      const result = [];
+      function walk(current) {
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+          const full = path.join(current, entry.name);
+          if (entry.name === ".git") continue;
+          if (entry.isSymbolicLink()) {
+            result.push(full);
+          } else if (entry.isDirectory()) {
+            walk(full);
+          }
+        }
+      }
+      walk(dir);
+      return result;
+    }
+
+    // Normalize base dirs with realpathSync to handle macOS /var -> /private/var.
+    const realPristine = fs.realpathSync(pristine);
+    for (const [label, copyDir] of [["control", controlDir], ["with-arm", withDir]]) {
+      const realCopyDir = fs.realpathSync(copyDir);
+      const symlinks = collectSymlinks(copyDir);
+      assert(symlinks.length > 0, `${label} copy must contain at least one symlink (from .claude/CLAUDE.md)`);
+      for (const linkPath of symlinks) {
+        let resolved;
+        try {
+          resolved = fs.realpathSync(linkPath);
+        } catch {
+          // dangling symlink — still must not point into pristine
+          const rawTarget = fs.readlinkSync(linkPath);
+          const absoluteTarget = path.resolve(path.dirname(linkPath), rawTarget);
+          assert(
+            !absoluteTarget.startsWith(realPristine),
+            `${label}: dangling symlink ${linkPath} resolves to ${absoluteTarget} which escapes into pristine`,
+          );
+          continue;
+        }
+        assert(
+          !resolved.startsWith(realPristine),
+          `${label}: symlink ${linkPath} resolves to ${resolved} which escapes into pristine (${realPristine})`,
+        );
+        assert(
+          resolved.startsWith(realCopyDir),
+          `${label}: symlink ${linkPath} resolves to ${resolved} outside the copy dir (${realCopyDir})`,
+        );
+      }
+    }
+  } finally {
+    fs.rmSync(pristine, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 });
 
 // --- the candidate manifest's placeholder sha is recognized -------------------
