@@ -9,7 +9,7 @@ const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { aggregationExpectation, codeGraphExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
-const { claimableRuns, completePairCount, costWeightedTokens, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, renderLlmMarkdownReport, resolveCacheDiscount, scenariosForTrack, selectPairedScenarios, tracksPresent } = require("../../benchmarks/lib/llm-report");
+const { claimableRuns, completePairCount, corporaPresent, costWeightedTokens, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, renderLlmMarkdownReport, resolveCacheDiscount, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
 const sampleFinalText = "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.";
@@ -307,10 +307,17 @@ function assertValidTrackTag(track) {
 
 const validControlProfiles = ["bare", "organic", "curated"];
 
+const validCorpora = ["synthetic", "real"];
+
 function validateManifest(report) {
-  // schema_version 4 (A3) adds multi_session sessions/session_count and the
-  // aggregation expectation; schema_version 3 added control_profile (A2).
-  assert.equal(report.schema_version, 4);
+  // schema_version 5 adds the corpus dimension (corpus/repo/repo_sha/question_id on
+  // every scenario); schema_version 4 (A3) added multi_session sessions/session_count
+  // and the aggregation expectation; schema_version 3 added control_profile (A2).
+  assert.equal(report.schema_version, 5);
+  // The corpus dimension is recorded at the manifest top level and on every
+  // scenario. The synthetic fixtures are corpus "synthetic"; the real-repository
+  // manifest is corpus "real".
+  assert(validCorpora.includes(report.corpus), `invalid manifest corpus: ${report.corpus}`);
   // A2: the manifest records control_profile at the top level and on every
   // scenario, and the profile is a known value.
   assert(validControlProfiles.includes(report.control_profile), `invalid manifest control_profile: ${report.control_profile}`);
@@ -318,6 +325,21 @@ function validateManifest(report) {
   assert(report.scenarios.length > 0);
   assert(report.scenarios.every((scenario) => scenario.cwd && scenario.prompt && Array.isArray(scenario.command)));
   assert(report.scenarios.every((scenario) => scenario.control_profile === report.control_profile), "scenario control_profile must match the manifest control_profile");
+  // Every scenario carries the corpus dimension fields. Synthetic scenarios carry
+  // null repo/repo_sha/question_id; real scenarios carry strings.
+  for (const scenario of report.scenarios) {
+    assert(validCorpora.includes(scenario.corpus), `scenario ${scenario.prompt_id} has invalid corpus ${scenario.corpus}`);
+    assert.equal(scenario.corpus, report.corpus, "scenario corpus must match the manifest corpus");
+    if (scenario.corpus === "real") {
+      assert(typeof scenario.repo === "string" && scenario.repo.length > 0, `real scenario ${scenario.prompt_id} needs a repo`);
+      assert(typeof scenario.repo_sha === "string" && scenario.repo_sha.length > 0, `real scenario ${scenario.prompt_id} needs a repo_sha`);
+      assert(typeof scenario.question_id === "string" && scenario.question_id.length > 0, `real scenario ${scenario.prompt_id} needs a question_id`);
+    } else {
+      assert.equal(scenario.repo, null);
+      assert.equal(scenario.repo_sha, null);
+      assert.equal(scenario.question_id, null);
+    }
+  }
   // Track tags exist and are valid on every scenario; benchmark_tracks lists the
   // tracks present and matches the per-scenario tags.
   assert(Array.isArray(report.benchmark_tracks) && report.benchmark_tracks.length > 0);
@@ -376,8 +398,11 @@ function validateReport(reportPath) {
     validateManifest(report);
     return;
   }
-  assert.equal(report.schema_version, 6);
+  assert.equal(report.schema_version, 7);
   assert.equal(report.benchmark_kind, "codex-actual-llm");
+  // schema 7 corpus dimension: a top-level corpus label ("synthetic", "real", or
+  // "mixed" when a report carries both). Every scenario carries its own corpus.
+  assert(["synthetic", "real", "mixed"].includes(report.corpus), `invalid report corpus: ${report.corpus}`);
   assert(report.auth && report.auth.auth_mode_source === "declared");
   // A4: the report records the cache discount used for the cost-weighted headline,
   // at the top level and in configuration, and it is a finite 0..1 value.
@@ -433,7 +458,27 @@ function validateReport(reportPath) {
     assert(Array.isArray(scenario.runs));
     assert(scenario.runs.length > 0);
     assertValidTrackTag(scenario.benchmark_track);
-    assert.equal(scenario.control_profile, report.control_profile);
+    // Corpus dimension on every scenario. Synthetic scenarios carry null repo
+    // fields; real scenarios carry strings plus the with-arm mcp_injected flag.
+    assert(["synthetic", "real"].includes(scenario.corpus), `scenario ${scenario.prompt_id} invalid corpus ${scenario.corpus}`);
+    if (scenario.corpus === "real") {
+      assert(typeof scenario.repo === "string" && scenario.repo.length > 0, `real scenario ${scenario.prompt_id} needs a repo`);
+      assert(typeof scenario.repo_sha === "string" && scenario.repo_sha.length > 0, `real scenario ${scenario.prompt_id} needs a repo_sha`);
+      assert(typeof scenario.question_id === "string" && scenario.question_id.length > 0, `real scenario ${scenario.prompt_id} needs a question_id`);
+      assert.equal(typeof scenario.mcp_injected, "boolean", `real scenario ${scenario.prompt_id} needs an mcp_injected flag`);
+      // MCP is injected on the with arm only.
+      assert.equal(scenario.mcp_injected, scenario.condition === "with_project_librarian", `real scenario ${scenario.prompt_id} mcp_injected must be true only on the with arm`);
+    } else {
+      assert.equal(scenario.repo, null);
+      assert.equal(scenario.repo_sha, null);
+      assert.equal(scenario.question_id, null);
+      assert.equal(scenario.mcp_injected, false, "synthetic scenarios never inject MCP");
+    }
+    // The control profile is uniform within the synthetic corpus; the real corpus
+    // records its own organic profile (it has no synthetic control profiles).
+    if (scenario.corpus === "synthetic") {
+      assert.equal(scenario.control_profile, report.control_profile);
+    }
     assert(Object.hasOwn(scenario, "expectation"));
     if (scenario.benchmark_track === "code_graph") {
       assert(scenario.expectation && Array.isArray(scenario.expectation.required_terms), `code_graph scenario ${scenario.prompt_id} missing expectation`);
@@ -467,9 +512,17 @@ function validateReport(reportPath) {
     assert(Number.isInteger(scenario.passed_run_count));
     assert(Number.isInteger(scenario.claimable_run_count));
     assert(Array.isArray(scenario.models));
-    assert(scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "sha256-relative-path-content" && scenario.fixture_fingerprint.value);
-    if (scenario.cwd && fs.existsSync(scenario.cwd)) {
-      assert.deepEqual(scenario.fixture_fingerprint, fingerprintDirectory(scenario.cwd));
+    // Synthetic scenarios carry a content-hash fingerprint; real scenarios carry a
+    // pinned-sha + git-clean fingerprint (a full-file hash of a large repo is
+    // impractical). Each is validated for its own algorithm.
+    if (scenario.corpus === "real") {
+      assert(scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "pinned-sha-git-clean" && scenario.fixture_fingerprint.value, `real scenario ${scenario.prompt_id} needs a pinned-sha fingerprint`);
+      assert.equal(scenario.fixture_fingerprint.repo_sha, scenario.repo_sha, `real scenario ${scenario.prompt_id} fingerprint repo_sha must match the scenario repo_sha`);
+    } else {
+      assert(scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "sha256-relative-path-content" && scenario.fixture_fingerprint.value);
+      if (scenario.cwd && fs.existsSync(scenario.cwd)) {
+        assert.deepEqual(scenario.fixture_fingerprint, fingerprintDirectory(scenario.cwd));
+      }
     }
     assert(Object.hasOwn(scenario, "requested_model"));
     assert(Object.hasOwn(scenario, "model_source"));
@@ -482,11 +535,19 @@ function validateReport(reportPath) {
       assert(run.execution && ["completed", "failed"].includes(run.execution.status));
       // A5: every measured run carries a post-run fixture validation record. A
       // written report only exists when validation did not throw, so the recorded
-      // state must be clean: no runtime-state paths and a matched fingerprint.
+      // state must be clean. The synthetic record carries runtime_state_paths +
+      // fingerprint_matched; the real-corpus record carries pinned_sha_matched +
+      // git_clean + new_untracked_runtime_state_paths (pinned-sha + git-clean checks).
       assert(run.fixture_validation && typeof run.fixture_validation === "object", `run ${run.run_index} missing fixture_validation`);
       assert.equal(run.fixture_validation.status, "clean");
-      assert.deepEqual(run.fixture_validation.runtime_state_paths, []);
-      assert.equal(run.fixture_validation.fingerprint_matched, true);
+      if (scenario.corpus === "real") {
+        assert.equal(run.fixture_validation.pinned_sha_matched, true);
+        assert.equal(run.fixture_validation.git_clean, true);
+        assert.deepEqual(run.fixture_validation.new_untracked_runtime_state_paths, []);
+      } else {
+        assert.deepEqual(run.fixture_validation.runtime_state_paths, []);
+        assert.equal(run.fixture_validation.fingerprint_matched, true);
+      }
       assert.equal(run.requested_model, scenario.requested_model);
       const rawPath = path.resolve(root, run.raw_jsonl_path);
       assert(fs.existsSync(rawPath), `missing raw JSONL: ${run.raw_jsonl_path}`);
@@ -640,6 +701,26 @@ function validateReport(reportPath) {
   assert.equal(report.claim_gate.status, allTracksPassed ? "passed" : "failed");
   for (const track of presentTracks) {
     assert.deepEqual(report.tracks[track].claim_gate, report.claim_gate.per_track[track]);
+    // Per-corpus structure within each track: report.tracks[track].corpora lists
+    // the corpora present in that track, each with its own summary and per-corpus
+    // claim gate; the track claim gate carries a per_corpus breakdown. Real and
+    // synthetic are reported SEPARATELY (the corpus split discipline).
+    const trackScenariosForCorpus = scenariosForTrack(report.scenarios, track);
+    const corpora = corporaPresent(trackScenariosForCorpus);
+    assert.deepEqual(report.tracks[track].corpora_present, corpora);
+    assert(report.tracks[track].corpora && typeof report.tracks[track].corpora === "object");
+    assert.deepEqual(Object.keys(report.claim_gate.per_track[track].per_corpus).sort(), [...corpora].sort());
+    for (const corpus of corpora) {
+      const corpusScenarios = scenariosForTrackCorpus(report.scenarios, track, corpus);
+      assert(report.tracks[track].corpora[corpus], `missing report.tracks.${track}.corpora.${corpus}`);
+      assert.equal(report.tracks[track].corpora[corpus].summary.scenario_count, corpusScenarios.length);
+      assert.deepEqual(report.tracks[track].corpora[corpus].prompt_ids, corpusScenarios.map((scenario) => scenario.prompt_id));
+      // The per-corpus claim gate in tracks matches the overall gate's per_corpus.
+      assert.deepEqual(report.tracks[track].corpora[corpus].claim_gate, report.claim_gate.per_track[track].per_corpus[corpus]);
+    }
+    // A track passes only if every corpus in it passes.
+    const trackCorporaPassed = corpora.every((corpus) => report.claim_gate.per_track[track].per_corpus[corpus].status === "passed");
+    assert.equal(report.claim_gate.per_track[track].status, trackCorporaPassed ? "passed" : "failed");
   }
 
   const markdown = renderLlmMarkdownReport(report);
@@ -652,16 +733,27 @@ function validateReport(reportPath) {
   // secondary, never a headline.
   assert(markdown.includes("Headline metric per track: cost-weighted tokens"));
   assert(markdown.includes(`cache discount ${report.cache_discount}`), "Markdown must state the cache discount used");
+  // Within each track, the Markdown renders SEPARATE per-corpus subsections so real
+  // and synthetic results are never merged into one table. Each (track, corpus)
+  // subsection carries its own scenario-metrics, cost-weighted headline delta, and
+  // labeled-secondary merged-total tables.
   for (const track of presentTracks) {
     const title = track === "wiki" ? "Wiki Track" : "Code Graph Track";
     assert(markdown.includes(`## ${title}`));
-    assert(markdown.includes(`### ${title} Scenario Metrics`));
-    // The delta table is the cost-weighted headline.
-    assert(markdown.includes(`### ${title} With vs Without Delta (headline: cost-weighted)`), `${title} headline must be cost-weighted`);
-    assert(markdown.includes("Cost-Weighted Delta"));
-    // Merged total tokens is present only as a secondary, explicitly labeled.
-    assert(markdown.includes(`### ${title} Merged Total Tokens (secondary, not a headline)`), `${title} merged total must be labeled secondary`);
+    assert(markdown.includes("Real-corpus and synthetic results are never merged into one number."));
+    const corpora = corporaPresent(scenariosForTrack(report.scenarios, track));
+    for (const corpus of corpora) {
+      const corpusTitle = corpus === "synthetic" ? "Synthetic Corpus" : (corpus === "real" ? "Real Corpus" : `${corpus} Corpus`);
+      const heading = `${title} — ${corpusTitle}`;
+      assert(markdown.includes(`### ${heading}`), `missing subsection heading ${heading}`);
+      assert(markdown.includes(`#### ${heading} Scenario Metrics`), `missing ${heading} scenario metrics`);
+      // The delta table is the cost-weighted headline for this corpus.
+      assert(markdown.includes(`#### ${heading} With vs Without Delta (headline: cost-weighted)`), `${heading} headline must be cost-weighted`);
+      // Merged total tokens is present only as a secondary, explicitly labeled.
+      assert(markdown.includes(`#### ${heading} Merged Total Tokens (secondary, not a headline)`), `${heading} merged total must be labeled secondary`);
+    }
   }
+  assert(markdown.includes("Cost-Weighted Delta"));
   // The merged-total section must label itself secondary and defer to cost-weighted.
   assert(markdown.includes("Secondary only: merged total tokens counts cached resends at full weight"));
   // The recomputed discount used by the renderer matches the report's recorded one.

@@ -1839,6 +1839,14 @@ function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily, requ
     scale,
     condition,
     benchmark_track: benchmarkTrack,
+    // Corpus dimension: synthetic fixtures carry corpus "synthetic" and null
+    // repo/question fields. The real-repository track (benchmarks/lib/real-corpus.js)
+    // produces corpus "real" scenarios with repo/repo_sha/question_id populated;
+    // reports separate the two corpora and never merge their numbers.
+    corpus: "synthetic",
+    repo: null,
+    repo_sha: null,
+    question_id: null,
     task_family: taskFamily,
     // The control profile only shapes the without_project_librarian fixture, but
     // it is recorded on every scenario so the pair shares one labeled profile and
@@ -1944,18 +1952,24 @@ function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scal
   const presentTracks = benchmarkTracks.filter((track) => Object.values(taskTracksForSelected).includes(track));
 
   return {
-    // schema_version 4 (A3) adds the multi_session `sessions`/`session_count`
-    // fields and the aggregation `expectation` (an aggregate-component inventory)
-    // on the relevant scenarios; `sessions` is folded into the manifest
-    // fingerprint so both session prompts are part of provenance. schema_version 3
-    // added control_profile (A2) to the manifest top level and to every scenario.
-    schema_version: 4,
+    // schema_version 5 adds the corpus dimension: every scenario carries
+    // `corpus` ("synthetic" for these synthetic fixtures) plus null
+    // `repo`/`repo_sha`/`question_id`, and corpus is folded into the manifest
+    // fingerprint. The real-repository track emits corpus "real" scenarios with
+    // those fields populated. schema_version 4 (A3) added the multi_session
+    // `sessions`/`session_count` fields and the aggregation `expectation`;
+    // `sessions` is folded into the manifest fingerprint. schema_version 3 added
+    // control_profile (A2) to the manifest top level and to every scenario.
+    schema_version: 5,
     benchmark_kind: "codex-actual-llm-manifest",
     generated_at: new Date().toISOString(),
     fixture_root: fixtureRoot,
     scales: selectedScales,
     conditions,
     benchmark_tracks: presentTracks,
+    // These synthetic fixtures are the synthetic corpus; the real-repository track
+    // builds its own manifest with corpus "real".
+    corpus: "synthetic",
     control_profile: controlProfile,
     task_families: selectedTasks,
     task_tracks: taskTracksForSelected,
@@ -1964,6 +1978,10 @@ function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scal
       scale: scenario.scale,
       condition: scenario.condition,
       benchmark_track: scenario.benchmark_track,
+      corpus: scenario.corpus,
+      repo: scenario.repo,
+      repo_sha: scenario.repo_sha,
+      question_id: scenario.question_id,
       control_profile: scenario.control_profile,
       task_family: scenario.task_family,
       prompt: scenario.prompt,
@@ -2001,8 +2019,11 @@ module.exports = {
   codeownersRulePairs,
   conditions,
   controlProfiles,
+  convertCodeIndexForReadOnlyQuery,
+  codeEvidenceRelativeDatabasePath,
   derivationFilesForFamily,
   fingerprintDirectory,
+  installLocalRunner,
   maintainedIndex,
   maintainedRecentDecisions,
   maintainedStartup,

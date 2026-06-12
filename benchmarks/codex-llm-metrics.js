@@ -9,8 +9,18 @@ const crypto = require("node:crypto");
 const { summarizeJsonl } = require("./lib/codex-jsonl");
 const { evaluateCorrectness } = require("./lib/llm-correctness");
 const { buildManifest, conditions, controlProfiles, scales, taskFamilies, taskTracks } = require("./lib/llm-fixtures");
-const { buildIsolatedCodexHome, buildSpawnEnv, checkPreRunFingerprint, resolveRealCodexHome, snapshotFixturePaths, validateFixtureAfterRun } = require("./lib/hermetic");
-const { DEFAULT_CACHE_DISCOUNT, claimableRuns, completePairCount, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, passedRuns, renderLlmMarkdownReport, scenariosForTrack, selectPairedScenarios, tracksPresent } = require("./lib/llm-report");
+const { buildIsolatedCodexHome, buildSpawnEnv, checkPreRunFingerprint, injectMcpServerConfig, resolveRealCodexHome, snapshotFixturePaths, validateFixtureAfterRun } = require("./lib/hermetic");
+const { buildRealCorpusManifest } = require("./lib/real-corpus-manifest");
+const { checkRealRepoPreRun, snapshotRealRepoUntracked, validateRealRepoAfterRun } = require("./lib/real-corpus");
+
+// A real-corpus scenario is identified by its pinned-sha + git-clean fingerprint
+// algorithm (the synthetic path uses a content-hash fingerprint). Real scenarios
+// use git-clean pre/post checks and (with-arm) MCP injection rather than full-file
+// fingerprinting.
+function isRealScenario(scenario) {
+  return scenario && scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "pinned-sha-git-clean";
+}
+const { DEFAULT_CACHE_DISCOUNT, claimableRuns, completePairCount, corporaPresent, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, passedRuns, renderLlmMarkdownReport, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("./lib/llm-report");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
@@ -52,6 +62,20 @@ function listArg(name, allowed, defaultValues) {
   if (values.length === 0) fail(`empty ${name} value`);
   for (const value of values) {
     if (!allowed.includes(value)) fail(`invalid ${name} value: ${value}`);
+  }
+  return values;
+}
+
+// A comma list argument with no fixed allowed set (e.g. --repos, whose values are
+// repo names present in the corpus directory). Returns [] when absent so the
+// caller fails with its own message.
+function freeListArg(name) {
+  const raw = argValue(name, "");
+  if (!raw) return [];
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) fail(`empty ${name} value`);
+  for (const value of values) {
+    if (/[\\/]/.test(value) || value.includes("..")) fail(`invalid ${name} value: ${value}`);
   }
   return values;
 }
@@ -213,12 +237,21 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
   if (!spawnEnv || typeof spawnEnv !== "object") {
     fail("internal error: measured Codex scenario invoked without a hermetic spawn env");
   }
-  // Pre-run fixture integrity check: verify fingerprint matches the manifest
-  // before consuming quota. Catches stale or previously-mutated fixtures early.
-  checkPreRunFingerprint({ cwd: scenario.cwd, expectedFingerprint: scenario.fixture_fingerprint });
-  // Snapshot paths present BEFORE the spawn so post-run denylist scanning can
-  // distinguish pre-existing bootstrap dot-dirs from paths written during the run.
-  const preRunSnapshot = snapshotFixturePaths(scenario.cwd);
+  const real = isRealScenario(scenario);
+  // Pre-run integrity check: synthetic uses the content-hash fingerprint; the real
+  // corpus uses pinned-sha + git-clean (a content hash of a large repo is
+  // impractical). Both fail before consuming quota on a stale/mutated working copy.
+  let preRunSnapshot = null;
+  let preRunUntracked = null;
+  if (real) {
+    checkRealRepoPreRun({ cwd: scenario.cwd, expectedSha: scenario.fixture_fingerprint.repo_sha });
+    preRunUntracked = snapshotRealRepoUntracked(scenario.cwd);
+  } else {
+    checkPreRunFingerprint({ cwd: scenario.cwd, expectedFingerprint: scenario.fixture_fingerprint });
+    // Snapshot paths present BEFORE the spawn so post-run denylist scanning can
+    // distinguish pre-existing bootstrap dot-dirs from paths written during the run.
+    preRunSnapshot = snapshotFixturePaths(scenario.cwd);
+  }
   const started = process.hrtime.bigint();
   const result = childProcess.spawnSync(command, args, {
     cwd: scenario.cwd,
@@ -231,15 +264,21 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
   fs.writeFileSync(rawPath, result.stdout || "");
   if (result.stderr) fs.writeFileSync(stderrPath, result.stderr);
 
-  // Post-run fixture validation (A5): re-fingerprint the fixture and run the
-  // runtime-state denylist scan (only for NEW paths, not pre-existing bootstrap
-  // dot-dirs). Any drift or any newly-appeared runtime-state path is a hard
-  // failure (throws); isolation failures must fail the run.
-  const fixtureValidation = validateFixtureAfterRun({
-    cwd: scenario.cwd,
-    expectedFingerprint: scenario.fixture_fingerprint,
-    preRunSnapshot,
-  });
+  // Post-run fixture validation: synthetic re-fingerprints + denylist-scans new
+  // paths; the real corpus checks pinned-sha + git-clean and a denylist over NEW
+  // git-untracked paths. Any drift or any newly-appeared runtime-state path is a
+  // hard failure (throws); isolation failures must fail the run.
+  const fixtureValidation = real
+    ? validateRealRepoAfterRun({
+      cwd: scenario.cwd,
+      expectedSha: scenario.fixture_fingerprint.repo_sha,
+      preRunUntracked,
+    })
+    : validateFixtureAfterRun({
+      cwd: scenario.cwd,
+      expectedFingerprint: scenario.fixture_fingerprint,
+      preRunSnapshot,
+    });
 
   const metrics = summarizeJsonlSafely(result.stdout || "", { wall_ms: Math.round(wallMs * 1000) / 1000 });
   const correctness = evaluateCorrectness({
@@ -448,11 +487,32 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     });
   }
 
+  // Real-corpus MCP injection (with-arm only). Each real scenario gets its OWN
+  // fresh isolated CODEX_HOME (so the with-arm home can carry the MCP entry while
+  // the control-arm home does not). For a with-arm (`mcp: true`) scenario, the
+  // project-librarian MCP server is injected into that home's config.toml WITHOUT
+  // clobbering the copied auth material (auth lives in auth.json, not config.toml).
+  // Control-arm homes get NO MCP entry — a usage-faithful with/without contrast.
+  function buildRealScenarioSpawnEnv(scenario, runIndex) {
+    const scenarioHome = path.join(rawRoot, `codex-home-${safeName(scenario.prompt_id)}-run-${runIndex}`);
+    buildIsolatedCodexHome({ realCodexHome, destHome: scenarioHome });
+    if (scenario.mcp) {
+      if (!scenario.mcp_runner_path) {
+        fail(`internal error: real with-arm scenario ${scenario.prompt_id} marked mcp:true without an mcp_runner_path`);
+      }
+      injectMcpServerConfig({ codexHome: scenarioHome, runnerPath: scenario.mcp_runner_path });
+    }
+    return buildSpawnEnv({ sourceEnv: process.env, codexHome: scenarioHome, authMode, homeDir });
+  }
+
   function runScenarioOnce(scenario, runIndex) {
     if (Array.isArray(scenario.sessions) && scenario.sessions.length > 0) {
       return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex) });
     }
-    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv });
+    // Real-corpus scenarios use a per-scenario isolated home (with conditional MCP
+    // injection); synthetic scenarios share the single auth-only isolated home.
+    const scenarioSpawnEnv = isRealScenario(scenario) ? buildRealScenarioSpawnEnv(scenario, runIndex) : spawnEnv;
+    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv });
   }
 
   const scenarios = [];
@@ -475,6 +535,18 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       scale: scenario.scale,
       condition: scenario.condition,
       benchmark_track: scenario.benchmark_track,
+      // Corpus dimension (schema 7): carried through from the manifest so reports
+      // separate real-corpus from synthetic results. Synthetic scenarios carry
+      // "synthetic" + null repo fields; real-corpus scenarios carry "real" + the
+      // repo/repo_sha/question_id they were built from.
+      corpus: scenario.corpus || "synthetic",
+      repo: scenario.repo || null,
+      repo_sha: scenario.repo_sha || null,
+      question_id: scenario.question_id || null,
+      // MCP provenance: with-arm real scenarios inject the project-librarian MCP
+      // server into the isolated CODEX_HOME; recorded so the report shows which
+      // condition carried the MCP entry. Synthetic and control scenarios are false.
+      mcp_injected: Boolean(scenario.mcp),
       control_profile: scenario.control_profile,
       task_family: scenario.task_family,
       prompt_id: scenario.prompt_id,
@@ -526,19 +598,23 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   const expectedByTrack = expectedTasksByTrack(selectedTasks);
 
   const report = {
-    // schema_version 6 (A4) adds the cost decomposition: per-run derived
-    // uncached_input_tokens/tool_output_bytes/request_count_estimate (in metrics),
-    // the report-level cache_discount, and a cost-weighted per-track headline
-    // (merged total_tokens demoted to a secondary row in JSON medians and Markdown).
-    // schema_version 5 (A3) adds multi_session run/scenario fields: per-run
-    // session_metrics + measured_session_index on multi_session runs, and
+    // schema_version 7 adds the corpus dimension: every scenario carries
+    // `corpus`/`repo`/`repo_sha`/`question_id`, claim gates and report.tracks carry
+    // a per-corpus breakdown (real vs synthetic), and the Markdown renders separate
+    // per-corpus subsections within each track (real and synthetic are never merged
+    // into one number). schema_version 6 (A4) added the cost decomposition: per-run
+    // derived uncached_input_tokens/tool_output_bytes/request_count_estimate (in
+    // metrics), the report-level cache_discount, and a cost-weighted per-track
+    // headline (merged total_tokens demoted to a secondary row in JSON medians and
+    // Markdown). schema_version 5 (A3) added multi_session run/scenario fields:
+    // per-run session_metrics + measured_session_index on multi_session runs, and
     // session_count/sessions/session_metrics on multi_session scenarios (session-2
     // metrics are the scenario primary; session-1 lives only in session_metrics).
     // schema_version 4 added the A5 hermetic provenance block at the report top
     // level and a per-run fixture_validation record. schema_version 3 added
     // control_profile (A2) at the report top level, in configuration, and on
     // every scenario.
-    schema_version: 6,
+    schema_version: 7,
     benchmark_kind: "codex-actual-llm",
     auth_mode: authMode,
     auth: authAudit(),
@@ -546,6 +622,10 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     environment: environmentFingerprint(),
     source_control: sourceControlFingerprint(),
     control_profile: manifest.control_profile,
+    // Top-level corpus label: the manifest the measured run consumed. Synthetic
+    // fixtures report "synthetic"; the real-repository track reports "real".
+    // Scenario-level corpus fields carry the per-scenario corpus regardless.
+    corpus: manifest.corpus || "synthetic",
     cache_discount: cacheDiscount,
     hermetic,
     codex: {
@@ -602,11 +682,27 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   report.tracks = {};
   for (const track of presentTracks) {
     const trackScenarios = scenariosForTrack(scenarios, track);
+    const trackCorpora = corporaPresent(trackScenarios);
+    // Per-corpus breakdown within the track: each corpus carries its own scenario
+    // summary, prompt ids, and claim gate so real-corpus results are reported
+    // SEPARATELY from synthetic (never merged into one number).
+    const corpora = {};
+    for (const corpus of trackCorpora) {
+      const corpusScenarios = scenariosForTrackCorpus(scenarios, track, corpus);
+      corpora[corpus] = {
+        corpus,
+        summary: summarizeScenarios(corpusScenarios),
+        prompt_ids: corpusScenarios.map((scenario) => scenario.prompt_id),
+        claim_gate: overallGate.per_track[track].per_corpus[corpus],
+      };
+    }
     report.tracks[track] = {
       benchmark_track: track,
       expected_tasks: expectedByTrack[track] || [],
       summary: summarizeScenarios(trackScenarios),
       prompt_ids: trackScenarios.map((scenario) => scenario.prompt_id),
+      corpora_present: trackCorpora,
+      corpora,
       claim_gate: overallGate.per_track[track],
     };
   }
@@ -636,10 +732,19 @@ function main() {
   const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
   const maxScenarios = positiveIntegerArgValue("--max-scenarios", fullMatrix ? fullMatrixScenarioCount : conditions.length);
   const requestedModel = optionalStringArgValue("--model");
+  const corpus = argValue("--corpus", "synthetic");
+  if (!["synthetic", "real"].includes(corpus)) fail(`invalid --corpus value: ${corpus} (expected synthetic or real)`);
+  const corpusDir = optionalStringArgValue("--corpus-dir");
   const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
 
   if (fullMatrix && hasArg("--max-scenarios") && maxScenarios !== fullMatrixScenarioCount) {
     fail(`--full-matrix requires --max-scenarios ${fullMatrixScenarioCount} for selected scales/tasks`);
+  }
+  if (corpus === "real" && !corpusDir) {
+    fail("--corpus real requires --corpus-dir <path> pointing at the materialized corpus directory");
+  }
+  if (corpus === "real" && fullMatrix) {
+    fail("--full-matrix applies to the synthetic scale×task matrix; the real corpus uses its own repo/question coverage");
   }
 
   if (!dryRun && !allowCodexRun) {
@@ -652,7 +757,28 @@ function main() {
     }
   }
 
-  const manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel, controlProfile });
+  // Corpus dispatch: the synthetic path (default) builds the synthetic fixture
+  // matrix exactly as before. The real path builds a manifest from pristine repo
+  // clones plus per-repo answer keys (offline; clones must already exist under
+  // --corpus-dir, fetched behind --allow-corpus-fetch by benchmarks/lib/real-corpus.js).
+  let manifest;
+  if (corpus === "real") {
+    const reposArg = freeListArg("--repos");
+    if (reposArg.length === 0) {
+      fail("--corpus real requires --repos <name[,name...]> selecting repos present in --corpus-dir");
+    }
+    const keysDir = path.resolve(root, optionalStringArgValue("--keys-dir") || path.join("benchmarks", "real-keys"));
+    manifest = buildRealCorpusManifest({
+      corpusDir: path.resolve(root, corpusDir),
+      keysDir,
+      workDir: fixtureRoot,
+      cliPath: cli,
+      repos: reposArg,
+      requestedModel,
+    });
+  } else {
+    manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel, controlProfile });
+  }
   if (!dryRun) {
     const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount });
     writeJson(out, report);

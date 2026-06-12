@@ -267,12 +267,17 @@ test("buildManifest produces multi_session scenarios with two sessions and measu
       selectedTasks: ["multi_session"],
       controlProfile: "organic",
     });
-    assert.equal(manifest.schema_version, 4);
+    assert.equal(manifest.schema_version, 5);
     // 1 scale x 1 family x 2 conditions.
     assert.equal(manifest.scenarios.length, 2);
     for (const scenario of manifest.scenarios) {
       assert.equal(scenario.task_family, "multi_session");
       assert.equal(scenario.benchmark_track, "wiki");
+      // schema 5 corpus dimension: synthetic fixtures carry corpus "synthetic" and
+      // null repo fields.
+      assert.equal(scenario.corpus, "synthetic");
+      assert.equal(scenario.repo, null);
+      assert.equal(scenario.question_id, null);
       assert.equal(scenario.session_count, 2);
       assert(Array.isArray(scenario.sessions) && scenario.sessions.length === 2);
       assert.deepEqual(scenario.sessions.map((session) => session.role), ["familiarization", "measured"]);

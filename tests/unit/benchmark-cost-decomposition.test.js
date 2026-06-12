@@ -11,6 +11,7 @@ const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { conditions } = require("../../benchmarks/lib/llm-fixtures");
 const {
   DEFAULT_CACHE_DISCOUNT,
+  corporaPresent,
   costWeightedTokens,
   evaluateTracksClaimGate,
   medianMetrics,
@@ -18,6 +19,7 @@ const {
   renderLlmMarkdownReport,
   resolveCacheDiscount,
   scenariosForTrack,
+  scenariosForTrackCorpus,
   tracksPresent,
 } = require("../../benchmarks/lib/llm-report");
 
@@ -230,9 +232,10 @@ function pair({ scale, track, taskFamily, withMetrics, withoutMetrics }) {
 function reportWith(scenarios, cacheDiscount = 0.1) {
   const present = tracksPresent(scenarios);
   const report = {
-    schema_version: 6,
+    schema_version: 7,
     generated_at: "2026-06-10T00:00:00.000Z",
     auth_mode: "chatgpt_codex",
+    corpus: "synthetic",
     cache_discount: cacheDiscount,
     configuration: { runs: 3, warmup_runs: 1, requested_model: "gpt-5.5", cache_discount: cacheDiscount, require_clean: false },
     summary: { scenario_count: scenarios.length, comparison_pair_count: 1, claimable_scenario_count: scenarios.length },
@@ -240,14 +243,31 @@ function reportWith(scenarios, cacheDiscount = 0.1) {
     claim_gate: { status: "passed", per_track: {} },
     tracks: {},
   };
+  // schema 7 per-corpus structure: these mock scenarios default to the synthetic
+  // corpus, so each track carries a single synthetic corpus whose gate equals the
+  // track gate; the renderer reads per_track[track].per_corpus[corpus].status.
   for (const track of present) {
     const trackScenarios = scenariosForTrack(scenarios, track);
+    const corpora = corporaPresent(trackScenarios);
+    const perCorpus = {};
+    const corporaInfo = {};
+    for (const corpus of corpora) {
+      const corpusScenarios = scenariosForTrackCorpus(scenarios, track, corpus);
+      perCorpus[corpus] = { status: "passed", per_corpus: undefined };
+      corporaInfo[corpus] = {
+        corpus,
+        summary: { scenario_count: corpusScenarios.length, comparison_pair_count: 1, claimable_scenario_count: corpusScenarios.length },
+        claim_gate: { status: "passed" },
+      };
+    }
     report.tracks[track] = {
       benchmark_track: track,
       summary: { scenario_count: trackScenarios.length, comparison_pair_count: 1, claimable_scenario_count: trackScenarios.length },
-      claim_gate: { status: "passed" },
+      corpora_present: corpora,
+      corpora: corporaInfo,
+      claim_gate: { status: "passed", per_corpus: perCorpus },
     };
-    report.claim_gate.per_track[track] = { status: "passed" };
+    report.claim_gate.per_track[track] = { status: "passed", per_corpus: perCorpus };
   }
   return report;
 }
@@ -316,9 +336,12 @@ test("per-track sections stay separated with no merged cross-track headline", ()
   const md = renderLlmMarkdownReport(reportWith(scenarios, 0.1));
   assert(md.includes("## Wiki Track"));
   assert(md.includes("## Code Graph Track"));
-  assert(md.includes("### Wiki Track With vs Without Delta (headline: cost-weighted)"));
-  assert(md.includes("### Code Graph Track With vs Without Delta (headline: cost-weighted)"));
+  // Within each track the cost-weighted headline is rendered per-corpus (these mock
+  // scenarios are the synthetic corpus), so the heading carries the corpus name.
+  assert(md.includes("#### Wiki Track — Synthetic Corpus With vs Without Delta (headline: cost-weighted)"));
+  assert(md.includes("#### Code Graph Track — Synthetic Corpus With vs Without Delta (headline: cost-weighted)"));
   assert(md.includes("Tracks are reported separately"));
+  assert(md.includes("Real-corpus and synthetic results are never merged into one number."));
 });
 
 // --- multi_session per-session derivation ---------------------------------------
@@ -351,9 +374,9 @@ test("multi_session derives cost fields per session from each session's raw JSON
 
 // --- validator recomputation path (the checked-in sample) -----------------------
 
-test("the regenerated sample report is schema 6 with a recorded cache discount", () => {
+test("the regenerated sample report is schema 7 with a recorded cache discount", () => {
   const report = JSON.parse(fs.readFileSync(path.join(root, "benchmarks", "llm", "samples", "codex-measured-report.json"), "utf8"));
-  assert.equal(report.schema_version, 6);
+  assert.equal(report.schema_version, 7);
   assert(Number.isFinite(report.cache_discount));
   assert.equal(report.configuration.cache_discount, report.cache_discount);
 });

@@ -93,7 +93,7 @@ test("organic control plants dated distractor decisions strictly earlier than th
   }
 });
 
-test("manifest schema_version is 4 and carries control_profile top-level and per scenario", { skip }, () => {
+test("manifest schema_version is 5 and carries control_profile and corpus top-level and per scenario", { skip }, () => {
   const fixtureRoot = makeTmpDir("a2-manifest-");
   try {
     const manifest = buildManifest({
@@ -103,13 +103,16 @@ test("manifest schema_version is 4 and carries control_profile top-level and per
       selectedTasks: ["decision_lookup"],
       controlProfile: "bare",
     });
-    // schema_version 4 (A3) supersedes 3 (A2); control_profile is still recorded
-    // top-level and per scenario.
-    assert.equal(manifest.schema_version, 4);
+    // schema_version 5 (corpus dimension) supersedes 4 (A3) and 3 (A2);
+    // control_profile and the synthetic corpus label are recorded top-level and
+    // per scenario.
+    assert.equal(manifest.schema_version, 5);
     assert.equal(manifest.control_profile, "bare");
+    assert.equal(manifest.corpus, "synthetic");
     assert(manifest.scenarios.length > 0);
     for (const scenario of manifest.scenarios) {
       assert.equal(scenario.control_profile, "bare");
+      assert.equal(scenario.corpus, "synthetic");
     }
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });

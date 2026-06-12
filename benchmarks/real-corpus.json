@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "description": "Candidate public OSS corpus for the real-repository benchmark track. SHA values are placeholders (PIN-AT-PREP) until corpus-prep pins each repo at a measured commit. Selection gates (validated by benchmarks/lib/real-corpus.js assertSelectionGate): >=4 supported parser languages across the corpus, >=1 repo over 5000 approx_files, >=2 repos with real CODEOWNERS, >=2 workspace monorepos. Fetch is gated behind --allow-corpus-fetch and is never exercised by the offline tests.",
+  "candidates": [
+    {
+      "name": "vscode",
+      "url": "https://github.com/microsoft/vscode.git",
+      "sha": "PIN-AT-PREP",
+      "language": "typescript",
+      "approx_files": 10000,
+      "has_codeowners": false,
+      "workspace_monorepo": true
+    },
+    {
+      "name": "excalidraw",
+      "url": "https://github.com/excalidraw/excalidraw.git",
+      "sha": "PIN-AT-PREP",
+      "language": "typescript",
+      "approx_files": 1200,
+      "has_codeowners": false,
+      "workspace_monorepo": true
+    },
+    {
+      "name": "django",
+      "url": "https://github.com/django/django.git",
+      "sha": "PIN-AT-PREP",
+      "language": "python",
+      "approx_files": 2800,
+      "has_codeowners": false,
+      "workspace_monorepo": false
+    },
+    {
+      "name": "tokio",
+      "url": "https://github.com/tokio-rs/tokio.git",
+      "sha": "PIN-AT-PREP",
+      "language": "rust",
+      "approx_files": 900,
+      "has_codeowners": true,
+      "workspace_monorepo": true
+    },
+    {
+      "name": "gin",
+      "url": "https://github.com/gin-gonic/gin.git",
+      "sha": "PIN-AT-PREP",
+      "language": "go",
+      "approx_files": 250,
+      "has_codeowners": false,
+      "workspace_monorepo": false
+    },
+    {
+      "name": "codeowners-monorepo-a",
+      "url": "PIN-AT-PREP",
+      "sha": "PIN-AT-PREP",
+      "language": "typescript",
+      "approx_files": 6000,
+      "has_codeowners": true,
+      "workspace_monorepo": true
+    },
+    {
+      "name": "codeowners-monorepo-b",
+      "url": "PIN-AT-PREP",
+      "sha": "PIN-AT-PREP",
+      "language": "go",
+      "approx_files": 4000,
+      "has_codeowners": true,
+      "workspace_monorepo": true
+    }
+  ]
+}

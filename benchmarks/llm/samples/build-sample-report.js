@@ -21,12 +21,14 @@ const { aggregationExpectation, codeGraphExpectation, conditions } = require("..
 const {
   claimableRuns,
   completePairCount,
+  corporaPresent,
   evaluateTracksClaimGate,
   measurementStatus,
   medianMetrics,
   metricStats,
   passedRuns,
   scenariosForTrack,
+  scenariosForTrackCorpus,
   tracksPresent,
 } = require("../../lib/llm-report");
 
@@ -108,6 +110,59 @@ function buildScenario({ scale, condition, benchmarkTrack, taskFamily, jsonlRela
   return finalizeScenario({ scale, condition, benchmarkTrack, taskFamily, cwd, expectation, prompt, command: codexCommand(prompt), measuredRuns: [run] });
 }
 
+// Build a real-corpus stub scenario (corpus "real"). Reuses a code-graph JSONL
+// transcript but stamps the corpus/repo/repo_sha/question_id fields and the
+// pinned-sha + git-clean fixture fingerprint a real-corpus run produces, plus the
+// with-arm MCP-injection flag. This exists only so the report schema validates a
+// real-corpus scenario and the per-corpus report split renders; it is NOT a
+// measured number. The expectation reuses the impact_trace designation semantics.
+function buildRealStubScenario({ condition, jsonlRelative, repo, repoSha, questionId, expectation, mcpInjected }) {
+  const taskFamily = "impact_trace";
+  const metrics = summarizeJsonl(fs.readFileSync(path.join(root, jsonlRelative), "utf8"), { wall_ms: WALL_MS });
+  const correctness = evaluateCorrectness({
+    taskFamily,
+    condition,
+    finalText: metrics.final_text,
+    fileChangeCount: metrics.file_change_event_count,
+    readOnly: true,
+    expectation,
+    controlProfile: SAMPLE_CONTROL_PROFILE,
+    benchmarkTrack: "code_graph",
+  });
+  const prompt = framePrompt("real", condition, taskFamily, "");
+  const run = {
+    run_index: 1,
+    raw_jsonl_path: jsonlRelative,
+    requested_model: null,
+    metrics,
+    correctness,
+  };
+  run.measurement = measurementStatus(run);
+  run.execution = { status: "completed", exit_code: 0, error: "", stderr_path: null };
+  // A real-corpus run records a clean pinned-sha + git-clean validation outcome.
+  run.fixture_validation = { status: "clean", head: repoSha, pinned_sha_matched: true, git_clean: true, new_untracked_runtime_state_paths: [] };
+  const scenario = finalizeScenario({
+    scale: "real",
+    condition,
+    benchmarkTrack: "code_graph",
+    taskFamily,
+    cwd: `/tmp/project-librarian-real-corpus/${repo}/${condition}`,
+    expectation,
+    prompt,
+    command: codexCommand(prompt),
+    measuredRuns: [run],
+    corpus: "real",
+    repo,
+    repoSha,
+    questionId,
+    mcpInjected,
+    promptId: `${repo}-${questionId}-${condition}`,
+  });
+  // The real-corpus fingerprint is pinned-sha + git-clean, not a content hash.
+  scenario.fixture_fingerprint = { algorithm: "pinned-sha-git-clean", repo_sha: repoSha, value: sha256(`${repo}\0${repoSha}\0${condition}`) };
+  return scenario;
+}
+
 // Build a multi_session scenario: two JSONL transcripts (familiarization session 1
 // and measured session 2) in the SAME synthetic cwd. The run's primary metrics and
 // correctness come from the MEASURED session (session 2); session 1 only needs to
@@ -186,8 +241,9 @@ function buildMultiSessionScenario({ scale, condition, taskFamily, sessionJsonl,
 }
 
 // Shared scenario finalization: derive models, medians, dispersion, and counts the
-// same way measuredReport does.
-function finalizeScenario({ scale, condition, benchmarkTrack, taskFamily, cwd, expectation, prompt, command, measuredRuns }) {
+// same way measuredReport does. corpus/repo/repo_sha/question_id/mcp_injected
+// default to the synthetic shape; the real-corpus stub scenario overrides them.
+function finalizeScenario({ scale, condition, benchmarkTrack, taskFamily, cwd, expectation, prompt, command, measuredRuns, corpus = "synthetic", repo = null, repoSha = null, questionId = null, mcpInjected = false, promptId }) {
   const actualClaimableRuns = claimableRuns(measuredRuns);
   const correctnessPassedRuns = passedRuns(measuredRuns);
   const observedModels = [...new Set(measuredRuns.flatMap((item) => item.metrics.models || []).filter(Boolean))];
@@ -196,9 +252,14 @@ function finalizeScenario({ scale, condition, benchmarkTrack, taskFamily, cwd, e
     scale,
     condition,
     benchmark_track: benchmarkTrack,
+    corpus,
+    repo,
+    repo_sha: repoSha,
+    question_id: questionId,
+    mcp_injected: mcpInjected,
     control_profile: SAMPLE_CONTROL_PROFILE,
     task_family: taskFamily,
-    prompt_id: `${taskFamily}-${scale}-${condition}`,
+    prompt_id: promptId || `${taskFamily}-${scale}-${condition}`,
     cwd,
     requested_model: null,
     model: scenarioModels.length === 1 ? scenarioModels[0] : null,
@@ -239,6 +300,9 @@ function main() {
   // and overall claim gates pass and exercises the passing-gate render path. The
   // wiki correctness expectations are scale-independent here.
   const impactExpectation = codeGraphExpectation("impact_trace", "medium");
+  // The real-corpus stub reuses the medium impact_trace transcripts, so it reuses
+  // their expectation; in a true real run this is the hand-authored answer key.
+  const realImpactExpectation = impactExpectation;
   const scenarios = [
     buildScenario({
       scale: "medium",
@@ -316,6 +380,29 @@ function main() {
       cwd: "/tmp/project-librarian-codex-llm/sample-aggregation-control",
       expectation: aggregationExpectation(),
     }),
+    // Real-corpus stub pair (corpus "real"): exercises the report schema's corpus
+    // fields, the pinned-sha fingerprint, the with-arm MCP-injection flag, and the
+    // per-corpus report split. Reuses the impact_trace transcripts/expectation; it
+    // shares the code_graph track with the synthetic impact_trace pair but is
+    // aggregated SEPARATELY (corpus split). Not a measured number.
+    buildRealStubScenario({
+      condition: "with_project_librarian",
+      jsonlRelative: "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl",
+      repo: "_stub-example",
+      repoSha: "0000000000000000000000000000000000000000",
+      questionId: "impact-trace-1",
+      expectation: realImpactExpectation,
+      mcpInjected: true,
+    }),
+    buildRealStubScenario({
+      condition: "without_project_librarian",
+      jsonlRelative: "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl",
+      repo: "_stub-example",
+      repoSha: "0000000000000000000000000000000000000000",
+      questionId: "impact-trace-1",
+      expectation: realImpactExpectation,
+      mcpInjected: false,
+    }),
   ];
 
   const selectedScales = ["medium"];
@@ -340,7 +427,7 @@ function main() {
   }))));
 
   const report = {
-    schema_version: 6,
+    schema_version: 7,
     benchmark_kind: "codex-actual-llm",
     auth_mode: "chatgpt_codex",
     auth: {
@@ -352,6 +439,10 @@ function main() {
     generated_at: "2026-06-10T00:00:00.000Z",
     environment: { node: "v22.19.0", platform: "darwin", arch: "arm64" },
     control_profile: SAMPLE_CONTROL_PROFILE,
+    // The sample mixes synthetic and real-corpus scenarios; the top-level corpus
+    // label is "mixed" so it does not read as a single-corpus report. Per-scenario
+    // corpus fields carry the true corpus and drive the report split.
+    corpus: "mixed",
     cache_discount: SAMPLE_CACHE_DISCOUNT,
     // schema_version 4 hermetic provenance (A5): a sample isolated CODEX_HOME with
     // auth-only copy and an allowlist-only subscription-mode env (no API keys, no
@@ -408,11 +499,24 @@ function main() {
   report.tracks = {};
   for (const track of presentTracks) {
     const trackScenarios = scenariosForTrack(scenarios, track);
+    const trackCorpora = corporaPresent(trackScenarios);
+    const corpora = {};
+    for (const corpus of trackCorpora) {
+      const corpusScenarios = scenariosForTrackCorpus(scenarios, track, corpus);
+      corpora[corpus] = {
+        corpus,
+        summary: summarizeScenarios(corpusScenarios),
+        prompt_ids: corpusScenarios.map((scenario) => scenario.prompt_id),
+        claim_gate: overallGate.per_track[track].per_corpus[corpus],
+      };
+    }
     report.tracks[track] = {
       benchmark_track: track,
       expected_tasks: expectedByTrack[track] || [],
       summary: summarizeScenarios(trackScenarios),
       prompt_ids: trackScenarios.map((scenario) => scenario.prompt_id),
+      corpora_present: trackCorpora,
+      corpora,
       claim_gate: overallGate.per_track[track],
     };
   }

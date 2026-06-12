@@ -214,6 +214,29 @@ function benchmarkTrackOf(scenario) {
   return typeof scenario.benchmark_track === "string" && scenario.benchmark_track ? scenario.benchmark_track : "wiki";
 }
 
+// Corpus dimension (real-repository track). A scenario without an explicit corpus
+// defaults to "synthetic" so every existing synthetic scenario and report stays on
+// the synthetic corpus exactly as before. Real-corpus scenarios carry corpus:
+// "real" and are aggregated/rendered SEPARATELY within their track (per the
+// decision-log discipline: never merge real and synthetic into one number).
+function corpusOf(scenario) {
+  return typeof scenario.corpus === "string" && scenario.corpus ? scenario.corpus : "synthetic";
+}
+
+function corporaPresent(scenarios) {
+  const order = ["synthetic", "real"];
+  const seen = new Set(scenarios.map(corpusOf));
+  const ordered = order.filter((corpus) => seen.has(corpus));
+  for (const corpus of seen) {
+    if (!ordered.includes(corpus)) ordered.push(corpus);
+  }
+  return ordered;
+}
+
+function scenariosForCorpus(scenarios, corpus) {
+  return scenarios.filter((scenario) => corpusOf(scenario) === corpus);
+}
+
 function tracksPresent(scenarios) {
   const order = ["wiki", "code_graph"];
   const seen = new Set(scenarios.map(benchmarkTrackOf));
@@ -226,6 +249,10 @@ function tracksPresent(scenarios) {
 
 function scenariosForTrack(scenarios, track) {
   return scenarios.filter((scenario) => benchmarkTrackOf(scenario) === track);
+}
+
+function scenariosForTrackCorpus(scenarios, track, corpus) {
+  return scenarios.filter((scenario) => benchmarkTrackOf(scenario) === track && corpusOf(scenario) === corpus);
 }
 
 function scenarioPairKey(scenario) {
@@ -341,21 +368,50 @@ function evaluateClaimGate(report, { conditions = [], expectedScales = [], expec
 // every present track passes; a win on one track never substitutes for a claim
 // on another (canonical Measurement Rules). expectedTasksByTrack maps each track
 // to the task families expected for that track within the selected matrix.
+//
+// Corpus separation: within each track, the gate is evaluated PER CORPUS
+// (synthetic vs real) and the track passes only if every present corpus in it
+// passes. This keeps real-corpus claims from ever merging with synthetic ones — a
+// real-corpus failure cannot be masked by a synthetic pass in the same track, and
+// vice versa. When a track has only the synthetic corpus (every pre-real-corpus
+// report), per_corpus has a single "synthetic" entry whose gate equals the track
+// gate, so existing reports are unchanged. expectedScales/expectedTasks gates are
+// applied to the synthetic corpus only (the real corpus has its own repo/question
+// coverage, validated by its scenario presence rather than the synthetic
+// scale×task matrix).
 function evaluateTracksClaimGate(report, { conditions = [], expectedScales = [], expectedTasksByTrack = {}, fullMatrix = false, minRunsForClaim = 1 } = {}) {
   const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
   const present = tracksPresent(scenarios);
   const perTrack = {};
   for (const track of present) {
     const trackScenarios = scenariosForTrack(scenarios, track);
-    perTrack[track] = evaluateClaimGate(report, {
-      conditions,
-      expectedScales,
-      expectedTasks: expectedTasksByTrack[track] || [],
-      fullMatrix,
-      minRunsForClaim,
-      scenarios: trackScenarios,
-      comparisonPairCount: completePairCount(trackScenarios, conditions),
-    });
+    const corpora = corporaPresent(trackScenarios);
+    const perCorpus = {};
+    for (const corpus of corpora) {
+      const corpusScenarios = scenariosForTrackCorpus(scenarios, track, corpus);
+      // The synthetic corpus is gated against the configured scale×task matrix; the
+      // real corpus is gated on its own scenario set (no synthetic scale/task
+      // expectations) so its repo/question coverage drives the gate.
+      const isSynthetic = corpus === "synthetic";
+      perCorpus[corpus] = evaluateClaimGate(report, {
+        conditions,
+        expectedScales: isSynthetic ? expectedScales : [],
+        expectedTasks: isSynthetic ? (expectedTasksByTrack[track] || []) : [],
+        fullMatrix: isSynthetic ? fullMatrix : false,
+        minRunsForClaim,
+        scenarios: corpusScenarios,
+        comparisonPairCount: completePairCount(corpusScenarios, conditions),
+      });
+    }
+    const failedCorpora = corpora.filter((corpus) => perCorpus[corpus].status !== "passed");
+    const trackIssues = failedCorpora.map((corpus) => `track ${track} ${corpus} corpus claim gate failed`);
+    perTrack[track] = {
+      status: corpora.length > 0 && failedCorpora.length === 0 ? "passed" : "failed",
+      issues: trackIssues,
+      corpora_present: corpora,
+      per_corpus: perCorpus,
+      min_runs_for_claim: minRunsForClaim,
+    };
   }
   const failedTracks = present.filter((track) => perTrack[track].status !== "passed");
   const issues = [];
@@ -457,27 +513,40 @@ function secondaryMergedDeltaRows(scenarios) {
   });
 }
 
-function renderTrackSection(report, track, cacheDiscount) {
-  const scenarios = scenariosForTrack(report.scenarios, track);
-  const trackReport = report.tracks?.[track];
-  const trackGate = trackReport?.claim_gate?.status || report.claim_gate?.per_track?.[track]?.status || "not evaluated";
-  const summary = trackReport?.summary;
-  const lines = [
-    `## ${trackTitle(track)}`,
+const corpusTitles = {
+  synthetic: "Synthetic Corpus",
+  real: "Real Corpus",
+};
+
+function corpusTitle(corpus) {
+  return corpusTitles[corpus] || `${corpus} Corpus`;
+}
+
+// Render a single (track, corpus) subsection: the scenario metrics, the
+// cost-weighted headline delta, and the secondary merged-total table for exactly
+// that corpus. Real and synthetic corpora are rendered as SEPARATE subsections
+// under the track heading, each with its own claim-gate line, so a real-corpus
+// number never appears merged with a synthetic one.
+function renderTrackCorpusSubsection(report, track, corpus, cacheDiscount) {
+  const scenarios = scenariosForTrackCorpus(report.scenarios, track, corpus);
+  const corpusGate = report.claim_gate?.per_track?.[track]?.per_corpus?.[corpus]?.status
+    || report.tracks?.[track]?.corpora?.[corpus]?.claim_gate?.status
+    || "not evaluated";
+  const heading = `${trackTitle(track)} — ${corpusTitle(corpus)}`;
+  return [
+    `### ${heading}`,
     "",
-    summary
-      ? `Scenarios: ${summary.scenario_count}, complete pairs: ${summary.comparison_pair_count}, claimable scenarios: ${summary.claimable_scenario_count}`
-      : `Scenarios: ${scenarios.length}`,
+    `Scenarios: ${scenarios.length}, complete pairs: ${completePairCount(scenarios, conditionsForReport(report))}`,
     "",
-    `Track claim gate: ${trackGate}`,
+    `Corpus claim gate: ${corpusGate}`,
     "",
-    `### ${trackTitle(track)} Scenario Metrics`,
+    `#### ${heading} Scenario Metrics`,
     "",
     "| Scale | Task | Condition | Status | Cost-Weighted Tokens | Uncached Input | Cached Input | Tool Output Bytes | Output Tokens | Wall Time | Command Invocations | Model | Total Tokens (secondary) |",
     "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
     ...scenarioMetricsRows(scenarios, cacheDiscount),
     "",
-    `### ${trackTitle(track)} With vs Without Delta (headline: cost-weighted)`,
+    `#### ${heading} With vs Without Delta (headline: cost-weighted)`,
     "",
     `Headline metric: cost-weighted tokens (uncached input + ${formatNumber(cacheDiscount, 3)} x cached input + output + reasoning output). Negative deltas mean the Project Librarian condition cost fewer cost-weighted tokens than the control. Cache-split fields decompose the cost.`,
     "",
@@ -485,7 +554,7 @@ function renderTrackSection(report, track, cacheDiscount) {
     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...cacheSplitDeltaRows(scenarios, cacheDiscount),
     "",
-    `### ${trackTitle(track)} Merged Total Tokens (secondary, not a headline)`,
+    `#### ${heading} Merged Total Tokens (secondary, not a headline)`,
     "",
     "Secondary only: merged total tokens counts cached resends at full weight and penalizes turn-adding tools, so it is not a headline. Use the cost-weighted delta above for claims.",
     "",
@@ -493,6 +562,35 @@ function renderTrackSection(report, track, cacheDiscount) {
     "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ...secondaryMergedDeltaRows(scenarios),
   ];
+}
+
+function conditionsForReport(report) {
+  return Array.isArray(report.conditions) && report.conditions.length > 0
+    ? report.conditions
+    : ["with_project_librarian", "without_project_librarian"];
+}
+
+function renderTrackSection(report, track, cacheDiscount) {
+  const scenarios = scenariosForTrack(report.scenarios, track);
+  const trackReport = report.tracks?.[track];
+  const trackGate = trackReport?.claim_gate?.status || report.claim_gate?.per_track?.[track]?.status || "not evaluated";
+  const summary = trackReport?.summary;
+  const corpora = corporaPresent(scenarios);
+  const lines = [
+    `## ${trackTitle(track)}`,
+    "",
+    summary
+      ? `Scenarios: ${summary.scenario_count}, complete pairs: ${summary.comparison_pair_count}, claimable scenarios: ${summary.claimable_scenario_count}`
+      : `Scenarios: ${scenarios.length}`,
+    "",
+    `Track claim gate: ${trackGate} (passes only if every corpus in the track passes).`,
+    "",
+    `This track separates corpora: ${corpora.map(corpusTitle).join(", ")}. Real-corpus and synthetic results are never merged into one number.`,
+    "",
+  ];
+  for (const corpus of corpora) {
+    lines.push(...renderTrackCorpusSubsection(report, track, corpus, cacheDiscount), "");
+  }
   return lines;
 }
 
@@ -534,6 +632,8 @@ module.exports = {
   benchmarkTrackOf,
   claimableRuns,
   completePairCount,
+  corpusOf,
+  corporaPresent,
   costWeightedTokens,
   evaluateClaimGate,
   evaluateTracksClaimGate,
@@ -545,7 +645,9 @@ module.exports = {
   passedRuns,
   renderLlmMarkdownReport,
   resolveCacheDiscount,
+  scenariosForCorpus,
   scenariosForTrack,
+  scenariosForTrackCorpus,
   selectPairedScenarios,
   tracksPresent,
 };

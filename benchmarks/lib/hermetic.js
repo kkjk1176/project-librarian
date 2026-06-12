@@ -96,6 +96,113 @@ function buildIsolatedCodexHome({ realCodexHome, destHome }) {
   };
 }
 
+// Real-corpus MCP injection (with-arm only). Codex only supports user-level MCP
+// registration (`codex mcp add` -> CODEX_HOME/config.toml); the hermetic isolated
+// home is exactly that user level for the measured child, so writing the
+// [mcp_servers.<name>] table into the isolated home's config.toml gives the child
+// the MCP server in a USAGE-FAITHFUL way (the same table `codex mcp add` writes)
+// without touching the real user home.
+//
+// The exact table shape was verified OFFLINE from `codex mcp add <NAME> -- node
+// <runner> mcp` against an isolated tmp CODEX_HOME (no `codex exec`, no network):
+//
+//   [mcp_servers.project-librarian]
+//   command = "node"
+//   args = ["<installed runner path>", "mcp"]
+//
+// (`codex mcp list --json` confirms it materializes as a stdio transport with that
+// command/args.) The dotted-key header form `[mcp_servers.<name>]` is what codex
+// itself emits; a name containing characters outside the bare-key set is wrapped
+// in a quoted dotted key (`[mcp_servers."x.y"]`). buildMcpServerToml renders the
+// same shape this module's injector writes, so the unit tests assert on the exact
+// bytes codex produces.
+const MCP_SERVER_NAME = "project-librarian";
+
+// Whether a TOML bare key needs quoting per the spec (A-Za-z0-9_- only).
+function tomlKeyNeedsQuoting(key) {
+  return !/^[A-Za-z0-9_-]+$/.test(key);
+}
+
+function renderTomlKey(key) {
+  if (tomlKeyNeedsQuoting(key)) {
+    return `"${key.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  }
+  return key;
+}
+
+function renderTomlString(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+}
+
+// Render the minimal [mcp_servers.<name>] table for a stdio MCP server launched as
+// `command args...`. Matches the bytes `codex mcp add` writes (verified offline):
+// a header line, a command string, and an args array. No env/cwd keys are written
+// (the runner needs none and codex defaults them to null).
+function buildMcpServerToml({ name, command, args }) {
+  if (!name || typeof name !== "string") throw new Error("buildMcpServerToml requires a server name");
+  if (!command || typeof command !== "string") throw new Error("buildMcpServerToml requires a launch command");
+  if (!Array.isArray(args)) throw new Error("buildMcpServerToml requires an args array");
+  const argsToml = `[${args.map((arg) => renderTomlString(arg)).join(", ")}]`;
+  return [
+    `[mcp_servers.${renderTomlKey(name)}]`,
+    `command = ${renderTomlString(command)}`,
+    `args = ${argsToml}`,
+    "",
+  ].join("\n");
+}
+
+// Inject the project-librarian MCP server table into an existing isolated
+// CODEX_HOME's config.toml (with-arm real-corpus scenarios only). The auth
+// material the hermetic home copied lives in auth.json, NOT config.toml, so this
+// CREATES config.toml if absent or APPENDS to it if present, never clobbering
+// auth (auth.json is untouched) and never rewriting any pre-existing config.toml
+// body. Refuses to double-register: if a [mcp_servers.<name>] header for this
+// name is already present, it throws rather than appending a duplicate table
+// (no-fallback rule — a duplicate would be a programming error).
+//
+// `runnerPath` is the absolute path to the installed runner inside the fixture;
+// the launched command is `node <runnerPath> mcp` (the shipped MCP stdio server).
+// Returns provenance: the config path, whether it was created vs appended, the
+// server name, and the exact command/args written.
+function injectMcpServerConfig({ codexHome, runnerPath, serverName = MCP_SERVER_NAME }) {
+  if (!codexHome || typeof codexHome !== "string") {
+    throw new Error("injectMcpServerConfig requires the isolated codexHome path");
+  }
+  if (!fs.existsSync(codexHome) || !fs.statSync(codexHome).isDirectory()) {
+    throw new Error(`injectMcpServerConfig: isolated Codex home does not exist: ${codexHome}`);
+  }
+  if (!runnerPath || typeof runnerPath !== "string") {
+    throw new Error("injectMcpServerConfig requires the installed runner path");
+  }
+  const command = "node";
+  const args = [runnerPath, "mcp"];
+  const configPath = path.join(codexHome, "config.toml");
+  const existed = fs.existsSync(configPath);
+  let existing = "";
+  if (existed) {
+    existing = fs.readFileSync(configPath, "utf8");
+    // Refuse to append a duplicate server table; a header for this exact name
+    // already present means something registered it twice.
+    const header = `[mcp_servers.${renderTomlKey(serverName)}]`;
+    if (existing.includes(header)) {
+      throw new Error(`injectMcpServerConfig: ${header} already present in ${configPath}; refusing to register the MCP server twice`);
+    }
+  }
+  const block = buildMcpServerToml({ name: serverName, command, args });
+  // Separate an appended block from any pre-existing body with a blank line so the
+  // two tables never run together on one line.
+  const separator = existed && existing.length > 0 && !existing.endsWith("\n") ? "\n\n" : (existed && existing.length > 0 ? "\n" : "");
+  fs.writeFileSync(configPath, `${existing}${separator}${block}`);
+  return {
+    config_path: configPath,
+    created: !existed,
+    appended: existed,
+    server_name: serverName,
+    command,
+    args,
+  };
+}
+
 // Build the child-process environment from an explicit allowlist instead of
 // inheriting process.env. This drops arbitrary user environment (and therefore
 // any plugin/config toggles carried in the environment) while preserving exactly
@@ -276,11 +383,14 @@ function validateFixtureAfterRun({ cwd, expectedFingerprint, preRunSnapshot }) {
 
 module.exports = {
   CODEX_AUTH_FILE_CANDIDATES,
+  MCP_SERVER_NAME,
   RUNTIME_STATE_BASENAMES,
   buildIsolatedCodexHome,
+  buildMcpServerToml,
   buildSpawnEnv,
   checkPreRunFingerprint,
   findRuntimeStatePaths,
+  injectMcpServerConfig,
   resolveCodexAuthSource,
   resolveRealCodexHome,
   snapshotFixturePaths,

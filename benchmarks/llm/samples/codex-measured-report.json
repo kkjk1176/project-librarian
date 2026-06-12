@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "benchmark_kind": "codex-actual-llm",
   "auth_mode": "chatgpt_codex",
   "auth": {
@@ -15,6 +15,7 @@
     "arch": "arm64"
   },
   "control_profile": "curated",
+  "corpus": "mixed",
   "cache_discount": 0.1,
   "hermetic": {
     "isolated_codex_home": "/tmp/project-librarian-codex-llm/sample/codex-home",
@@ -41,7 +42,7 @@
     "warmup_runs": 1,
     "max_scenarios": 8,
     "requested_model": null,
-    "selected_scenarios": 8,
+    "selected_scenarios": 10,
     "total_manifest_scenarios": 60,
     "full_matrix": false,
     "min_runs_for_claim": 1,
@@ -57,8 +58,8 @@
       "multi_session",
       "aggregation"
     ],
-    "manifest_fingerprint": "111fc6e8f50936a986a351ab880b7a639f8be4d630c445a505c9dd1fb461ed7f",
-    "scenario_matrix_fingerprint": "adccf0bfd506def497b1a4ea8157c2a805e475faee4084816567bdbdc3d13ec0",
+    "manifest_fingerprint": "2700e5ffc046a2ab3f8297f709ab3ddf75d667083a24601a6e4a98168c1c5992",
+    "scenario_matrix_fingerprint": "ba0439bfbc1ae657a23786e51f2a1f5bcd3c8b277058cc8d3e6255665ede9476",
     "require_clean": false,
     "scenario_order": "deterministic-alternating-pairs"
   },
@@ -67,12 +68,12 @@
     "code_graph"
   ],
   "summary": {
-    "scenario_count": 8,
-    "comparison_pair_count": 4,
-    "passed_correctness_count": 8,
+    "scenario_count": 10,
+    "comparison_pair_count": 5,
+    "passed_correctness_count": 10,
     "needs_review_count": 0,
     "failed_correctness_count": 0,
-    "claimable_scenario_count": 8,
+    "claimable_scenario_count": 10,
     "unclaimable_scenario_count": 0
   },
   "scenarios": [
@@ -80,6 +81,11 @@
       "scale": "medium",
       "condition": "with_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "decision_lookup",
       "prompt_id": "decision_lookup-medium-with_project_librarian",
@@ -701,6 +707,11 @@
       "scale": "medium",
       "condition": "without_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "decision_lookup",
       "prompt_id": "decision_lookup-medium-without_project_librarian",
@@ -1322,6 +1333,11 @@
       "scale": "medium",
       "condition": "with_project_librarian",
       "benchmark_track": "code_graph",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "impact_trace",
       "prompt_id": "impact_trace-medium-with_project_librarian",
@@ -2081,6 +2097,11 @@
       "scale": "medium",
       "condition": "without_project_librarian",
       "benchmark_track": "code_graph",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "impact_trace",
       "prompt_id": "impact_trace-medium-without_project_librarian",
@@ -2840,6 +2861,11 @@
       "scale": "medium",
       "condition": "with_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "multi_session",
       "prompt_id": "multi_session-medium-with_project_librarian",
@@ -3725,6 +3751,11 @@
       "scale": "medium",
       "condition": "without_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "multi_session",
       "prompt_id": "multi_session-medium-without_project_librarian",
@@ -4610,6 +4641,11 @@
       "scale": "medium",
       "condition": "with_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "aggregation",
       "prompt_id": "aggregation-medium-with_project_librarian",
@@ -5333,6 +5369,11 @@
       "scale": "medium",
       "condition": "without_project_librarian",
       "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
       "control_profile": "curated",
       "task_family": "aggregation",
       "prompt_id": "aggregation-medium-without_project_librarian",
@@ -6051,6 +6092,1536 @@
         "--skip-git-repo-check",
         "Benchmark scenario: medium / without_project_librarian / aggregation.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
       ]
+    },
+    {
+      "scale": "real",
+      "condition": "with_project_librarian",
+      "benchmark_track": "code_graph",
+      "corpus": "real",
+      "repo": "_stub-example",
+      "repo_sha": "0000000000000000000000000000000000000000",
+      "question_id": "impact-trace-1",
+      "mcp_injected": true,
+      "control_profile": "curated",
+      "task_family": "impact_trace",
+      "prompt_id": "_stub-example-impact-trace-1-with_project_librarian",
+      "cwd": "/tmp/project-librarian-real-corpus/_stub-example/with_project_librarian",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ],
+        "any_terms": [
+          [
+            "import",
+            "transitive",
+            "depends",
+            "chain"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            [
+              "packages/",
+              "CODEOWNERS",
+              "@benchmark/workspace-"
+            ]
+          ],
+          "without_project_librarian": [
+            [
+              "packages/",
+              "CODEOWNERS",
+              "@benchmark/workspace-"
+            ]
+          ]
+        },
+        "answer_key_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ]
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 24763,
+            "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
+            "output_tokens": 122,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24885,
+            "tool_output_bytes": 61,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 61,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Following the import edges transitively from packages/workspace-0/src/mod-0.ts (mod-1 imports mod-0, mod-2 imports mod-1, and so on), the full transitive importer set is packages/workspace-0/src/mod-1.ts, packages/workspace-0/src/mod-2.ts, packages/workspace-0/src/mod-3.ts, packages/workspace-0/src/mod-4.ts, packages/workspace-0/src/mod-5.ts, packages/workspace-0/src/mod-6.ts, packages/workspace-0/src/mod-7.ts, packages/workspace-0/src/mod-8.ts, packages/workspace-0/src/mod-9.ts, packages/workspace-0/src/mod-10.ts, packages/workspace-0/src/mod-11.ts, packages/workspace-0/src/mod-12.ts, and packages/workspace-0/src/mod-13.ts.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: packages/workspace-0/src/mod-1.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-2.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-3.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-4.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-5.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-6.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-7.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-8.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-9.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-10.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-11.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-12.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-13.ts",
+                "passed": true
+              },
+              {
+                "name": "any term: import | transitive | depends | chain",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs | @benchmark/workspace-",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "head": "0000000000000000000000000000000000000000",
+            "pinned_sha_matched": true,
+            "git_clean": true,
+            "new_untracked_runtime_state_paths": []
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 61,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 61,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: packages/workspace-0/src/mod-1.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-2.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-3.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-4.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-5.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-6.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-7.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-8.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-9.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-10.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-11.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-12.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-13.ts",
+              "passed": true
+            },
+            {
+              "name": "any term: import | transitive | depends | chain",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: packages/ | CODEOWNERS | .project-wiki | tools/project-librarian | imports | configs | @benchmark/workspace-",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "pinned-sha-git-clean",
+        "repo_sha": "0000000000000000000000000000000000000000",
+        "value": "35f2f0c4c4d4af20e0614f2e2f0544f3bf149a0c067f026878af38debd79dcde"
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: real / with_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: real / with_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
+    },
+    {
+      "scale": "real",
+      "condition": "without_project_librarian",
+      "benchmark_track": "code_graph",
+      "corpus": "real",
+      "repo": "_stub-example",
+      "repo_sha": "0000000000000000000000000000000000000000",
+      "question_id": "impact-trace-1",
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "impact_trace",
+      "prompt_id": "_stub-example-impact-trace-1-without_project_librarian",
+      "cwd": "/tmp/project-librarian-real-corpus/_stub-example/without_project_librarian",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ],
+        "any_terms": [
+          [
+            "import",
+            "transitive",
+            "depends",
+            "chain"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            [
+              "packages/",
+              "CODEOWNERS",
+              "@benchmark/workspace-"
+            ]
+          ],
+          "without_project_librarian": [
+            [
+              "packages/",
+              "CODEOWNERS",
+              "@benchmark/workspace-"
+            ]
+          ]
+        },
+        "answer_key_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ]
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 24763,
+            "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
+            "output_tokens": 122,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24885,
+            "tool_output_bytes": 81,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 61,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Grepping the import statements in packages/workspace-0/src and following the chain transitively from mod-0.ts, the modules that import it directly or indirectly are packages/workspace-0/src/mod-1.ts, packages/workspace-0/src/mod-2.ts, packages/workspace-0/src/mod-3.ts, packages/workspace-0/src/mod-4.ts, packages/workspace-0/src/mod-5.ts, packages/workspace-0/src/mod-6.ts, packages/workspace-0/src/mod-7.ts, packages/workspace-0/src/mod-8.ts, packages/workspace-0/src/mod-9.ts, packages/workspace-0/src/mod-10.ts, packages/workspace-0/src/mod-11.ts, packages/workspace-0/src/mod-12.ts, and packages/workspace-0/src/mod-13.ts.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: packages/workspace-0/src/mod-1.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-2.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-3.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-4.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-5.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-6.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-7.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-8.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-9.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-10.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-11.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-12.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-13.ts",
+                "passed": true
+              },
+              {
+                "name": "any term: import | transitive | depends | chain",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: packages/ | CODEOWNERS | @benchmark/workspace-",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "head": "0000000000000000000000000000000000000000",
+            "pinned_sha_matched": true,
+            "git_clean": true,
+            "new_untracked_runtime_state_paths": []
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 81,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 81,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: packages/workspace-0/src/mod-1.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-2.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-3.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-4.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-5.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-6.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-7.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-8.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-9.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-10.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-11.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-12.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-13.ts",
+              "passed": true
+            },
+            {
+              "name": "any term: import | transitive | depends | chain",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: packages/ | CODEOWNERS | @benchmark/workspace-",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "pinned-sha-git-clean",
+        "repo_sha": "0000000000000000000000000000000000000000",
+        "value": "2b4c55933a482420f92f0fdd6bb62ed2539c8f3678095fa398a81c9c764e4698"
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 81,
+          "median": 81,
+          "max": 81,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 81,
+          "median": 81,
+          "max": 81,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: real / without_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: real / without_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
     }
   ],
   "source_control": {
@@ -6086,10 +7657,51 @@
         "aggregation-medium-with_project_librarian",
         "aggregation-medium-without_project_librarian"
       ],
+      "corpora_present": [
+        "synthetic"
+      ],
+      "corpora": {
+        "synthetic": {
+          "corpus": "synthetic",
+          "summary": {
+            "scenario_count": 6,
+            "comparison_pair_count": 3,
+            "passed_correctness_count": 6,
+            "needs_review_count": 0,
+            "failed_correctness_count": 0,
+            "claimable_scenario_count": 6,
+            "unclaimable_scenario_count": 0
+          },
+          "prompt_ids": [
+            "decision_lookup-medium-with_project_librarian",
+            "decision_lookup-medium-without_project_librarian",
+            "multi_session-medium-with_project_librarian",
+            "multi_session-medium-without_project_librarian",
+            "aggregation-medium-with_project_librarian",
+            "aggregation-medium-without_project_librarian"
+          ],
+          "claim_gate": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        }
+      },
       "claim_gate": {
         "status": "passed",
         "issues": [],
-        "expected_scenarios": null,
+        "corpora_present": [
+          "synthetic"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
         "min_runs_for_claim": 1
       }
     },
@@ -6099,22 +7711,91 @@
         "impact_trace"
       ],
       "summary": {
-        "scenario_count": 2,
-        "comparison_pair_count": 1,
-        "passed_correctness_count": 2,
+        "scenario_count": 4,
+        "comparison_pair_count": 2,
+        "passed_correctness_count": 4,
         "needs_review_count": 0,
         "failed_correctness_count": 0,
-        "claimable_scenario_count": 2,
+        "claimable_scenario_count": 4,
         "unclaimable_scenario_count": 0
       },
       "prompt_ids": [
         "impact_trace-medium-with_project_librarian",
-        "impact_trace-medium-without_project_librarian"
+        "impact_trace-medium-without_project_librarian",
+        "_stub-example-impact-trace-1-with_project_librarian",
+        "_stub-example-impact-trace-1-without_project_librarian"
       ],
+      "corpora_present": [
+        "synthetic",
+        "real"
+      ],
+      "corpora": {
+        "synthetic": {
+          "corpus": "synthetic",
+          "summary": {
+            "scenario_count": 2,
+            "comparison_pair_count": 1,
+            "passed_correctness_count": 2,
+            "needs_review_count": 0,
+            "failed_correctness_count": 0,
+            "claimable_scenario_count": 2,
+            "unclaimable_scenario_count": 0
+          },
+          "prompt_ids": [
+            "impact_trace-medium-with_project_librarian",
+            "impact_trace-medium-without_project_librarian"
+          ],
+          "claim_gate": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
+        "real": {
+          "corpus": "real",
+          "summary": {
+            "scenario_count": 2,
+            "comparison_pair_count": 1,
+            "passed_correctness_count": 2,
+            "needs_review_count": 0,
+            "failed_correctness_count": 0,
+            "claimable_scenario_count": 2,
+            "unclaimable_scenario_count": 0
+          },
+          "prompt_ids": [
+            "_stub-example-impact-trace-1-with_project_librarian",
+            "_stub-example-impact-trace-1-without_project_librarian"
+          ],
+          "claim_gate": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        }
+      },
       "claim_gate": {
         "status": "passed",
         "issues": [],
-        "expected_scenarios": null,
+        "corpora_present": [
+          "synthetic",
+          "real"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          },
+          "real": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
         "min_runs_for_claim": 1
       }
     }
@@ -6130,13 +7811,40 @@
       "wiki": {
         "status": "passed",
         "issues": [],
-        "expected_scenarios": null,
+        "corpora_present": [
+          "synthetic"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
         "min_runs_for_claim": 1
       },
       "code_graph": {
         "status": "passed",
         "issues": [],
-        "expected_scenarios": null,
+        "corpora_present": [
+          "synthetic",
+          "real"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          },
+          "real": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
         "min_runs_for_claim": 1
       }
     },
