@@ -2,8 +2,9 @@ import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { noGitConfigMode } from "./args";
+import { codeEvidenceDirectory, discoverCodeFiles, SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
 import type { CursorHookCommand, CursorHookConfig, FileStatus, HookCommand, HookConfig, McpServerEntry, McpServersConfig, SessionStartHook } from "./types";
-import { abs, exists, isGitRepository, parseJson, read, root, write } from "./workspace";
+import { abs, exists, isGitRepository, parseJson, read, root, walkFilesUnder, write } from "./workspace";
 
 export function upsertGitHooksPath(): FileStatus {
   if (noGitConfigMode) return "skipped-no-git-config";
@@ -147,6 +148,30 @@ function upsertMcpServersFile(relativePath: string): FileStatus {
   if (previous === next) return "exists";
   write(relativePath, next);
   return previous ? "updated" : "created";
+}
+
+// Scale-aware MCP auto-registration gate (2026-06-12 decision). Below the
+// measured file-count threshold the code-evidence tools cost more tokens than
+// direct reads (stageR1: ~1.2k files lost every question), so bootstrap does not
+// auto-register the MCP server there. An existing .project-wiki index overrides
+// the gate regardless of scale: below the threshold it can only have been built
+// through --code-index --acknowledge-small-repo, so it is standing user consent.
+export type McpRegistrationGate =
+  | { register: true }
+  | { register: false; reason: FileStatus };
+
+export function codeEvidenceIndexExists(): boolean {
+  return walkFilesUnder(codeEvidenceDirectory, (file) => file.endsWith(".sqlite")).length > 0;
+}
+
+export function mcpRegistrationGate(): McpRegistrationGate {
+  if (codeEvidenceIndexExists()) return { register: true };
+  const indexableFileCount = discoverCodeFiles(["."]).length;
+  if (indexableFileCount >= SMALL_REPO_FILE_THRESHOLD) return { register: true };
+  return {
+    register: false,
+    reason: `skipped-small-repo ${indexableFileCount} indexable files < ${SMALL_REPO_FILE_THRESHOLD} (code-evidence tools measured costlier than direct reads at this scale: stageR1; opt in via --code-index --acknowledge-small-repo, then re-run bootstrap)`,
+  };
 }
 
 export function upsertClaudeMcpConfig(): FileStatus {

@@ -108,7 +108,7 @@ function buildFixtureIndex(cwd) {
     "",
   ].join("\n"));
 
-  runCli(cwd, ["--code-index", "--code-scope", "src", "--code-scope", "apps/web", "--code-scope", "packages/api", "--code-scope", "package.json"]);
+  runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "apps/web", "--code-scope", "packages/api", "--code-scope", "package.json"]);
 }
 
 function toolResultText(response) {
@@ -363,7 +363,7 @@ test("an oversized tool body is hard-capped with an explicit truncation notice",
       big += `export function commonPrefixHandler${i}(${args}): Promise<SomeReasonablyLongReturnTypeName${i}> { return null; }\n`;
     }
     fs.writeFileSync(path.join(cwd, "src", "big.ts"), big);
-    runCli(cwd, ["--code-index", "--code-scope", "src", "--code-scope", "package.json"]);
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "package.json"]);
     const [response] = mcpExchange(cwd, [
       { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "code_search", arguments: { term: "commonPrefixHandler" } } },
     ]);
@@ -381,9 +381,21 @@ test("an oversized tool body is hard-capped with an explicit truncation notice",
 // Bootstrap-managed MCP registration: merge / preserve / idempotency
 // ---------------------------------------------------------------------------
 
+// The scale gate skips MCP auto-registration on sub-threshold repos UNLESS a
+// .project-wiki index already exists (standing consent: below the threshold it
+// can only be built via --code-index --acknowledge-small-repo). These merge /
+// preserve / idempotency tests run on tiny tmp fixtures, so they plant an index
+// stub to take the registering branch; the gate itself is covered in
+// code-scale-gate.test.js.
+function stubCodeEvidenceIndex(cwd) {
+  fs.mkdirSync(path.join(cwd, ".project-wiki"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".project-wiki", "code-evidence.sqlite"), "");
+}
+
 test("bootstrap registers the MCP server in .mcp.json, .cursor/mcp.json, and .gemini/settings.json", () => {
   const cwd = makeTmpDir("mcp-reg-");
   try {
+    stubCodeEvidenceIndex(cwd);
     runCli(cwd, ["--no-git-config"]);
     const claude = JSON.parse(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"));
     assert.ok(claude.mcpServers["project-librarian"], "Claude .mcp.json must register project-librarian");
@@ -404,6 +416,7 @@ test("bootstrap registers the MCP server in .mcp.json, .cursor/mcp.json, and .ge
 test("registration preserves a user-authored .mcp.json with another server and unknown keys", () => {
   const cwd = makeTmpDir("mcp-preserve-");
   try {
+    stubCodeEvidenceIndex(cwd);
     fs.writeFileSync(path.join(cwd, ".mcp.json"), JSON.stringify({
       mcpServers: { "my-existing-server": { command: "node", args: ["other.js"] } },
       someUnknownTopLevelKey: { keep: true },
@@ -421,6 +434,7 @@ test("registration preserves a user-authored .mcp.json with another server and u
 test("a second bootstrap run reports the MCP registrations as exists (idempotent)", () => {
   const cwd = makeTmpDir("mcp-idem-");
   try {
+    stubCodeEvidenceIndex(cwd);
     runCli(cwd, ["--no-git-config"]);
     const rerun = runCli(cwd, ["--no-git-config"]);
     assert.match(rerun, /exists {2}\.mcp\.json/);
@@ -434,6 +448,7 @@ test("a second bootstrap run reports the MCP registrations as exists (idempotent
 test("the registered command uses the local runner when the repo contains one", () => {
   const cwd = makeTmpDir("mcp-runner-");
   try {
+    stubCodeEvidenceIndex(cwd);
     runCli(cwd, ["install-skill", "--scope", "project", "--agents", "claude"]);
     runCli(cwd, ["--no-git-config"]);
     const config = JSON.parse(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"));

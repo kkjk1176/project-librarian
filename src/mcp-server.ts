@@ -33,6 +33,7 @@ import {
   searchSymbols,
   workspaceDependencyGraph,
 } from "./code-index";
+import { SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
 import { normalizePath, root } from "./workspace";
 
 // Pinned MCP protocol version. This is the spec revision this server is written
@@ -249,6 +250,20 @@ function searchAnswer(database: SqliteDatabase, term: string): string {
   return lines.join("\n");
 }
 
+// Scale-aware routing guidance for code_status (2026-06-12 decision, stageR1 /
+// stage2d evidence): the indexed file count places the repo in a scale bracket,
+// and the bracket tells the agent which question shapes the tools measured
+// cheaper for. Exported as a pure function so both brackets are unit-testable.
+export function scaleGuidanceLines(indexedFileCount: number): string[] {
+  const bracket = indexedFileCount < SMALL_REPO_FILE_THRESHOLD
+    ? `Scale: small (${indexedFileCount} indexed files < ${SMALL_REPO_FILE_THRESHOLD}) — at this scale direct reads measured cheaper for every benchmarked question; prefer direct reads for simple lookups and reserve these tools for expensive traversal questions.`
+    : `Scale: large (${indexedFileCount} indexed files >= ${SMALL_REPO_FILE_THRESHOLD}) — expensive traversal questions (impact tracing) measured cheaper through the index at this scale.`;
+  return [
+    bracket,
+    "Ownership-style simple lookups measured cheaper via direct reads at every scale; prefer direct reads for those.",
+  ];
+}
+
 function statusAnswer(database: SqliteDatabase, relativePath: string, staleness: CodeIndexStaleness): string {
   const coverage = evidenceCoverage(database);
   const staleLabel = staleness.stale
@@ -256,6 +271,7 @@ function statusAnswer(database: SqliteDatabase, relativePath: string, staleness:
     : "fresh";
   const lines = [
     `Index ${relativePath} is ${staleLabel}; ${coverage.files ?? 0} files, ${coverage.symbols ?? 0} symbols, ${coverage.imports ?? 0} imports, ${coverage.routes ?? 0} routes, ${coverage.edges ?? 0} edges, ${coverage.configs ?? 0} configs.`,
+    ...scaleGuidanceLines(Number(coverage.files ?? 0)),
   ];
   if (staleness.stale) {
     lines.push("Action: rerun `project-librarian --code-index` (or `--code-index --incremental`) before trusting structure answers.");

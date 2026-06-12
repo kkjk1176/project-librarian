@@ -12,8 +12,10 @@ exports.wikiTrustContract = "Wiki decision documents are authoritative for proje
 // B4 analogue for code evidence: a single-sentence trust contract making the
 // code-evidence tool/report outputs authoritative for code-structure questions,
 // gated on the same staleness check the tools surface (`--code-status` /
-// `code_status`). Mirrors wikiTrustContract scale; kept budget-conscious.
-exports.codeEvidenceTrustContract = "Code-evidence tool and report outputs (`--code-impact`, `--code-report`, and the `project-librarian mcp` tools) are authoritative for code-structure questions: do not re-verify them with repo-wide greps unless `--code-status`/`code_status` reports staleness.";
+// `code_status`). Mirrors wikiTrustContract scale; kept budget-conscious. The
+// closing clause is the scale-conditional guidance (2026-06-12 decision, stageR1
+// evidence): on small repos simple lookups measured cheaper via direct reads.
+exports.codeEvidenceTrustContract = "Code-evidence tool and report outputs (`--code-impact`, `--code-report`, and the `project-librarian mcp` tools) are authoritative for code-structure questions: do not re-verify them with repo-wide greps unless `--code-status`/`code_status` reports staleness; on small repos below the measured scale threshold, prefer direct reads over these tools for simple lookups (measured cheaper at small scale).";
 // B1 fallback: label for the auto-synced startup TL;DR sub-block embedded in the
 // managed AGENTS.md marker section. Non-interactive `codex exec` does not run
 // SessionStart hooks (measured 2026-06-10), so AGENTS.md is the only startup

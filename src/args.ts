@@ -1,4 +1,5 @@
 export interface ParsedArgs {
+  acknowledgeSmallRepoMode: boolean;
   args: Set<string>;
   captureCategory: string;
   captureContent: string;
@@ -54,6 +55,7 @@ export const rawArgs: string[] = process.argv.slice(2);
 const knownCommands: Set<string> = new Set(["init", "install-skill", "mcp"]);
 
 const flagsWithoutValues: Set<string> = new Set([
+  "--acknowledge-small-repo",
   "--adopt-existing",
   "--capture-inbox",
   "--code-evidence-files",
@@ -177,6 +179,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
   const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
   return {
+    acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
     args,
     captureCategory: argValue("--category") || "project-candidate",
     captureContent: argValue("--content"),
@@ -261,6 +264,7 @@ export const captureInboxMode = parsedArgs.captureInboxMode;
 export const pruneCheckMode = parsedArgs.pruneCheckMode;
 export const reviewMigrationMode = parsedArgs.reviewMigrationMode;
 export const noGitConfigMode = parsedArgs.noGitConfigMode;
+export const acknowledgeSmallRepoMode = parsedArgs.acknowledgeSmallRepoMode;
 export const codeIndexMode = parsedArgs.codeIndexMode;
 export const codeIndexIncrementalMode = parsedArgs.codeIndexIncrementalMode;
 export const codeIndexFullMode = parsedArgs.codeIndexFullMode;

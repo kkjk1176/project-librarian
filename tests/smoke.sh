@@ -56,6 +56,7 @@ grep -q -- "--issue-draft" help.log
 grep -q -- "--issue-create" help.log
 grep -q -- "--issue-body-file" help.log
 grep -q -- "--incremental" help.log
+grep -q -- "--acknowledge-small-repo" help.log
 grep -q -- "--code-index-full" help.log
 grep -q -- "--code-impact" help.log
 grep -q -- "--code-parser" help.log
@@ -99,6 +100,11 @@ if node "$CLI" --code-parser default > lone-default-code-parser.log 2>&1; then
   exit 1
 fi
 grep -q -- "--code-parser is only supported with --code-index" lone-default-code-parser.log
+if node "$CLI" --acknowledge-small-repo > lone-acknowledge-small-repo.log 2>&1; then
+  echo "expected --acknowledge-small-repo without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--acknowledge-small-repo is only supported with --code-index" lone-acknowledge-small-repo.log
 if node "$CLI" --code-report --code-report-section > missing-code-report-section.log 2>&1; then
   echo "expected missing --code-report-section value to fail" >&2
   exit 1
@@ -181,14 +187,39 @@ grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
 # Code-evidence trust contract (B4 analogue) in the managed AGENTS.md block.
 grep -q "Code-evidence tool and report outputs" AGENTS.md
 grep -q -- "\`--code-status\`/\`code_status\` reports staleness" AGENTS.md
-# Bootstrap-managed MCP registration: Claude .mcp.json, Cursor .cursor/mcp.json,
-# and Gemini mcpServers inside .gemini/settings.json all register project-librarian.
+# Bootstrap-managed MCP registration is scale-gated: this fixture sits below the
+# small-repo threshold with no code-evidence index, so bootstrap reports the skip
+# reason and writes no MCP config.
+node "$CLI" --no-git-config > mcp-skip.log
+grep -q "skipped-small-repo" mcp-skip.log
+grep -q -- "--code-index --acknowledge-small-repo" mcp-skip.log
+test ! -e .mcp.json
+test ! -e .cursor/mcp.json
+node -e 'const c=require("./.gemini/settings.json"); if (c.mcpServers) process.exit(1)'
+# The same scale gate halts a sub-threshold --code-index without the acknowledge
+# flag, before any .project-wiki write, citing the benchmark evidence.
+if node "$CLI" --code-index > code-index-gate.log 2>&1; then
+  echo "expected sub-threshold --code-index without --acknowledge-small-repo to fail" >&2
+  exit 1
+fi
+grep -q "scale threshold" code-index-gate.log
+grep -q "stageR1" code-index-gate.log
+grep -q "Not measured, so not disproven" code-index-gate.log
+grep -q -- "--acknowledge-small-repo" code-index-gate.log
+test ! -e .project-wiki
+# Acknowledged index build is standing consent: the next bootstrap registers the
+# MCP server in Claude .mcp.json, Cursor .cursor/mcp.json, and Gemini mcpServers
+# inside .gemini/settings.json regardless of scale.
+node "$CLI" --code-index --acknowledge-small-repo > code-index-acknowledged.log
+grep -q "Project wiki code evidence index complete." code-index-acknowledged.log
+node "$CLI" --no-git-config > mcp-register.log
+grep -q "created .mcp.json" mcp-register.log
 test -f .mcp.json
 test -f .cursor/mcp.json
 node -e 'const c=require("./.mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
 node -e 'const c=require("./.cursor/mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
 node -e 'const c=require("./.gemini/settings.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1); if (!Array.isArray(c.hooks&&c.hooks.SessionStart)) process.exit(1)'
-# Second run reports the registrations as idempotent.
+# Second registering run reports the registrations as idempotent.
 node "$CLI" --no-git-config > mcp-rerun.log
 grep -q "exists  .mcp.json" mcp-rerun.log
 grep -q "exists  .cursor/mcp.json" mcp-rerun.log
@@ -927,16 +958,19 @@ EOF
 cat > service-token.yaml <<'EOF'
 SERVICE_TOKEN: do-not-index
 EOF
-if node "$CLI" --code-index --incremental --code-scope src --code-scope package.json > missing-incremental-code-index.log 2>&1; then
+# This fixture sits below the small-repo scale gate, so every --code-index run
+# here carries --acknowledge-small-repo; the gate's own halt path is covered in
+# the bootstrap section above.
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope src --code-scope package.json > missing-incremental-code-index.log 2>&1; then
   echo "expected --code-index --incremental without existing index to fail" >&2
   exit 1
 fi
 grep -q -- "--incremental requires an existing compatible code evidence index" missing-incremental-code-index.log
 test ! -f .project-wiki/code-evidence.sqlite
-node "$CLI" --code-index --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
 test -f .project-wiki/code-evidence.sqlite
 grep -q "files: 6" code-index.log
-if node "$CLI" --code-index --incremental --code-scope package.json > mismatched-incremental-code-index.log 2>&1; then
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope package.json > mismatched-incremental-code-index.log 2>&1; then
   echo "expected --code-index --incremental with mismatched scopes to fail" >&2
   exit 1
 fi
@@ -957,7 +991,7 @@ grep -q ".env.example" code-files.json
 ! grep -q "LOCAL_SECRET" code-files.json
 ! grep -q "TOP_SECRET" code-files.json
 ! grep -q "SERVICE_TOKEN" code-files.json
-node "$CLI" --code-index --code-index-out .project-wiki/all.sqlite > all-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-out .project-wiki/all.sqlite > all-code-index.log
 node "$CLI" --code-files --code-index-out .project-wiki/all.sqlite > all-code-files.json
 ! grep -q "dist/built.js" all-code-files.json
 ! grep -q "vendor/vendor.js" all-code-files.json
@@ -1120,7 +1154,7 @@ public class SmokeService
     }
 }
 EOF
-node "$CLI" --code-index --code-parser tree-sitter --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > tree-sitter-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-parser tree-sitter --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > tree-sitter-code-index.log
 grep -q "parser_mode: tree-sitter" tree-sitter-code-index.log
 node "$CLI" --code-files --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-files.json
 grep -q "tree-sitter-c" tree-sitter-files.json
@@ -1165,7 +1199,7 @@ node "$CLI" --code-query "select to_ref from imports where to_ref = 'net/http'" 
 grep -q "net/http" tree-sitter-go-imports.json
 node "$CLI" --code-report --code-report-section parsers --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-parsers.json
 node -e 'const r=require("./tree-sitter-parsers.json"); if (r.parser_mode !== "tree-sitter" || r.section !== "parsers") process.exit(1); for (const profile of ["tree-sitter-c", "tree-sitter-cpp", "tree-sitter-csharp", "tree-sitter-javascript", "tree-sitter-go", "tree-sitter-java", "tree-sitter-kotlin", "tree-sitter-php", "tree-sitter-python", "tree-sitter-rust", "tree-sitter-swift", "tree-sitter-typescript"]) if (!r.data.some((row) => row.profile === profile && row.backend === profile && row.extraction_strength === "structural")) process.exit(1)'
-if node "$CLI" --code-index --incremental --code-parser default --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > mismatched-parser-mode-code-index.log 2>&1; then
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-parser default --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > mismatched-parser-mode-code-index.log 2>&1; then
   echo "expected --code-index --incremental with mismatched parser mode to fail" >&2
   exit 1
 fi
@@ -1181,7 +1215,7 @@ node "$CLI" --code-status > stale-status.json
 node -e 'const rows = require("./stale-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 3 || metric.stale_changed_files !== 1 || metric.stale_added_files !== 1 || metric.stale_deleted_files !== 1) process.exit(1)'
 node "$CLI" --code-files > stale-files.json 2> stale-warning.log
 grep -q "code evidence index may be stale" stale-warning.log
-node "$CLI" --code-index --incremental --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
 grep -q "mode: incremental" incremental-code-index.log
 grep -q "files: 6" incremental-code-index.log
 grep -q "reindexed_files: 2" incremental-code-index.log
@@ -1192,16 +1226,16 @@ node "$CLI" --code-search-symbol newHandler > incremental-symbols.json
 grep -q "newHandler" incremental-symbols.json
 node "$CLI" --code-files > fresh-files.json
 ! grep -q ".env.example" fresh-files.json
-node "$CLI" --code-index --code-index-full --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > full-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-full --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > full-code-index.log
 grep -q "mode: full" full-code-index.log
 grep -q "files: 6" full-code-index.log
 grep -q "reindexed_files: 6" full-code-index.log
 grep -q "unchanged_files: 0" full-code-index.log
 printf "not sqlite" > .project-wiki/broken.sqlite
-node "$CLI" --code-index --code-index-full --code-index-out .project-wiki/broken.sqlite --code-scope src > broken-full-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-full --code-index-out .project-wiki/broken.sqlite --code-scope src > broken-full-code-index.log
 grep -q "mode: full" broken-full-code-index.log
 grep -q "files: 3" broken-full-code-index.log
-node "$CLI" --code-index --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
 test -f .project-wiki/custom.sqlite
 if node "$CLI" --code-index --code-index-out ../outside.sqlite > bad-code-index-out.log 2>&1; then
   echo "expected --code-index-out outside project-wiki to fail" >&2

@@ -39,6 +39,7 @@ Options:
   --review-migration               Sync migration inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
@@ -99,6 +100,10 @@ if (args_1.codeReportSection && !args_1.codeReportMode) {
 }
 if (args_1.codeIndexIncrementalMode && !args_1.codeIndexMode) {
     console.error("--incremental is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.acknowledgeSmallRepoMode && !args_1.codeIndexMode) {
+    console.error("--acknowledge-small-repo is only supported with --code-index.");
     process.exit(1);
 }
 if (args_1.codeIndexFullMode && !args_1.codeIndexMode) {
@@ -263,9 +268,20 @@ function runInitCommand() {
     // `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
     // config (`codex mcp add` -> ~/.codex/config.toml), so it is intentionally not
     // registered at project level; the README documents the manual user-level step.
-    results.push([".mcp.json", (0, hooks_1.upsertClaudeMcpConfig)()]);
-    results.push([".cursor/mcp.json", (0, hooks_1.upsertCursorMcpConfig)()]);
-    results.push([".gemini/settings.json mcpServers", (0, hooks_1.upsertGeminiMcpConfig)()]);
+    // Registration is scale-gated (2026-06-12 decision): below the measured
+    // file-count threshold with no existing .project-wiki index, the rows report the
+    // skip reason instead of writing config; an existing index registers regardless.
+    const mcpGate = (0, hooks_1.mcpRegistrationGate)();
+    if (mcpGate.register) {
+        results.push([".mcp.json", (0, hooks_1.upsertClaudeMcpConfig)()]);
+        results.push([".cursor/mcp.json", (0, hooks_1.upsertCursorMcpConfig)()]);
+        results.push([".gemini/settings.json mcpServers", (0, hooks_1.upsertGeminiMcpConfig)()]);
+    }
+    else {
+        results.push([".mcp.json", mcpGate.reason]);
+        results.push([".cursor/mcp.json", mcpGate.reason]);
+        results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+    }
     // Routers accumulate user-maintained project state after bootstrap, so they are
     // starter files: templates are written only when the file is absent, never rebuilt.
     results.push(["wiki/startup.md", (0, workspace_1.writeStarter)("wiki/startup.md", templates_1.startup)]);

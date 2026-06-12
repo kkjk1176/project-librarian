@@ -23,7 +23,7 @@ test("code-query output beyond 64KB arrives unbroken", () => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, `export const value${index} = ${index};\n`);
     }
-    childProcess.execFileSync(process.execPath, [cliPath, "--code-index", "--code-scope", "packages"], {
+    childProcess.execFileSync(process.execPath, [cliPath, "--code-index", "--acknowledge-small-repo", "--code-scope", "packages"], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],

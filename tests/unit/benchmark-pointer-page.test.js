@@ -158,7 +158,7 @@ test("verifyInstalledRunnerCommands fails with a clear message when --code-impac
     );
     fs.writeFileSync(path.join(tmpRoot, "packages", "workspace-1", "src", "bridge.ts"), 'import "@benchmark/workspace-0";\n');
     // Build the index (no mod-0.ts / no import chain planted).
-    childProcess.execFileSync(process.execPath, [cliPath, "--code-index", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "CODEOWNERS"], { cwd: tmpRoot, stdio: ["ignore", "pipe", "pipe"] });
+    childProcess.execFileSync(process.execPath, [cliPath, "--code-index", "--acknowledge-small-repo", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "CODEOWNERS"], { cwd: tmpRoot, stdio: ["ignore", "pipe", "pipe"] });
     // Install runner into the fixture using the same pattern as materializeWithProjectLibrarian.
     const distDir = path.dirname(cliPath);
     const runnerDir = path.join(tmpRoot, "tools", "project-librarian");

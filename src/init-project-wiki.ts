@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions } from "./args";
-import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
+import { acknowledgeSmallRepoMode, captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions } from "./args";
+import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
@@ -43,6 +43,7 @@ Options:
   --review-migration               Sync migration inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
@@ -113,6 +114,11 @@ if (codeReportSection && !codeReportMode) {
 
 if (codeIndexIncrementalMode && !codeIndexMode) {
   console.error("--incremental is only supported with --code-index.");
+  process.exit(1);
+}
+
+if (acknowledgeSmallRepoMode && !codeIndexMode) {
+  console.error("--acknowledge-small-repo is only supported with --code-index.");
   process.exit(1);
 }
 
@@ -285,9 +291,19 @@ results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks
 // `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
 // config (`codex mcp add` -> ~/.codex/config.toml), so it is intentionally not
 // registered at project level; the README documents the manual user-level step.
-results.push([".mcp.json", upsertClaudeMcpConfig()]);
-results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
-results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
+// Registration is scale-gated (2026-06-12 decision): below the measured
+// file-count threshold with no existing .project-wiki index, the rows report the
+// skip reason instead of writing config; an existing index registers regardless.
+const mcpGate = mcpRegistrationGate();
+if (mcpGate.register) {
+  results.push([".mcp.json", upsertClaudeMcpConfig()]);
+  results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
+  results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
+} else {
+  results.push([".mcp.json", mcpGate.reason]);
+  results.push([".cursor/mcp.json", mcpGate.reason]);
+  results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+}
 // Routers accumulate user-maintained project state after bootstrap, so they are
 // starter files: templates are written only when the file is absent, never rebuilt.
 results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);

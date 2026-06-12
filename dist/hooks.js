@@ -39,12 +39,15 @@ exports.upsertHookConfig = upsertHookConfig;
 exports.upsertClaudeHookConfig = upsertClaudeHookConfig;
 exports.upsertGeminiHookConfig = upsertGeminiHookConfig;
 exports.upsertCursorHookConfig = upsertCursorHookConfig;
+exports.codeEvidenceIndexExists = codeEvidenceIndexExists;
+exports.mcpRegistrationGate = mcpRegistrationGate;
 exports.upsertClaudeMcpConfig = upsertClaudeMcpConfig;
 exports.upsertCursorMcpConfig = upsertCursorMcpConfig;
 exports.upsertGeminiMcpConfig = upsertGeminiMcpConfig;
 const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const args_1 = require("./args");
+const code_index_file_policy_1 = require("./code-index-file-policy");
 const workspace_1 = require("./workspace");
 function upsertGitHooksPath() {
     if (args_1.noGitConfigMode)
@@ -185,6 +188,20 @@ function upsertMcpServersFile(relativePath) {
         return "exists";
     (0, workspace_1.write)(relativePath, next);
     return previous ? "updated" : "created";
+}
+function codeEvidenceIndexExists() {
+    return (0, workspace_1.walkFilesUnder)(code_index_file_policy_1.codeEvidenceDirectory, (file) => file.endsWith(".sqlite")).length > 0;
+}
+function mcpRegistrationGate() {
+    if (codeEvidenceIndexExists())
+        return { register: true };
+    const indexableFileCount = (0, code_index_file_policy_1.discoverCodeFiles)(["."]).length;
+    if (indexableFileCount >= code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD)
+        return { register: true };
+    return {
+        register: false,
+        reason: `skipped-small-repo ${indexableFileCount} indexable files < ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD} (code-evidence tools measured costlier than direct reads at this scale: stageR1; opt in via --code-index --acknowledge-small-repo, then re-run bootstrap)`,
+    };
 }
 function upsertClaudeMcpConfig() {
     return upsertMcpServersFile(".mcp.json");

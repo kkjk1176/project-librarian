@@ -500,7 +500,10 @@ function materializeWithArm({ pristineDir, destDir, cliPath, codeScopes }) {
   // .git; --no-git-config keeps the bootstrap from rewriting hooks/identity).
   runCli(["--no-git-config"]);
   // Build the code-evidence index scoped to the key file's code_scopes.
-  const indexArgs = ["--code-index"];
+  // --acknowledge-small-repo: materialization is an explicit benchmark request,
+  // so the small-repo scale gate is consciously acknowledged (it would otherwise
+  // halt sub-threshold corpora like the ~1.2k-file one; a no-op above threshold).
+  const indexArgs = ["--code-index", "--acknowledge-small-repo"];
   for (const scope of scopes) indexArgs.push("--code-scope", scope);
   runCli(indexArgs);
   // Install the local runner so an agent (and the MCP server) can query the index

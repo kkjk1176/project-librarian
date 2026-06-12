@@ -8,6 +8,7 @@ export type FileStatus =
   | "skipped-no-git"
   | "skipped-no-git-config"
   | `skipped-existing-hooksPath ${string}`
+  | `skipped-small-repo ${string}`
   | "updated"
   | `updated from ${string}`
   | `moved wiki to ${string}`

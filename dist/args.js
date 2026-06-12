@@ -1,12 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
 exports.rawArgs = process.argv.slice(2);
 const knownCommands = new Set(["init", "install-skill", "mcp"]);
 const flagsWithoutValues = new Set([
+    "--acknowledge-small-repo",
     "--adopt-existing",
     "--capture-inbox",
     "--code-evidence-files",
@@ -130,6 +132,7 @@ function parseArgs(argv) {
     const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
     const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
     return {
+        acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
         args,
         captureCategory: argValue("--category") || "project-candidate",
         captureContent: argValue("--content"),
@@ -213,6 +216,7 @@ exports.captureInboxMode = exports.parsedArgs.captureInboxMode;
 exports.pruneCheckMode = exports.parsedArgs.pruneCheckMode;
 exports.reviewMigrationMode = exports.parsedArgs.reviewMigrationMode;
 exports.noGitConfigMode = exports.parsedArgs.noGitConfigMode;
+exports.acknowledgeSmallRepoMode = exports.parsedArgs.acknowledgeSmallRepoMode;
 exports.codeIndexMode = exports.parsedArgs.codeIndexMode;
 exports.codeIndexIncrementalMode = exports.parsedArgs.codeIndexIncrementalMode;
 exports.codeIndexFullMode = exports.parsedArgs.codeIndexFullMode;

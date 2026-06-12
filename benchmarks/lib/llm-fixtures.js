@@ -1572,7 +1572,9 @@ function materializeWithProjectLibrarian(root, scaleName, cliPath) {
   assertRouterTruthConsistency(root);
   assertBoundedAnswerReachability(root);
 
-  runProjectLibrarian(cliPath, ["--code-index", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "CODEOWNERS"], root);
+  // --acknowledge-small-repo: synthetic fixtures sit below the scale gate by
+  // design; the benchmark explicitly opts in to measure the with-arm anyway.
+  runProjectLibrarian(cliPath, ["--code-index", "--acknowledge-small-repo", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "CODEOWNERS"], root);
 
   // Install the built CLI so an agent inside the read-only sandbox can query the
   // code-evidence index offline, then convert the index out of WAL mode so the

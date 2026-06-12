@@ -1,11 +1,10 @@
 import * as crypto from "node:crypto";
-import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
-import { codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase, type SqliteStatement, type SqliteValue } from "./code-index-db";
-import { fileLanguage, ignoredDirectories, isIgnoredCodePath, isJavaScriptLike, maxIndexedBytes, shouldIndexFile } from "./code-index-file-policy";
+import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, isJavaScriptLike, maxIndexedBytes, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
 import { abs, mkdirp, normalizePath, root } from "./workspace";
 
@@ -145,7 +144,6 @@ interface ExtractionBackend {
   strength: ExtractionStrength;
 }
 
-const codeEvidenceDirectory = ".project-wiki";
 const codeIndexSchemaVersion = "3";
 const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
 const treeSitterGrammarPackages: Record<string, string> = {
@@ -259,52 +257,6 @@ function extractionProfile(relativePath: string, parserMode: CodeParserMode): st
   if (fileLanguage(relativePath) === "go") return "go-light";
   if (fileLanguage(relativePath) === "config") return "config";
   return "inventory-only";
-}
-
-function walkCodeFiles(relativePath: string, files: string[] = []): string[] {
-  if (isIgnoredCodePath(relativePath)) return files.sort();
-  const target = abs(relativePath);
-  if (!fs.existsSync(target)) return files;
-  const stat = fs.statSync(target);
-  if (stat.isFile()) {
-    if (stat.size <= maxIndexedBytes && shouldIndexFile(relativePath)) files.push(relativePath);
-    return files.sort();
-  }
-  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
-    const child = normalizePath(path.join(relativePath, entry.name));
-    if (entry.isDirectory()) {
-      if (!ignoredDirectories.has(entry.name)) walkCodeFiles(child, files);
-    } else if (entry.isFile() && shouldIndexFile(child)) {
-      const childStat = fs.statSync(abs(child));
-      if (childStat.size <= maxIndexedBytes) files.push(child);
-    }
-  }
-  return files.sort();
-}
-
-function gitTrackedAndUnignoredFiles(scopes: string[]): string[] | null {
-  try {
-    const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...scopes], {
-      cwd: root,
-      encoding: "buffer",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return output.toString("utf8").split("\0").filter(Boolean).map((file) => normalizeProjectRelative(file, "git-indexed file"));
-  } catch {
-    return null;
-  }
-}
-
-function discoverCodeFiles(scopes: string[]): string[] {
-  const gitFiles = gitTrackedAndUnignoredFiles(scopes);
-  const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
-  return Array.from(new Set(candidates))
-    .filter((file) => !isIgnoredCodePath(file))
-    .filter((file) => fs.existsSync(abs(file)))
-    .filter((file) => fs.statSync(abs(file)).isFile())
-    .filter((file) => shouldIndexFile(file))
-    .filter((file) => fs.statSync(abs(file)).size <= maxIndexedBytes)
-    .sort();
 }
 
 function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
@@ -1798,6 +1750,12 @@ export function runCodeIndexMode(): void {
   const databasePath = codeEvidenceDatabasePath();
   const scopes = codeScopes();
   const parserMode = selectedCodeParserMode();
+  // Scale gate before ANY write or database work: below the measured threshold
+  // the build halts with the evidence-citing warning unless --acknowledge-small-repo
+  // was passed (2026-06-12 scale-aware guidance decision).
+  const discoveredFiles = discoverCodeFiles(scopes);
+  const scaleGate = smallRepoCodeIndexGate(discoveredFiles.length, acknowledgeSmallRepoMode);
+  if (!scaleGate.proceed) fail(scaleGate.warning);
   const existingIndex = fs.existsSync(databasePath.absolutePath);
   if (codeIndexIncrementalMode && !existingIndex) {
     fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
@@ -1820,7 +1778,7 @@ export function runCodeIndexMode(): void {
   try {
     if (!incremental) setupDatabase(database);
     const statements = createIndexStatements(database);
-    const currentFiles = discoverCodeFiles(scopes).map((filePath) => readCodeFile(filePath, parserMode));
+    const currentFiles = discoveredFiles.map((filePath) => readCodeFile(filePath, parserMode));
     const currentByPath = new Map(currentFiles.map((file) => [file.path, file] as const));
     const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)] as const)) : new Map<string, string>();
     const deletedPaths = incremental ? Array.from(indexed.keys()).filter((filePath) => !currentByPath.has(filePath)) : [];
