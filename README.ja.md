@@ -109,6 +109,7 @@ Wiki の検証と保守:
 | リンクと文書品質の確認 | `$PROJECT_LIBRARIAN --doctor` |
 | 診断前に生成 routing を更新 | `$PROJECT_LIBRARIAN --doctor --fix` |
 | project wiki 検索 | `$PROJECT_LIBRARIAN --query "authentication decisions"` |
+| ページの wiki バックリンク/decision_ref 引用を表示 | `$PROJECT_LIBRARIAN --wiki-impact "decisions/release-policy"` |
 | 候補メモの保存 | `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate" --content "Details"` |
 | 古い、または未解決の wiki ページの報告 | `$PROJECT_LIBRARIAN --prune-check` |
 | git config を変えず hook ファイルをインストール | `$PROJECT_LIBRARIAN --no-git-config` |
@@ -192,7 +193,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-重要なオプション: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+重要なオプション: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--wiki-impact`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 開発
 

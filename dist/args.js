@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = void 0;
+exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -67,6 +67,7 @@ const flagsWithValues = new Set([
     "--query",
     "--scope",
     "--title",
+    "--wiki-impact",
 ]);
 const knownFlags = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
 function flagName(arg) {
@@ -188,6 +189,8 @@ function parseArgs(argv) {
             .filter((arg) => arg.startsWith("-"))
             .map(flagName)
             .filter((arg) => !knownFlags.has(arg)))),
+        wikiImpactMode: hasFlag("--wiki-impact"),
+        wikiImpactTarget: argValue("--wiki-impact"),
     };
 }
 exports.parsedArgs = parseArgs(exports.rawArgs);
@@ -234,6 +237,8 @@ function argValues(name) {
     return argValuesFrom(exports.commandArgs, name);
 }
 exports.queryTerm = exports.parsedArgs.queryTerm;
+exports.wikiImpactMode = exports.parsedArgs.wikiImpactMode;
+exports.wikiImpactTarget = exports.parsedArgs.wikiImpactTarget;
 exports.codeImpactTarget = exports.parsedArgs.codeImpactTarget;
 exports.codeQuerySql = exports.parsedArgs.codeQuerySql;
 exports.codeReportSection = exports.parsedArgs.codeReportSection;

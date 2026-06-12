@@ -220,6 +220,17 @@ export function hasGlossaryTable(text: string): boolean {
   return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
 }
 
+// First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
+// page's one-line summary without opening the page. Pages without a TL;DR section
+// return "" and the envelope simply omits the line — quality-check separately
+// flags the missing TL;DR, so this is optional enrichment, not a fallback path.
+export function firstTldrBullet(text: string): string {
+  const body = stripMetadataHeader(text);
+  const match = body.match(/^##\s+TL;DR[^\n]*\n([\s\S]*?)(?=\n##\s|(?![\s\S]))/m);
+  const bullet = match?.[1]?.split(/\r?\n/).find((line) => /^\s*-\s+\S/.test(line));
+  return bullet ? bullet.replace(/^\s*-\s*/, "").trim().slice(0, 160) : "";
+}
+
 export function canonicalBodyForLint(): string {
   return walkFilesUnder("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")
     .map((file) => stripMetadataHeader(read(file)))

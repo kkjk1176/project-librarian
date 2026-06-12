@@ -31,7 +31,8 @@ Options:
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
   --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
   --issue-title <title>            Override the generated issue draft title.
-  --query <terms>                  Search wiki paths, metadata, titles, and bodies.
+  --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
+  --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
@@ -171,6 +172,11 @@ function runInitCommand() {
     if (args_1.codeIndexMode) {
         codeIndex().runCodeIndexMode();
         process.exit(0);
+    }
+    if (args_1.wikiImpactMode) {
+        (0, modes_1.runWikiImpactMode)();
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.queryTerm) {
         (0, modes_1.runQueryMode)();

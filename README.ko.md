@@ -111,6 +111,7 @@ $PROJECT_LIBRARIAN
 | 링크와 문서 품질 점검 | `$PROJECT_LIBRARIAN --doctor` |
 | 진단 전에 생성된 라우팅 갱신 | `$PROJECT_LIBRARIAN --doctor --fix` |
 | project wiki 검색 | `$PROJECT_LIBRARIAN --query "authentication decisions"` |
+| 페이지의 wiki 역링크/decision_ref 인용 확인 | `$PROJECT_LIBRARIAN --wiki-impact "decisions/release-policy"` |
 | 후보 메모 저장 | `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate" --content "Details"` |
 | 오래되었거나 미해결인 위키 페이지 보고 | `$PROJECT_LIBRARIAN --prune-check` |
 | git config 변경 없이 훅 파일 설치 | `$PROJECT_LIBRARIAN --no-git-config` |
@@ -194,7 +195,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-중요 옵션: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+중요 옵션: `--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--wiki-impact`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 개발
 

@@ -139,6 +139,7 @@ Validate and maintain the wiki:
 | Check links and document quality | `$PROJECT_LIBRARIAN --doctor` |
 | Refresh generated routing before diagnostics | `$PROJECT_LIBRARIAN --doctor --fix` |
 | Search project wiki content | `$PROJECT_LIBRARIAN --query "authentication decisions"` |
+| Show wiki backlinks and decision_ref citations for a page | `$PROJECT_LIBRARIAN --wiki-impact "decisions/release-policy"` |
 | Capture a candidate note | `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate" --content "Details"` |
 | Report stale or unresolved wiki pages | `$PROJECT_LIBRARIAN --prune-check` |
 | Install hook files without changing git config | `$PROJECT_LIBRARIAN --no-git-config` |
@@ -267,14 +268,15 @@ Important options:
 | --- | --- |
 | `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*` and create migration inboxes. |
 | `--lint` | Validate generated setup without editing files. |
-| `--link-check` | Report broken wiki links, duplicate routes, and orphan pages. |
+| `--link-check` | Report broken wiki links, duplicate routes, orphan pages, and pages the startup router cannot reach within the depth budget. |
 | `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |
 | `--doctor` | Run lint, link-check, and quality-check together. |
 | `--doctor --fix` | Safely refresh generated index routing before diagnostics. |
 | `--migration-lint` | Validate migration review scaffolding separately from normal lint. |
 | `--migration-quality-check` | Report migration policy/structure signals separately from normal quality-check. |
 | `--migration-doctor` | Run migration-lint and migration-quality-check together. |
-| `--query <terms>` | Search wiki paths, metadata, titles, and bodies. |
+| `--query <terms>` | Search wiki paths, metadata, titles, and bodies; answer-first output with per-page TL;DR lines under a hard size cap. |
+| `--wiki-impact <page-or-term>` | Show wiki backlinks, `decision_ref` citations, outgoing links, and router depth for matching pages. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
 | `--capture-inbox --title <title> --content <content>` | Append a candidate note to the wiki inbox. |
 | `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |

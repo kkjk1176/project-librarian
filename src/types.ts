@@ -137,6 +137,7 @@ export interface QueryResult extends MetadataSummary {
   file: string;
   title: string;
   score: number;
+  tldr: string;
 }
 
 export interface PruneCandidate {

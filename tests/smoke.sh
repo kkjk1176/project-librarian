@@ -237,7 +237,8 @@ node "$CLI" --refresh-index
 node "$CLI" --capture-inbox --title "Smoke" --content "Candidate content"
 node "$CLI" --capture-inbox > capture-inbox-empty-rerun.log
 grep -q "exists  wiki/inbox/project-candidates.md" capture-inbox-empty-rerun.log
-node "$CLI" --query Smoke
+node "$CLI" --query Smoke > query-smoke.log
+grep -q "Project wiki query \"Smoke\": best match" query-smoke.log
 node "$CLI" --prune-check
 node "$CLI" --lint
 
@@ -387,6 +388,28 @@ if node "$CLI" --fix > bad-fix.log 2>&1; then
   exit 1
 fi
 grep -q -- "--fix is only supported with --doctor" bad-fix.log
+# Wiki impact: answer-first backlink/decision_ref/routing envelope for a page.
+node "$CLI" --wiki-impact canonical/project-brief > wiki-impact.log
+grep -q "Wiki impact \"canonical/project-brief\":" wiki-impact.log
+grep -q "incoming links" wiki-impact.log
+grep -q "router: reachable at depth" wiki-impact.log
+# Router reachability (A1 promoted to the real wiki): a linked-but-disconnected
+# island warns router-unreachable while link-check still passes (warn severity).
+cat > wiki/canonical/island-a.md <<'EOF'
+# Island A
+
+Linked island probe: [[canonical/island-b]]
+EOF
+cat > wiki/canonical/island-b.md <<'EOF'
+# Island B
+
+Linked island probe: [[canonical/island-a]]
+EOF
+node "$CLI" --link-check > island-link-check.log
+grep -q "router-unreachable wiki/canonical/island-a.md" island-link-check.log
+grep -q "router-unreachable wiki/canonical/island-b.md" island-link-check.log
+grep -q "passed:" island-link-check.log
+rm wiki/canonical/island-a.md wiki/canonical/island-b.md
 # B2 router-truth rule: a dated decision-log entry while startup/recent still say
 # "None yet." is an error-level contradiction that fails --doctor and names both sides.
 node -e 'const fs=require("fs"); const f="wiki/decisions/log.md"; fs.writeFileSync(f, fs.readFileSync(f,"utf8").replace("No project decisions yet.", "- 2026-06-10 | metrics | benchmark evidence policy adopted | canonical: [[canonical/project-brief]]"));'

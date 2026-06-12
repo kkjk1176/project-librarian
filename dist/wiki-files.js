@@ -48,6 +48,7 @@ exports.metadataSummary = metadataSummary;
 exports.stripMarkedSection = stripMarkedSection;
 exports.hasGlossaryNeedSignal = hasGlossaryNeedSignal;
 exports.hasGlossaryTable = hasGlossaryTable;
+exports.firstTldrBullet = firstTldrBullet;
 exports.canonicalBodyForLint = canonicalBodyForLint;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
@@ -268,6 +269,16 @@ function hasGlossaryNeedSignal(text) {
 function hasGlossaryTable(text) {
     const body = (0, workspace_1.stripMetadataHeader)(text);
     return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
+}
+// First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
+// page's one-line summary without opening the page. Pages without a TL;DR section
+// return "" and the envelope simply omits the line — quality-check separately
+// flags the missing TL;DR, so this is optional enrichment, not a fallback path.
+function firstTldrBullet(text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const match = body.match(/^##\s+TL;DR[^\n]*\n([\s\S]*?)(?=\n##\s|(?![\s\S]))/m);
+    const bullet = match?.[1]?.split(/\r?\n/).find((line) => /^\s*-\s+\S/.test(line));
+    return bullet ? bullet.replace(/^\s*-\s*/, "").trim().slice(0, 160) : "";
 }
 function canonicalBodyForLint() {
     return (0, workspace_1.walkFilesUnder)("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")

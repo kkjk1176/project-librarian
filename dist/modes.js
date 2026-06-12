@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildRefreshIndexBlock = buildRefreshIndexBlock;
 exports.runQueryMode = runQueryMode;
+exports.runWikiImpactMode = runWikiImpactMode;
 exports.projectCandidatesContent = projectCandidatesContent;
 exports.appendCaptureInbox = appendCaptureInbox;
 exports.runIssueDraftMode = runIssueDraftMode;
@@ -61,6 +62,7 @@ const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
 const migration_1 = require("./migration");
 const wiki_files_1 = require("./wiki-files");
+const wiki_graph_1 = require("./wiki-graph");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
 function isScopedAutoIndex(file) {
@@ -168,26 +170,46 @@ This block is managed by \`--refresh-index\`. Move useful rows into a hand-writt
 | --- | --- | --- | --- |
 ${rows}<!-- PROJECT-WIKI-AUTO-INDEX:END -->`;
 }
+// Answer-shaped query output (2026-06-12 method-transfer decision): first line is
+// the answer, each result carries the page's TL;DR first bullet so the agent can
+// pick a page without opening it, and the whole body sits under the shared hard
+// cap with an explicit truncation notice.
 function runQueryMode() {
     if (!args_1.queryTerm.trim()) {
         console.error("missing query: use --query \"search terms\"");
         process.exit(1);
     }
     const terms = args_1.queryTerm.toLowerCase().split(/\s+/).filter(Boolean);
-    const results = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => {
+    const matches = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => {
         const text = (0, workspace_1.read)(file);
         const body = (0, workspace_1.stripMetadataHeader)(text);
         const title = (0, wiki_files_1.wikiTitleForFile)(file, text);
         const meta = (0, wiki_files_1.metadataSummary)(file, text);
         const weighted = `${file}\n${title}\n${meta.scope}\n${(0, workspace_1.metadataValue)(text, "tags")}\n${body}`.toLowerCase();
         const score = terms.reduce((sum, term) => sum + (weighted.split(term).length - 1) + (file.toLowerCase().includes(term) ? 3 : 0) + (title.toLowerCase().includes(term) ? 5 : 0), 0);
-        return { file, title, score, ...meta };
-    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, 10);
-    console.log(`Project wiki query: ${args_1.queryTerm}`);
-    if (results.length === 0)
-        console.log("no matches");
-    for (const item of results)
-        console.log(`${item.score.toString().padStart(3)}  ${item.file}  ${item.scope}  ${item.status}  ${item.title}`);
+        return { file, title, score, tldr: (0, wiki_files_1.firstTldrBullet)(text), ...meta };
+    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
+    const results = matches.slice(0, 10);
+    const best = results[0];
+    const lines = [best
+            ? `Project wiki query "${args_1.queryTerm}": best match ${best.file} — ${best.title} (${matches.length} matching page${matches.length === 1 ? "" : "s"}, top ${results.length} shown).`
+            : `Project wiki query "${args_1.queryTerm}": no matches.`];
+    for (const item of results) {
+        lines.push(`${item.score.toString().padStart(3)}  ${item.file}  [${item.scope}|${item.status}|${item.budget}]  ${item.title}`);
+        if (item.tldr)
+            lines.push(`     tldr: ${item.tldr}`);
+    }
+    console.log((0, wiki_graph_1.finalizeWikiAnswer)(lines.join("\n")));
+}
+// Wiki impact mode: backlink/decision_ref/routing evidence for a page so wiki
+// maintenance can find review candidates when project truth changes.
+function runWikiImpactMode() {
+    if (!args_1.wikiImpactTarget.trim()) {
+        console.error("missing wiki impact target: use --wiki-impact \"page-or-term\"");
+        process.exit(1);
+    }
+    const pages = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => ({ file, text: (0, workspace_1.read)(file) }));
+    console.log((0, wiki_graph_1.wikiImpactAnswer)(pages, args_1.wikiImpactTarget.trim()));
 }
 function projectCandidatesContent() {
     return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
@@ -457,15 +479,12 @@ function printDiagnostics(title, diagnostics, checked) {
     console.log(`passed: ${checked} wiki markdown files checked, ${warnings} warnings`);
     return true;
 }
-function collectWikiLinkReferences(files) {
-    return files.flatMap((file) => (0, wiki_files_1.extractWikiLinks)(file, (0, workspace_1.read)(file)));
-}
 function collectLinkDiagnostics() {
     const diagnostics = [];
     const files = (0, wiki_files_1.wikiMarkdownFiles)();
     const fileSet = new Set(files);
-    const links = collectWikiLinkReferences(files);
-    for (const link of links) {
+    const graph = (0, wiki_graph_1.buildWikiGraph)(files.map((file) => ({ file, text: (0, workspace_1.read)(file) })));
+    for (const link of graph.links) {
         if (!fileSet.has(link.normalizedTarget)) {
             diagnostics.push({
                 code: "broken-link",
@@ -475,25 +494,29 @@ function collectLinkDiagnostics() {
             });
         }
     }
-    if ((0, workspace_1.exists)("wiki/index.md")) {
-        const indexLinks = (0, wiki_files_1.extractWikiLinks)("wiki/index.md", (0, workspace_1.read)("wiki/index.md"));
-        const indexTargets = new Map();
-        for (const link of indexLinks)
-            indexTargets.set(link.normalizedTarget, (indexTargets.get(link.normalizedTarget) ?? 0) + 1);
-        for (const [target, count] of indexTargets) {
-            if (count > 1) {
-                diagnostics.push({
-                    code: "duplicate-route",
-                    severity: "warn",
-                    file: "wiki/index.md",
-                    message: `${count} index routes resolve to ${target}`,
-                });
-            }
+    const indexTargets = new Map();
+    for (const link of graph.outgoingLinks.get("wiki/index.md") ?? []) {
+        indexTargets.set(link.normalizedTarget, (indexTargets.get(link.normalizedTarget) ?? 0) + 1);
+    }
+    for (const [target, count] of indexTargets) {
+        if (count > 1) {
+            diagnostics.push({
+                code: "duplicate-route",
+                severity: "warn",
+                file: "wiki/index.md",
+                message: `${count} index routes resolve to ${target}`,
+            });
         }
     }
+    // Self-links are not connectivity: a page whose only incoming link is its own
+    // self-loop has no route into it and must stay an orphan-page finding, keeping
+    // the orphan and router-unreachable rules disjoint.
     const incoming = new Map();
-    for (const link of links)
+    for (const link of graph.links) {
+        if (link.file === link.normalizedTarget)
+            continue;
         incoming.set(link.normalizedTarget, (incoming.get(link.normalizedTarget) ?? 0) + 1);
+    }
     const orphanExemptions = new Set(["wiki/index.md", "wiki/startup.md", "wiki/README.md"]);
     for (const file of files) {
         if (orphanExemptions.has(file))
@@ -505,6 +528,50 @@ function collectLinkDiagnostics() {
                 file,
                 message: "no incoming wiki links; route it from wiki/index.md or remove/merge it",
             });
+        }
+    }
+    // Bounded router reachability, promoted from the benchmark fixture A1 hard
+    // assert (benchmarks/lib/llm-fixtures.js assertBoundedAnswerReachability) to the
+    // real wiki: fixture wikis were guaranteed navigable from startup while real
+    // wikis were never checked for the same property. Pages with zero incoming
+    // links are already the orphan-page rule's finding, so reachability reports
+    // only the cases orphan cannot see: linked-but-disconnected islands, an index
+    // the startup router never links (hop 1), and routes deeper than the budget.
+    // When wiki/startup.md itself is missing, lint owns that as a required-file
+    // error and reachability has no root to check from.
+    if (fileSet.has(wiki_graph_1.wikiRouterRoot)) {
+        const depths = (0, wiki_graph_1.wikiRouterDepths)(graph);
+        for (const file of files) {
+            if (wiki_graph_1.wikiRouterExemptPages.has(file))
+                continue;
+            const depth = depths.get(file);
+            const isIndex = file === "wiki/index.md";
+            if (depth === undefined) {
+                if (isIndex) {
+                    diagnostics.push({
+                        code: "router-unreachable",
+                        severity: "warn",
+                        file,
+                        message: `${wiki_graph_1.wikiRouterRoot} does not link [[index]], so the router chain never starts (hop 1 broken)`,
+                    });
+                }
+                else if ((incoming.get(file) ?? 0) > 0) {
+                    diagnostics.push({
+                        code: "router-unreachable",
+                        severity: "warn",
+                        file,
+                        message: `linked only from pages that never connect to ${wiki_graph_1.wikiRouterRoot}; route it from wiki/index.md or a scoped router`,
+                    });
+                }
+            }
+            else if (depth > wiki_graph_1.wikiRouterDepthBudget) {
+                diagnostics.push({
+                    code: "router-depth-exceeded",
+                    severity: "warn",
+                    file,
+                    message: `reachable from ${wiki_graph_1.wikiRouterRoot} only at depth ${depth} (budget ${wiki_graph_1.wikiRouterDepthBudget}); add a shorter route`,
+                });
+            }
         }
     }
     return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));

@@ -49,6 +49,8 @@ export interface ParsedArgs {
   unexpectedValueOptions: string[];
   unknownCommand: string;
   unknownOptions: string[];
+  wikiImpactMode: boolean;
+  wikiImpactTarget: string;
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
@@ -114,6 +116,7 @@ const flagsWithValues: Set<string> = new Set([
   "--query",
   "--scope",
   "--title",
+  "--wiki-impact",
 ]);
 const knownFlags: Set<string> = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
 
@@ -235,6 +238,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       .filter((arg) => arg.startsWith("-"))
       .map(flagName)
       .filter((arg) => !knownFlags.has(arg)))),
+    wikiImpactMode: hasFlag("--wiki-impact"),
+    wikiImpactTarget: argValue("--wiki-impact"),
   };
 }
 
@@ -285,6 +290,8 @@ export function argValues(name: string): string[] {
 }
 
 export const queryTerm = parsedArgs.queryTerm;
+export const wikiImpactMode = parsedArgs.wikiImpactMode;
+export const wikiImpactTarget = parsedArgs.wikiImpactTarget;
 export const codeImpactTarget = parsedArgs.codeImpactTarget;
 export const codeQuerySql = parsedArgs.codeQuerySql;
 export const codeReportSection = parsedArgs.codeReportSection;

@@ -109,6 +109,7 @@ Wiki 验证和维护：
 | 检查链接和文档质量 | `$PROJECT_LIBRARIAN --doctor` |
 | 诊断前刷新生成的路由 | `$PROJECT_LIBRARIAN --doctor --fix` |
 | 搜索 project wiki | `$PROJECT_LIBRARIAN --query "authentication decisions"` |
+| 查看页面的 wiki 反向链接/decision_ref 引用 | `$PROJECT_LIBRARIAN --wiki-impact "decisions/release-policy"` |
 | 保存候选备注 | `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate" --content "Details"` |
 | 报告过期或未解决的 wiki 页面 | `$PROJECT_LIBRARIAN --prune-check` |
 | 不修改 git config 安装 hook 文件 | `$PROJECT_LIBRARIAN --no-git-config` |
@@ -192,7 +193,7 @@ $PROJECT_LIBRARIAN [init] [options]
 $PROJECT_LIBRARIAN install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
 ```
 
-重要选项：`--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
+重要选项：`--migrate`, `--lint`, `--link-check`, `--quality-check`, `--doctor`, `--doctor --fix`, `--migration-lint`, `--migration-quality-check`, `--migration-doctor`, `--query`, `--wiki-impact`, `--refresh-index`, `--capture-inbox`, `--issue-draft`, `--issue-create`, `--glossary-init`, `--prune-check`, `--review-migration`, `--no-git-config`, `--code-index`, `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`.
 
 ## 开发
 
