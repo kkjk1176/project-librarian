@@ -59,6 +59,14 @@ Commands:
   --help                           Show this help.`);
 }
 
+// console.log queues asynchronously on pipes; an immediate process.exit() discards
+// anything past the first ~64KB pipe chunk (observed truncating a large
+// --code-report on an 11k-file repo). Exiting from a zero-length write callback
+// guarantees everything queued before it has drained.
+function exitAfterStdoutDrain(code: number): void {
+  process.stdout.write("", () => process.exit(code));
+}
+
 if (helpMode) {
   printUsage();
   process.exit(0);
@@ -147,27 +155,33 @@ if (activeCodeModes > 1) {
 
 if (codeQueryMode) {
   codeIndex().runCodeQueryMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeReportMode) {
   codeIndex().runCodeReportMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeStatusMode) {
   codeIndex().runCodeStatusMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeFilesMode) {
   codeIndex().runCodeFilesMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeImpactMode) {
   codeIndex().runCodeImpactMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeSearchSymbolMode) {
   codeIndex().runCodeSearchSymbolMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeIndexMode) {
   codeIndex().runCodeIndexMode();
@@ -175,7 +189,8 @@ if (codeIndexMode) {
 }
 if (queryTerm) {
   runQueryMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (issueCreateMode) {
   runIssueCreateMode();
@@ -183,7 +198,8 @@ if (issueCreateMode) {
 }
 if (issueDraftMode) {
   runIssueDraftMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (pruneCheckMode) {
   runPruneCheckMode();

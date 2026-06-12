@@ -54,6 +54,13 @@ Commands:
 
   --help                           Show this help.`);
 }
+// console.log queues asynchronously on pipes; an immediate process.exit() discards
+// anything past the first ~64KB pipe chunk (observed truncating a large
+// --code-report on an 11k-file repo). Exiting from a zero-length write callback
+// guarantees everything queued before it has drained.
+function exitAfterStdoutDrain(code) {
+    process.stdout.write("", () => process.exit(code));
+}
 if (args_1.helpMode) {
     printUsage();
     process.exit(0);
@@ -128,27 +135,33 @@ function runInitCommand() {
     }
     if (args_1.codeQueryMode) {
         codeIndex().runCodeQueryMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeReportMode) {
         codeIndex().runCodeReportMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeStatusMode) {
         codeIndex().runCodeStatusMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeFilesMode) {
         codeIndex().runCodeFilesMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeImpactMode) {
         codeIndex().runCodeImpactMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeSearchSymbolMode) {
         codeIndex().runCodeSearchSymbolMode();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.codeIndexMode) {
         codeIndex().runCodeIndexMode();
@@ -156,7 +169,8 @@ function runInitCommand() {
     }
     if (args_1.queryTerm) {
         (0, modes_1.runQueryMode)();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.issueCreateMode) {
         (0, modes_1.runIssueCreateMode)();
@@ -164,7 +178,8 @@ function runInitCommand() {
     }
     if (args_1.issueDraftMode) {
         (0, modes_1.runIssueDraftMode)();
-        process.exit(0);
+        exitAfterStdoutDrain(0);
+        return;
     }
     if (args_1.pruneCheckMode) {
         (0, modes_1.runPruneCheckMode)();

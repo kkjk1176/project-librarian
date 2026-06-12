@@ -521,7 +521,9 @@ function materializeWithArm({ pristineDir, destDir, cliPath, codeScopes }) {
 // on a non-zero file count being absent or on any command erroring.
 function verifyRealRunnerCommands(repoDir, installedCliRelative) {
   const installedCli = path.join(repoDir, installedCliRelative);
-  const run = (args) => childProcess.execFileSync(process.execPath, [installedCli, ...args], { cwd: repoDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  // Large repos produce multi-megabyte reports; the Node default 1MB maxBuffer
+  // would make execFileSync throw, so size it explicitly.
+  const run = (args) => childProcess.execFileSync(process.execPath, [installedCli, ...args], { cwd: repoDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   // 1. The index has indexed files (the bootstrap+index actually populated it).
   const countOutput = run(["--code-query", "SELECT count(*) AS files FROM files"]);
   let countRows;
