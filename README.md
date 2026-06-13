@@ -9,7 +9,7 @@ Compact project memory and code evidence for Codex, Claude Code, Cursor, and Gem
 
 Project Librarian creates a repo-local planning wiki, compact startup hooks, and an optional SQLite code evidence index so agents can start with the project plan, route to the right document, and inspect code-backed evidence without repeatedly scanning the whole repository.
 
-Languages: [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh.md)
+Languages: [English](README.md) | [한국어](README.ko.md)
 
 ## Why It Exists
 

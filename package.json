@@ -28,8 +28,6 @@
     "LICENSE",
     "README.md",
     "README.ko.md",
-    "README.ja.md",
-    "README.zh.md",
     "SKILL.md"
   ],
   "bin": {

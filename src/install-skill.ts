@@ -16,8 +16,6 @@ const packageFiles = [
   "dist",
   "README.md",
   "README.ko.md",
-  "README.ja.md",
-  "README.zh.md",
   "LICENSE",
   "package.json",
   "agents",
