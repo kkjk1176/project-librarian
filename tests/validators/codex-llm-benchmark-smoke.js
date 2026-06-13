@@ -8,7 +8,8 @@ const crypto = require("node:crypto");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
-const { aggregationExpectation, codeGraphExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
+const { aggregationExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
+const { sampleImpactTraceExpectation } = require("../../benchmarks/llm/samples/sample-code-graph-expectation");
 const { claimableRuns, completePairCount, corporaPresent, costWeightedTokens, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, renderLlmMarkdownReport, resolveCacheDiscount, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
@@ -104,14 +105,17 @@ function validateControlSampleJsonl() {
 }
 
 // code_graph correctness must be recomputable from raw JSONL plus the
-// manifest-borne expectation (recomputed here from code-derived rules), never
-// from a stored verdict. Both the runner-backed with sample and the grep-backed
-// control sample must pass against the same code-derived expectation.
+// manifest-borne expectation, never from a stored verdict. The synthetic
+// code_graph track has been removed (the real-repository corpus owns code_graph
+// now); the sample uses a small INLINE impact_trace expectation (the real-corpus
+// answer-key shape) whose required_terms match the checked-in impact_trace sample
+// JSONL transcripts. Both the runner-backed with sample and the grep-backed
+// control sample must pass against this same expectation.
 function validateCodeGraphSampleJsonl() {
-  // A7: impact_trace now asks for the TRANSITIVE importer set of the file-chain
-  // root packages/workspace-0/src/mod-0.ts; the expected answer is the chain tail
-  // (mod-1 .. mod-13 at medium), so the sample final text must list every path.
-  const expectation = codeGraphExpectation("impact_trace", "medium");
+  // impact_trace asks for the TRANSITIVE importer set of the file-chain root
+  // packages/workspace-0/src/mod-0.ts; the expected answer is the chain tail
+  // (mod-1 .. mod-13), so the sample final text must list every path.
+  const expectation = sampleImpactTraceExpectation;
   assert(expectation.answer_key_terms.includes("packages/workspace-0/src/mod-13.ts"));
   assert.equal(expectation.required_terms.length, 13);
   for (const [file, condition] of [

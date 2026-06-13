@@ -45,9 +45,15 @@ function writeMarkdown(dir, name, content) {
 
 // --- family registry --------------------------------------------------------
 
-test("the matrix has 10 families and both A3 families are wiki-track", () => {
+test("the matrix has 7 wiki families and both A3 families are wiki-track", () => {
   const families = Object.keys(taskFamilies);
-  assert.equal(families.length, 10, `expected 10 families, got ${families.length}`);
+  // The synthetic matrix is wiki-only: the 5 original wiki families plus the 2 A3
+  // families (multi_session, aggregation). The code_graph track lives entirely in
+  // the real-repository corpus, so there are no synthetic code_graph families.
+  assert.equal(families.length, 7, `expected 7 families, got ${families.length}`);
+  for (const family of families) {
+    assert.equal(trackForTaskFamily(family), "wiki", `family ${family} must be wiki-track`);
+  }
   for (const family of ["multi_session", "aggregation"]) {
     assert(families.includes(family), `missing ${family}`);
     assert.equal(trackForTaskFamily(family), "wiki");

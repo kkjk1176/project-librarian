@@ -5,80 +5,40 @@ const path = require("node:path");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 
-// A7: each scale carries explicit structural bounds (codeownersRules, importChain,
-// minDerivationFiles per code_graph family) so the build-time structural asserts and
-// the generators read the same source of truth. The bounds are scale-proportional
-// realism targets (encode bounds, never a desired delta):
-//   - codeownersRules: minimum CODEOWNERS rule count the generated file must reach
-//     (small ~20, medium ~80, large ~250+), including overlapping last-match-wins
-//     precedence cases so ownership requires evaluating precedence, not reading a
-//     few lines.
-//   - importChain: length of the deterministic intra-workspace file import chain
-//     planted in workspace-0 (mod-0 <- mod-1 <- ... <- mod-(importChain-1)); the
-//     impact_trace transitive importer set is the tail of this chain, so deriving it
-//     needs traversal of every chain link and reading every chain file.
-//   - minDerivationFiles: the minimum number of DISTINCT files that must be read to
-//     derive each code_graph family's expected answer at this scale (>=5 small,
-//     >=10 medium, >=20 large). The generators are sized so the actual derivation
-//     file set meets or exceeds this, and the build-time assert verifies it.
-// workspaces still drives the cross-workspace dependency spine (workspace K imports
-// K-1), whose depth is workspaces-1; with these counts that is small 0, medium 4,
-// large 11 (so the >=2 at medium / >=3 at large chain-depth bounds hold).
+// Each scale carries the wiki + base-repo generation bounds. wikiPages drives the
+// maintained/control wiki planting; codeFiles and workspaces drive the base code
+// repo (route files plus per-workspace package.json), which still exists so the
+// fixtures look like real repositories even though the synthetic code_graph track
+// has been removed (the real-repository corpus now owns the code_graph track).
 const scales = {
   small: {
     wikiPages: 8,
     codeFiles: 50,
-    // A7: small now has 4 workspaces (was 1) so the cross-workspace dependency
-    // spine is non-degenerate at every scale — the small workspace_graph answer is
-    // a real transitive set (workspace-2, -1, -0) reached by traversal, not the
-    // prior trivial "single workspace" answer, and its derivation reads multiple
-    // package.json + bridge files. This is the root fix for small-scale ambiguity:
-    // every code_graph family now requires genuine traversal at small.
     workspaces: 4,
-    codeownersRules: 20,
-    importChain: 8,
-    serviceFiles: 6,
-    minDerivationFiles: 5,
   },
   medium: {
     wikiPages: 80,
     codeFiles: 500,
-    // A7: 6 workspaces (was 5) so the workspace_graph transitive set spans the full
-    // spine and its derivation (package.json + bridge per hop) clears the medium
-    // >=10 distinct-file minimum.
     workspaces: 6,
-    codeownersRules: 80,
-    importChain: 14,
-    serviceFiles: 12,
-    minDerivationFiles: 10,
   },
   large: {
     wikiPages: 500,
     codeFiles: 1500,
     workspaces: 12,
-    codeownersRules: 250,
-    importChain: 24,
-    serviceFiles: 22,
-    minDerivationFiles: 20,
   },
 };
-
-// A7 cross-scale chain-depth bounds for the cross-workspace dependency spine. The
-// spine's traversal depth (number of hops to walk the full transitive set) is
-// workspaces - 1. These minimums are asserted at build time so a future scale
-// change that flattens the graph fails loudly rather than silently making the
-// code-graph questions single-hop again.
-const MIN_WORKSPACE_CHAIN_DEPTH = { small: 2, medium: 2, large: 3 };
 
 const conditions = ["with_project_librarian", "without_project_librarian"];
 
 const benchmarkTracks = ["wiki", "code_graph"];
 
-// Every task family carries an explicit benchmark_track. The original five stay
-// on the wiki track: their answers are planted as doc-lookup sentences in both
+// Every task family carries an explicit benchmark_track. All synthetic families
+// are wiki track: their answers are planted as doc-lookup sentences in both
 // conditions, so they measure document routing, not code evidence. code_impact
 // and change_location keep their names and prompts unchanged for comparability
-// with the 2026-06-10 report even though they are wiki-track doc lookups.
+// with the 2026-06-10 report even though they are wiki-track doc lookups. The
+// code_graph track lives entirely in the real-repository corpus
+// (benchmarks/lib/real-corpus.js); the synthetic matrix is wiki-only.
 const taskFamilyDefinitions = {
   onboarding: {
     benchmark_track: "wiki",
@@ -99,21 +59,6 @@ const taskFamilyDefinitions = {
   change_location: {
     benchmark_track: "wiki",
     prompt: "Where should an agent edit to implement a Codex LLM benchmark runner? Do not modify files.",
-  },
-  // A7: the three code_graph questions require TRAVERSAL of deterministic
-  // multi-hop edges, not a single tiny read. Expected answers are computed at
-  // generation time (codeGraphExpectation) from the same edges the index records.
-  impact_trace: {
-    benchmark_track: "code_graph",
-    prompt: "Compute the TRANSITIVE impact set of the module packages/workspace-0/src/mod-0.ts: every TypeScript module under packages/workspace-0/src/ that imports it directly OR indirectly (a module that imports a module that imports mod-0, and so on, to any depth). List the relative file paths of every module in that transitive importer set. Answer from code evidence (the import edges), not documentation, and follow the import chain to its full depth rather than reporting only direct importers. Do not modify files.",
-  },
-  ownership_lookup: {
-    benchmark_track: "code_graph",
-    prompt: "Using CODEOWNERS last-matching-rule-wins precedence (the LAST rule whose pattern matches a path determines its owner), find the owner of packages/workspace-0/src/service/handler.go and then list EVERY source file under packages/workspace-0/src/service/ that the same owner owns under last-match precedence. Several rules match these paths (a catch-all, an extension rule, the workspace directory, and the src override); report the owner from the rule that wins, not the first or most general match, and enumerate the full owned file set. Answer from code evidence (the CODEOWNERS rules plus the files in that directory), not documentation. Do not modify files.",
-  },
-  workspace_graph: {
-    benchmark_track: "code_graph",
-    prompt: "Compute the TRANSITIVE workspace dependency set of the highest-numbered @benchmark/workspace-* package in this monorepo: every @benchmark/workspace-* package it depends on directly OR indirectly through the package.json dependency graph. List those package names. Answer from code evidence (the workspace package.json dependency edges plus the matching import edges), not documentation, and traverse the dependency chain to its full depth. Do not modify files.",
   },
   // A3 (Phase 3 remainder). Both stay on the wiki track because they exercise the
   // product thesis (compact maintained-wiki routing) rather than code evidence.
@@ -328,295 +273,13 @@ owner: benchmark-team-${index % 5}
   },
 ];
 
-// A7 cross-workspace dependency SPINE (replaces the old ring). Workspace K (for
-// K >= 1) depends on workspace K-1, forming a straight chain
-//   workspace-0 <- workspace-1 <- workspace-2 <- ... <- workspace-(W-1).
-// Every dependency edge exists in BOTH a TypeScript bridge file (a real import
-// edge in the index) and the workspace package.json `dependencies` map (a config
-// edge), and the two agree. Because the chain is a spine, the transitive
-// dependency set of the deepest workspace is the entire chain below it, so the
-// workspace_graph question cannot be answered without traversing every hop: a
-// single grep for the leaf's direct dependency finds only one edge.
-function spineDependencyTarget(workspaceIndex) {
-  if (workspaceIndex <= 0) return null;
-  return workspaceIndex - 1;
-}
-
-function internalWorkspaceDependencies(workspaceIndex) {
-  const target = spineDependencyTarget(workspaceIndex);
-  if (target === null) return {};
-  return { [`@benchmark/workspace-${target}`]: "workspace:*" };
-}
-
-// The full transitive workspace dependency set of the deepest workspace
-// (workspace-(W-1)) under the spine: every lower-indexed workspace package name,
-// nearest first. At W <= 1 there is no chain so the set is empty.
-function transitiveWorkspaceDependenciesOfLeaf(workspaceCount) {
-  if (workspaceCount <= 1) return [];
-  const leaf = workspaceCount - 1;
-  const set = [];
-  for (let k = leaf - 1; k >= 0; k -= 1) set.push(`@benchmark/workspace-${k}`);
-  return set;
-}
-
-// A7 intra-workspace file import CHAIN, planted in workspace-0/src. mod-K.ts
-// imports ./mod-(K-1) for K >= 1, so the modules form a chain
-//   mod-0.ts <- mod-1.ts <- ... <- mod-(C-1).ts
-// where C === scale.importChain. The transitive importer set of mod-0.ts is the
-// whole tail {mod-1 ... mod-(C-1)}; deriving it requires walking every link and
-// reading every chain file, which is why impact_trace targets mod-0.ts and why
-// the chain length is sized to meet the per-scale distinct-derivation-file bound.
-// This chain exists at EVERY scale (including small, W === 1), so impact_trace has
-// a concrete, unambiguous, multi-file answer at small and the prior small-scale
-// instability (a borderline "no other workspace" answer) is removed at the root.
-function fileChainModuleRelativePath(chainIndex) {
-  return path.join("packages", "workspace-0", "src", `mod-${chainIndex}.ts`);
-}
-
-function fileChainModuleContent(chainIndex) {
-  if (chainIndex === 0) {
-    return `export function mod0Value() {
-  return "workspace-0/mod-0 chain root";
-}
-`;
-  }
-  const previous = chainIndex - 1;
-  return `import { mod${previous}Value } from "./mod-${previous}";
-
-export function mod${chainIndex}Value() {
-  return mod${previous}Value() + " <- mod-${chainIndex}";
-}
-`;
-}
-
-// The transitive importer set of mod-0.ts under the file chain: the tail
-// {mod-1 ... mod-(C-1)} as relative file paths, nearest importer first. Deriving
-// this set is the impact_trace expected answer.
-function transitiveImportersOfChainRoot(chainLength) {
-  const set = [];
-  for (let chainIndex = 1; chainIndex < chainLength; chainIndex += 1) {
-    set.push(fileChainModuleRelativePath(chainIndex).split(path.sep).join("/"));
-  }
-  return set;
-}
-
-// A7 ownership owned-set: the service directory packages/workspace-0/src/service/
-// holds a scale-proportional set of source files. Every one is owned by
-// @benchmark-service-team because the `/packages/workspace-0/src/service/` rule is
-// the LAST CODEOWNERS rule that matches each (the `*`, `*.go`/`*.ts`, workspace dir,
-// and src-override rules all also match, but lose under last-match precedence). The
-// ownership question asks for the complete owned set, so deriving the answer means
-// enumerating every file in this directory AND confirming via CODEOWNERS that the
-// service rule wins for each — reading scale.serviceFiles files plus CODEOWNERS.
-// The count is sized to the scale's distinct-derivation-file minimum. handler.go
-// (chainIndex 0) is the named single-path anchor in the prompt; the remaining files
-// extend the owned set. Files alternate .go/.ts so multiple extension rules are in
-// play (each still loses to the service rule).
-function serviceOwnedFileRelativePath(serviceIndex) {
-  const extension = serviceIndex % 2 === 0 ? "go" : "ts";
-  const name = serviceIndex === 0 ? "handler" : `handler-${serviceIndex}`;
-  return path.join("packages", "workspace-0", "src", "service", `${name}.${extension}`);
-}
-
-function serviceOwnedFileContent(serviceIndex) {
-  const relative = serviceOwnedFileRelativePath(serviceIndex).split(path.sep).join("/");
-  if (relative.endsWith(".go")) {
-    return `package service
-
-// Owned via CODEOWNERS last-match precedence by the service team; see CODEOWNERS.
-func Handle${serviceIndex}() string {
-	return "${relative}"
-}
-`;
-  }
-  return `export function handle${serviceIndex}() {
-  // Owned via CODEOWNERS last-match precedence by the service team; see CODEOWNERS.
-  return "${relative}";
-}
-`;
-}
-
-// The complete set of service-directory file paths owned by @benchmark-service-team
-// under last-match precedence, in deterministic order. This is the ownership
-// expected answer's owned-path set; its size equals scale.serviceFiles.
-function serviceOwnedFiles(scale) {
-  const files = [];
-  for (let serviceIndex = 0; serviceIndex < scale.serviceFiles; serviceIndex += 1) {
-    files.push(serviceOwnedFileRelativePath(serviceIndex).split(path.sep).join("/"));
-  }
-  return files;
-}
-
-function sourcePathAndContent(index, workspace, workspaceCount = 1) {
+function sourcePathAndContent(index, workspace) {
   const profile = codeProfiles[index % codeProfiles.length];
   const relativePath = path.join("packages", workspace, profile.directory, `route-${index}.${profile.extension}`);
-  // The first source file of each workspace (one per workspace, taken from the
-  // leading files) is a TypeScript bridge that imports the spine-target workspace
-  // package, so a real cross-workspace import edge exists in the index alongside
-  // the package.json dependency edge.
-  const workspaceIndex = index % workspaceCount;
-  const dependencyTarget = spineDependencyTarget(workspaceIndex);
-  if (index < workspaceCount && dependencyTarget !== null) {
-    const bridgePath = path.join("packages", workspace, "src", `bridge-${index}.ts`);
-    return {
-      relativePath: bridgePath,
-      content: `import { route${dependencyTarget} } from "@benchmark/workspace-${dependencyTarget}";
-
-export function bridge${index}() {
-  return route${dependencyTarget}();
-}
-`,
-    };
-  }
   return {
     relativePath,
     content: profile.content(index, workspace),
   };
-}
-
-// A7 CODEOWNERS precedence model.
-//
-// The ownership question targets packages/workspace-0/src/service/handler.go,
-// which is matched by SEVERAL rules; under CODEOWNERS last-matching-rule-wins
-// precedence the winner is the LAST rule in the file whose pattern matches. The
-// generated rule set is built in increasing specificity so a later, more specific
-// rule deliberately overrides an earlier, broader one for this path:
-//   1. `*`                                    -> @benchmark-org-default (broadest)
-//   2. extension rules (`*.go`, `*.py`, ...)  -> per-language owners
-//   3. per-workspace dir rules                -> @benchmark-team-(K%5)
-//   4. per-workspace src overrides            -> @benchmark-src-team-(K%4)
-//   5. the workspace-0 service override       -> @benchmark-service-team (WINNER)
-//   6. distinct distractor rules to scale     -> never match the target
-// So handler.go is matched by rules 1, 2(*.go), 3(workspace-0 dir),
-// 4(workspace-0 src) and 5(service), and only by evaluating precedence does the
-// agent reach @benchmark-service-team rather than @go-benchmark-team (the first
-// extension match) or @benchmark-org-default (the broadest match).
-const CODEOWNERS_TARGET_PATH = "packages/workspace-0/src/service/handler.go";
-const CODEOWNERS_SERVICE_OWNER = "@benchmark-service-team";
-
-// Extension rules interleaved among the precedence layers. Order is fixed
-// (deterministic); *.go is intentionally before the workspace/src/service
-// overrides so the target's correct owner is NOT the extension owner.
-const CODEOWNERS_EXTENSION_OWNERS = [
-  ["*.go", "@go-benchmark-team"],
-  ["*.py", "@python-benchmark-team"],
-  ["*.ts", "@ts-benchmark-team"],
-  ["*.tsx", "@ui-benchmark-team"],
-  ["*.rs", "@rust-benchmark-team"],
-  ["*.java", "@jvm-benchmark-team"],
-  ["*.yaml", "@config-benchmark-team"],
-];
-
-// Build the deterministic, scale-proportional CODEOWNERS rule list as ordered
-// [pattern, owner] pairs. The number of rules meets scale.codeownersRules; the
-// overlapping-precedence rules that the ownership question depends on are always
-// present, and the remainder are distinct non-matching distractor rules that pad
-// the file to the scale's rule count (so ownership requires precedence evaluation
-// over a realistically large rule set, not a three-line read).
-function codeownersRulePairs(scale, workspaceCount) {
-  const rules = [];
-  // 1. broadest catch-all.
-  rules.push(["*", "@benchmark-org-default"]);
-  // 2. extension rules (interleaved language ownership).
-  for (const [pattern, owner] of CODEOWNERS_EXTENSION_OWNERS) rules.push([pattern, owner]);
-  // 3. per-workspace directory rules (override the catch-all for each workspace).
-  for (let k = 0; k < workspaceCount; k += 1) {
-    rules.push([`/packages/workspace-${k}/`, `@benchmark-team-${k % 5}`]);
-  }
-  // 4. per-workspace src overrides (override the dir rule, more specific).
-  for (let k = 0; k < workspaceCount; k += 1) {
-    rules.push([`/packages/workspace-${k}/src/`, `@benchmark-src-team-${k % 4}`]);
-  }
-  // 5. the workspace-0 service override — the LAST rule that matches the target.
-  rules.push([`/packages/workspace-0/src/service/`, CODEOWNERS_SERVICE_OWNER]);
-  // 6. distinct distractor rules padding to the scale rule count. They are deeper,
-  // non-overlapping paths that never match the target, so they raise the rule
-  // count (and the precedence search space) without changing the answer. Indexed
-  // deterministically; owners cycle through a fixed handle space.
-  let distractor = 0;
-  while (rules.length < scale.codeownersRules) {
-    const workspaceForRule = distractor % Math.max(workspaceCount, 1);
-    rules.push([
-      `/packages/workspace-${workspaceForRule}/module-${distractor}/feature-${distractor}/`,
-      `@benchmark-area-team-${distractor % 9}`,
-    ]);
-    distractor += 1;
-  }
-  return rules;
-}
-
-function renderCodeowners(rulePairs) {
-  return `${rulePairs.map(([pattern, owner]) => `${pattern} ${owner}`).join("\n")}\n`;
-}
-
-// Last-match-wins CODEOWNERS resolver used BOTH to compute the expected ownership
-// answer at generation time and (via the unit tests) to prove the precedence
-// logic. Implements the subset of gitignore/CODEOWNERS glob semantics the
-// generated rules use: `*` (everything), `*.ext` (extension match on the
-// basename), an anchored directory prefix (`/dir/` or `/dir/sub/`, matching any
-// path under that directory), and an exact anchored path. Returns the owner of
-// the LAST matching rule, or null if no rule matches. Throws on an unrecognized
-// pattern shape so a future rule form cannot silently resolve wrong.
-function codeownersPatternMatches(pattern, targetPath) {
-  if (pattern === "*") return true;
-  if (pattern.startsWith("*.")) {
-    const extension = pattern.slice(1); // ".go"
-    return targetPath.endsWith(extension);
-  }
-  if (pattern.startsWith("/")) {
-    const anchored = pattern.slice(1);
-    if (anchored.endsWith("/")) {
-      return targetPath.startsWith(anchored);
-    }
-    return targetPath === anchored;
-  }
-  throw new Error(`unsupported CODEOWNERS pattern shape in benchmark resolver: ${pattern}`);
-}
-
-function resolveCodeownersOwner(rulePairs, targetPath) {
-  let owner = null;
-  for (const [pattern, ruleOwner] of rulePairs) {
-    if (codeownersPatternMatches(pattern, targetPath)) owner = ruleOwner;
-  }
-  return owner;
-}
-
-// The set of distinct files an agent must read to derive each code_graph family's
-// expected answer at a given scale. Used by the build-time derivation-file-count
-// assert; the count must meet scale.minDerivationFiles. The sets are the actual
-// evidence files (not a padded list): the import-chain files for impact_trace, the
-// workspace bridge/package.json files along the spine for workspace_graph, and the
-// CODEOWNERS file plus the matching-rule evidence for ownership_lookup.
-function derivationFilesForFamily(taskFamily, scale, workspaceCount) {
-  if (taskFamily === "impact_trace") {
-    // mod-0 plus every transitive importer module: the whole chain must be read to
-    // confirm the transitive set and that the chain terminates.
-    const files = [];
-    for (let chainIndex = 0; chainIndex < scale.importChain; chainIndex += 1) {
-      files.push(fileChainModuleRelativePath(chainIndex).split(path.sep).join("/"));
-    }
-    return files;
-  }
-  if (taskFamily === "workspace_graph") {
-    // The leaf plus every transitive dependency workspace contributes its bridge
-    // file AND its package.json (both edges must agree), so the derivation reads
-    // 2 files per workspace along the spine.
-    const files = [];
-    for (let k = 0; k < workspaceCount; k += 1) {
-      files.push(`packages/workspace-${k}/package.json`);
-      if (k >= 1) files.push(`packages/workspace-${k}/src/bridge-${k}.ts`);
-    }
-    return files;
-  }
-  if (taskFamily === "ownership_lookup") {
-    // The ownership answer is the COMPLETE set of files under the service directory
-    // that @benchmark-service-team owns under last-match precedence. Deriving it
-    // requires reading CODEOWNERS (to know the service rule wins) and enumerating
-    // every service file (to list the owned set), so the distinct evidence is
-    // CODEOWNERS plus every owned service file.
-    return ["CODEOWNERS", ...serviceOwnedFiles(scale)];
-  }
-  throw new Error(`no derivation file set for task family: ${taskFamily}`);
 }
 
 function materializeBaseRepo(root, scaleName, condition) {
@@ -641,8 +304,6 @@ Current benchmark evidence policy requires with-vs-without Project Librarian com
       express: "latest",
     },
   }, null, 2)}\n`);
-  // A7: scale-proportional CODEOWNERS with overlapping last-match-wins precedence.
-  writeFile(path.join(root, "CODEOWNERS"), renderCodeowners(codeownersRulePairs(scale, scale.workspaces)));
 
   for (let index = 0; index < scale.codeFiles; index += 1) {
     const workspaceIndex = index % scale.workspaces;
@@ -653,148 +314,12 @@ Current benchmark evidence policy requires with-vs-without Project Librarian com
         private: true,
         dependencies: {
           express: "latest",
-          ...internalWorkspaceDependencies(workspaceIndex),
         },
       }, null, 2)}\n`);
     }
-    const source = sourcePathAndContent(index, workspace, scale.workspaces);
+    const source = sourcePathAndContent(index, workspace);
     writeFile(path.join(root, source.relativePath), source.content);
   }
-
-  // A7 intra-workspace file import chain in workspace-0/src (mod-0 <- ... <-
-  // mod-(C-1)); impact_trace's transitive importer answer is derived from these
-  // edges. Planted after the index-based files so the chain modules have stable
-  // dedicated names that never collide with route-*/bridge-* files.
-  for (let chainIndex = 0; chainIndex < scale.importChain; chainIndex += 1) {
-    writeFile(path.join(root, fileChainModuleRelativePath(chainIndex)), fileChainModuleContent(chainIndex));
-  }
-
-  // A7 ownership owned-set: plant the full service-directory file set under
-  // packages/workspace-0/src/service/. handler.go (serviceIndex 0) is the named
-  // anchor the prompt references; the rest extend the owned set so deriving the
-  // complete @benchmark-service-team-owned set requires enumerating the directory
-  // and confirming last-match precedence for each (CODEOWNERS + scale.serviceFiles
-  // reads). File contents carry no owner handle — owner handles live only in
-  // CODEOWNERS so the docs-only and no-answer-leak rules hold.
-  for (let serviceIndex = 0; serviceIndex < scale.serviceFiles; serviceIndex += 1) {
-    writeFile(path.join(root, serviceOwnedFileRelativePath(serviceIndex)), serviceOwnedFileContent(serviceIndex));
-  }
-}
-
-// Code-graph correctness expectations are computed deterministically from the
-// same base-repo generation rules used by materializeBaseRepo, so the expected
-// answer is derivable only from code-derived evidence (import edges, CODEOWNERS
-// rules, the workspace package.json graph). The returned object mirrors the
-// static expectations shape in llm-correctness.js plus an answer_key_terms list
-// of distinctive code-derived strings that the docs-only gate forbids in any
-// Markdown file. Both conditions share the base repo, so evidence_by_condition
-// points the agent at the same code files in either condition.
-// workspace_graph answers always cite @benchmark/workspace-* package names as
-// their code evidence (the dependency chain), so that token is accepted alongside
-// packages/ and CODEOWNERS as a valid code-surface citation.
-const codeGraphEvidenceByCondition = {
-  with_project_librarian: [["packages/", "CODEOWNERS", "@benchmark/workspace-"]],
-  without_project_librarian: [["packages/", "CODEOWNERS", "@benchmark/workspace-"]],
-};
-
-function codeGraphExpectation(taskFamily, scaleName) {
-  const scale = scales[scaleName];
-  if (!scale) throw new Error(`unknown scale: ${scaleName}`);
-  const workspaceCount = scale.workspaces;
-
-  if (taskFamily === "ownership_lookup") {
-    // A7: the answer is the LAST-matching rule's owner for the service directory
-    // (computed with the same resolver the unit tests exercise) PLUS the full set
-    // of service files that owner owns. The owner is deterministically
-    // @benchmark-service-team (the service override is the last rule that matches),
-    // NOT the *.go extension owner that a first-match or grep-the-extension
-    // approach reports. Requiring the owned file set too forces enumerating the
-    // directory, so the answer cannot come from a single CODEOWNERS read. The owner
-    // handle exists only in CODEOWNERS; the file paths exist only in code.
-    const owner = resolveCodeownersOwner(codeownersRulePairs(scale, workspaceCount), CODEOWNERS_TARGET_PATH);
-    if (owner !== CODEOWNERS_SERVICE_OWNER) {
-      throw new Error(`CODEOWNERS precedence drift: expected ${CODEOWNERS_SERVICE_OWNER} for ${CODEOWNERS_TARGET_PATH}, resolver returned ${owner}`);
-    }
-    const ownedFiles = serviceOwnedFiles(scale);
-    return {
-      // The owner handle plus every owned file path must appear: a correct answer
-      // names the winning owner AND enumerates the full owned set.
-      required_terms: [owner, ...ownedFiles],
-      // A correct answer must show it evaluated precedence, not just grepped *.go.
-      any_terms: [["CODEOWNERS", "owner", "precedence", "last match", "last-match"]],
-      // "I cannot access" is a refusal sentinel — always wrong.
-      // @go-benchmark-team is the classic first-match / extension-only wrong answer;
-      // however, a CORRECT answer often QUOTES that rule as part of the precedence
-      // chain, so a bare forbidden_terms substring check would fail correct answers.
-      // We use designation_forbidden instead: the check fails only if a line in the
-      // response DESIGNATES @go-benchmark-team as the owner (contains "owner"/"owns"/
-      // "owned" + the team handle) WITHOUT also mentioning the correct owner as the
-      // override winner on that same line.  Quoting "*.go @go-benchmark-team" in a
-      // rule-list line (no designation word) always passes.
-      forbidden_terms: ["I cannot access"],
-      designation_forbidden: [{ team: "@go-benchmark-team", correct_owner: owner }],
-      evidence_by_condition: {
-        with_project_librarian: [["CODEOWNERS"]],
-        without_project_librarian: [["CODEOWNERS"]],
-      },
-      // Owner handle and the owned file paths are the distinctive code-derived
-      // tokens; forbid them all from appearing in any Markdown file.
-      answer_key_terms: [owner, ...ownedFiles],
-    };
-  }
-
-  if (taskFamily === "impact_trace") {
-    // A7: the answer is the TRANSITIVE importer set of the file-chain root
-    // packages/workspace-0/src/mod-0.ts, i.e. every chain module mod-1 ..
-    // mod-(C-1). The chain exists at every scale (small included), so the answer is
-    // a concrete multi-file set, removing the prior small-scale ambiguity. A grep
-    // for the root finds only the direct importer (mod-1); the rest require
-    // following the chain, so every transitive importer is a required term.
-    const importerPaths = transitiveImportersOfChainRoot(scale.importChain);
-    if (importerPaths.length === 0) {
-      throw new Error(`impact_trace expectation requires a non-empty import chain at scale ${scaleName}`);
-    }
-    return {
-      required_terms: importerPaths,
-      any_terms: [["import", "transitive", "depends", "chain"]],
-      forbidden_terms: ["I cannot access"],
-      evidence_by_condition: codeGraphEvidenceByCondition,
-      // The deepest chain module path is the most distinctive code-derived token;
-      // the full path list is also distinctive, so forbid every importer path from
-      // appearing in any Markdown file (the answer must come from code only).
-      answer_key_terms: importerPaths,
-    };
-  }
-
-  if (taskFamily === "workspace_graph") {
-    // A7: the answer is the TRANSITIVE workspace dependency set of the deepest
-    // workspace (workspace-(W-1)) under the spine K -> K-1, i.e. every lower
-    // workspace package name. At W <= 1 there is no chain, so the deterministic
-    // answer is "only workspace-0" (small keeps a concrete, unambiguous answer).
-    if (workspaceCount <= 1) {
-      return {
-        required_terms: ["@benchmark/workspace-0"],
-        any_terms: [["no internal", "none", "single workspace", "only workspace", "no workspace-to-workspace"]],
-        forbidden_terms: ["I cannot access"],
-        evidence_by_condition: codeGraphEvidenceByCondition,
-        answer_key_terms: [],
-      };
-    }
-    const transitiveDeps = transitiveWorkspaceDependenciesOfLeaf(workspaceCount);
-    // Every transitive dependency package name is required (the full chain). The
-    // deepest dependency (@benchmark/workspace-0) is the distinctive code-derived
-    // token that only traversal reaches; use the full set as answer keys so none
-    // of the chain leaks into Markdown.
-    return {
-      required_terms: transitiveDeps,
-      any_terms: [["depends", "dependency", "transitive", "workspace:", "chain"]],
-      forbidden_terms: ["I cannot access"],
-      evidence_by_condition: codeGraphEvidenceByCondition,
-      answer_key_terms: transitiveDeps,
-    };
-  }
-
-  throw new Error(`no code-graph expectation for task family: ${taskFamily}`);
 }
 
 function markdownFilesUnder(root) {
@@ -820,29 +345,6 @@ function markdownFilesUnder(root) {
   return found.sort();
 }
 
-// docs-only answerability gate: a code_graph scenario's distinctive expected
-// answer key terms must not appear in any Markdown file under the condition
-// root. If a product-generated page (bootstrap or code-index output) trips the
-// gate, this throws loudly and names the file and term rather than excluding it.
-function assertDocsOnlyAnswerability(root, codeGraphExpectations) {
-  const terms = [];
-  for (const expectation of codeGraphExpectations) {
-    for (const term of expectation.answer_key_terms || []) {
-      if (term && !terms.includes(term)) terms.push(term);
-    }
-  }
-  if (terms.length === 0) return;
-  for (const filePath of markdownFilesUnder(root)) {
-    const content = fs.readFileSync(filePath, "utf8");
-    for (const term of terms) {
-      if (content.includes(term)) {
-        const relative = path.relative(root, filePath).split(path.sep).join("/");
-        throw new Error(`docs-only answerability gate failed: code_graph answer key term "${term}" appears in Markdown file ${relative}; code-graph answers must be derivable only from code evidence`);
-      }
-    }
-  }
-}
-
 // A3 no-single-page-aggregate gate (throws on violation, no fallback). Analogous
 // to the docs-only gate but for the aggregation family: the full aggregate answer
 // must not be pre-aggregated on any single Markdown page in either condition.
@@ -866,73 +368,6 @@ function assertNoSinglePageAggregate(root, terms) {
       const relative = path.relative(root, filePath).split(path.sep).join("/");
       const matched = components.join(", ");
       throw new Error(`no-single-page-aggregate gate failed: Markdown file ${relative} contains all ${components.length} aggregate components [${matched}]; the aggregation answer must require synthesizing facts scattered across multiple pages, not exist pre-aggregated on one page`);
-    }
-  }
-}
-
-// A7 build-time structural asserts (throw on violation, no fallback). Verifies,
-// against the on-disk fixture, that the generated code structure meets the scale's
-// representativeness bounds so the code_graph questions genuinely require traversal
-// and a control cannot answer from one tiny read. Three bounds, each with a clear
-// error naming the violated minimum:
-//   1. CODEOWNERS rule count >= scale.codeownersRules.
-//   2. cross-workspace dependency chain depth (workspaces - 1) >= the scale's
-//      MIN_WORKSPACE_CHAIN_DEPTH, AND the import file chain length matches scale.
-//   3. for each code_graph family, the number of DISTINCT files required to derive
-//      its expected answer >= scale.minDerivationFiles, with every derivation file
-//      actually present on disk (so the count is real evidence, not a padded list).
-// These encode bounds (structure realism), never a desired delta.
-const CODE_GRAPH_FAMILIES = ["impact_trace", "ownership_lookup", "workspace_graph"];
-
-function assertCodeStructureBounds(root, scaleName) {
-  const scale = scales[scaleName];
-  if (!scale) throw new Error(`unknown scale: ${scaleName}`);
-  const workspaceCount = scale.workspaces;
-
-  // 1. CODEOWNERS rule count.
-  const codeownersPath = path.join(root, "CODEOWNERS");
-  if (!fs.existsSync(codeownersPath)) {
-    throw new Error(`code-structure assert: missing CODEOWNERS at ${root}`);
-  }
-  const ruleLines = fs.readFileSync(codeownersPath, "utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"));
-  if (ruleLines.length < scale.codeownersRules) {
-    throw new Error(`code-structure assert failed: CODEOWNERS has ${ruleLines.length} rules at scale ${scaleName}, below the required minimum of ${scale.codeownersRules}; ownership must require evaluating precedence over many rules`);
-  }
-  // The last-match-wins answer must resolve to the service override; a CODEOWNERS
-  // that lost the precedence-overlap rules would make the question trivial.
-  const resolvedOwner = resolveCodeownersOwner(ruleLines.map((line) => {
-    const spaceIndex = line.indexOf(" ");
-    return [line.slice(0, spaceIndex), line.slice(spaceIndex + 1).trim()];
-  }), CODEOWNERS_TARGET_PATH);
-  if (resolvedOwner !== CODEOWNERS_SERVICE_OWNER) {
-    throw new Error(`code-structure assert failed: CODEOWNERS last-match owner of ${CODEOWNERS_TARGET_PATH} resolved to ${resolvedOwner}, expected ${CODEOWNERS_SERVICE_OWNER}; the precedence-overlap rules are missing or out of order`);
-  }
-
-  // 2. dependency chain depth and import chain length.
-  const chainDepth = Math.max(workspaceCount - 1, 0);
-  const requiredDepth = MIN_WORKSPACE_CHAIN_DEPTH[scaleName] ?? 0;
-  if (chainDepth < requiredDepth) {
-    throw new Error(`code-structure assert failed: cross-workspace dependency chain depth ${chainDepth} at scale ${scaleName} is below the required minimum ${requiredDepth}; transitive workspace questions must need depth-${requiredDepth}+ traversal`);
-  }
-  const chainRoot = path.join(root, fileChainModuleRelativePath(scale.importChain - 1));
-  if (!fs.existsSync(chainRoot)) {
-    throw new Error(`code-structure assert failed: import chain module ${fileChainModuleRelativePath(scale.importChain - 1)} missing; the import chain is shorter than the scale's ${scale.importChain}`);
-  }
-
-  // 3. derivation-file count per code_graph family.
-  for (const family of CODE_GRAPH_FAMILIES) {
-    const files = derivationFilesForFamily(family, scale, workspaceCount);
-    const distinct = [...new Set(files)];
-    for (const relative of distinct) {
-      if (!fs.existsSync(path.join(root, relative))) {
-        throw new Error(`code-structure assert failed: derivation file ${relative} for ${family} at scale ${scaleName} is missing on disk; the derivation-file count must reflect real evidence`);
-      }
-    }
-    if (distinct.length < scale.minDerivationFiles) {
-      throw new Error(`code-structure assert failed: deriving the ${family} answer at scale ${scaleName} reads ${distinct.length} distinct files, below the required minimum of ${scale.minDerivationFiles}; a control must not be able to answer from one read`);
     }
   }
 }
@@ -1051,84 +486,6 @@ function runProjectLibrarian(cliPath, args, cwd) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-}
-
-// The benchmark measures the product CLI as shipped and documented: task-shaped
-// commands are the intended first interface; raw SQL is the documented fallback
-// for advanced use. This ordering is what agents should be taught — not the
-// inverse — so the pointer page and the build-time verification both use and
-// confirm the task-shaped commands before mentioning the SQL escape hatch.
-
-// Base invocation prefix for the installed local runner.
-const codeRunnerBase = "node tools/project-librarian/dist/init-project-wiki.js";
-
-// Task-shaped commands: question-type → command mapping (the shipped interface).
-// These are the commands an agent should reach for first; the pointer page lists
-// them in this order so the first-match heuristic routes agents correctly.
-const codeTaskCommands = [
-  {
-    family: "impact_trace",
-    description: "transitive import/dependency impact for a module or term",
-    command: `${codeRunnerBase} --code-impact <term>`,
-  },
-  {
-    family: "ownership_lookup",
-    description: "file ownership summary from CODEOWNERS",
-    command: `${codeRunnerBase} --code-report --code-report-section ownership`,
-  },
-  {
-    family: "workspace_graph",
-    description: "workspace dependency graph (internal package-to-package edges)",
-    command: `${codeRunnerBase} --code-report --code-report-section workspace-graph`,
-  },
-];
-
-// Advanced fallback commands listed AFTER the task-shaped commands. The SQL
-// fallback exists for queries the task commands do not cover; status is for
-// confirming the index is populated. Neither is the recommended first step.
-const codeAdvancedCommands = [
-  {
-    description: "advanced: read-only SQL over the code evidence index (tables: files, imports, configs, symbols, edges)",
-    command: `${codeRunnerBase} --code-query "<read-only SELECT>"`,
-  },
-  {
-    description: "advanced: inspect index status and file count",
-    command: `${codeRunnerBase} --code-status`,
-  },
-];
-
-// The planted wiki pointer page teaches the question-type → command mapping.
-// It deliberately names command shapes only and never embeds an answer value —
-// the docs-only gate rejects any page that leaks an answer key term into Markdown.
-// Task commands are listed first (shipped interface); SQL fallback appears last.
-function codeEvidenceQueryPointerPage() {
-  const taskLines = codeTaskCommands
-    .map((entry) => `- ${entry.description}:\n  \`${entry.command}\``)
-    .join("\n");
-  const advancedLines = codeAdvancedCommands
-    .map((entry) => `- ${entry.description}:\n  \`${entry.command}\``)
-    .join("\n");
-  return `---
-status: active
-updated: 2026-06-10
-scope: benchmark-fixture
-read_budget: short
-decision_ref: none
-review_trigger: benchmark fixture regeneration
----
-
-# Code Evidence Query
-
-This repository ships a local Project Librarian runner under \`tools/project-librarian/dist/\`. Use the task-shaped commands below from the repository root to answer code-graph questions. All commands are read-only.
-
-## Task commands (use these first)
-
-${taskLines}
-
-## Advanced fallback
-
-${advancedLines}
-`;
 }
 
 // Parse a JSON response from the installed runner. Throws with a descriptive
@@ -1545,7 +902,6 @@ function materializeWithProjectLibrarian(root, scaleName, cliPath) {
   writeFile(path.join(root, "wiki", "canonical", "release-policy.md"), "# Release Policy\n\nBefore publishing benchmark claims, run the full matrix with --full-matrix, require claimable output, validate raw JSONL with tests/validators/codex-llm-benchmark-smoke.js, and include Markdown plus JSON evidence.\n");
   writeFile(path.join(root, "wiki", "canonical", "code-impact.md"), "# Code Impact\n\nBenchmark report schema changes impact benchmarks/codex-llm-metrics.js, benchmarks/lib/codex-jsonl.js, benchmarks/lib/llm-report.js, benchmarks/lib/llm-correctness.js, and tests/validators/codex-llm-benchmark-smoke.js.\n");
   writeFile(path.join(root, "wiki", "canonical", "implementation-map.md"), "# Implementation Map\n\nEdit benchmarks/codex-llm-metrics.js for the Codex LLM benchmark runner, benchmarks/lib/llm-report.js for aggregation, and tests/validators/codex-llm-benchmark-smoke.js for validation.\n");
-  writeFile(path.join(root, "wiki", "canonical", "code-evidence-query.md"), codeEvidenceQueryPointerPage());
   writeFile(path.join(root, "wiki", "decisions", "log.md"), seededDecisionLog());
 
   // A3 aggregation: plant the dated-decision inventory ONE-PER-PAGE so the full
@@ -1571,18 +927,6 @@ function materializeWithProjectLibrarian(root, scaleName, cliPath) {
   // router-truth consistency and bounded answer reachability.
   assertRouterTruthConsistency(root);
   assertBoundedAnswerReachability(root);
-
-  // --acknowledge-small-repo: synthetic fixtures sit below the scale gate by
-  // design; the benchmark explicitly opts in to measure the with-arm anyway.
-  runProjectLibrarian(cliPath, ["--code-index", "--acknowledge-small-repo", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "CODEOWNERS"], root);
-
-  // Install the built CLI so an agent inside the read-only sandbox can query the
-  // code-evidence index offline, then convert the index out of WAL mode so the
-  // query path works without write access. Verify the query path against the
-  // freshly built fixture before returning.
-  const installedCliRelative = installLocalRunner(root, cliPath);
-  convertCodeIndexForReadOnlyQuery(path.join(root, codeEvidenceRelativeDatabasePath()));
-  verifyInstalledRunnerCommands(root, installedCliRelative);
 }
 
 // A2: control profiles. The control (without Project Librarian) is materialized
@@ -1824,16 +1168,13 @@ function multiSessionSessions(scale, condition, requestedModel) {
 function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily, requestedModel = "", controlProfile = "organic" }) {
   const cwd = path.join(fixtureRoot, scale, condition);
   const benchmarkTrack = trackForTaskFamily(taskFamily);
-  // Expectation sourcing:
-  //   - code_graph: scale-dependent expectation computed from code evidence.
+  // Expectation sourcing (synthetic matrix is wiki-only):
   //   - aggregation: deterministic ground-truth inventory (scale-independent set,
   //     scattered one-per-page); validator recomputes from raw JSONL + this.
   //   - other wiki families (incl. multi_session): static expectations map in
   //     llm-correctness.js keyed by task_family; carry expectation: null.
   let expectation = null;
-  if (benchmarkTrack === "code_graph") {
-    expectation = codeGraphExpectation(taskFamily, scale);
-  } else if (taskFamily === "aggregation") {
+  if (taskFamily === "aggregation") {
     expectation = aggregationExpectation();
   }
 
@@ -1885,31 +1226,11 @@ function buildScenarioManifest({ fixtureRoot, scale, condition, taskFamily, requ
   };
 }
 
-// Compute the code_graph expectations for a scale once, keyed by task family, so
-// the docs-only gate, the manifest, and correctness recomputation all share the
-// same scale-dependent expected answers.
-function codeGraphExpectationsForScale(scale) {
-  const expectations = {};
-  for (const [family, definition] of Object.entries(taskFamilyDefinitions)) {
-    if (definition.benchmark_track === "code_graph") {
-      expectations[family] = codeGraphExpectation(family, scale);
-    }
-  }
-  return expectations;
-}
-
 function materializeFixturePair(fixtureRoot, scale, cliPath, controlProfile = "organic") {
   const withRoot = path.join(fixtureRoot, scale, "with_project_librarian");
   const withoutRoot = path.join(fixtureRoot, scale, "without_project_librarian");
   materializeWithProjectLibrarian(withRoot, scale, cliPath);
   materializeWithoutProjectLibrarian(withoutRoot, scale, controlProfile);
-
-  // docs-only answerability gate: code_graph answers must not appear in any
-  // Markdown file under either condition root, including pages the product
-  // itself generated (bootstrap/code-index output). Failures throw loudly.
-  const codeGraphExpectations = Object.values(codeGraphExpectationsForScale(scale));
-  assertDocsOnlyAnswerability(withRoot, codeGraphExpectations);
-  assertDocsOnlyAnswerability(withoutRoot, codeGraphExpectations);
 
   // A3 no-single-page-aggregate gate: the aggregation answer must require
   // synthesizing facts scattered across multiple pages, so no single Markdown page
@@ -1919,19 +1240,12 @@ function materializeFixturePair(fixtureRoot, scale, cliPath, controlProfile = "o
   // are caught: a history page that lists all prose summaries, and a history page that
   // enumerates all dates (the most common violation shape, ~4/5 triggers). The
   // individual dated facts are planted one-per-page above; this asserts the invariant
-  // in both conditions. Always run (the aggregation pages are always planted),
-  // mirroring the always-on docs-only gate.
+  // in both conditions. Always run (the aggregation pages are always planted).
   const aggExpectation = aggregationExpectation();
   assertNoSinglePageAggregate(withRoot, aggExpectation.no_single_page_terms);
   assertNoSinglePageAggregate(withRoot, aggExpectation.required_terms);
   assertNoSinglePageAggregate(withoutRoot, aggExpectation.no_single_page_terms);
   assertNoSinglePageAggregate(withoutRoot, aggExpectation.required_terms);
-
-  // A7 structural bounds: both condition roots share the base repo, so the
-  // CODEOWNERS rule count, dependency-chain depth, and per-family derivation-file
-  // count must meet the scale minimums in each. Throws loudly on a violation.
-  assertCodeStructureBounds(withRoot, scale);
-  assertCodeStructureBounds(withoutRoot, scale);
 }
 
 function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scales), selectedTasks = Object.keys(taskFamilies), requestedModel = "", controlProfile = "organic" }) {
@@ -1999,44 +1313,28 @@ function buildManifest({ fixtureRoot, cliPath, selectedScales = Object.keys(scal
 module.exports = {
   AGGREGATION_DECISIONS,
   ANSWER_PAGE_ROUTES,
-  CODEOWNERS_SERVICE_OWNER,
-  CODEOWNERS_TARGET_PATH,
-  MIN_WORKSPACE_CHAIN_DEPTH,
   SEEDED_DECISION,
   aggregationExpectation,
   aggregationGroundTruth,
   assertBoundedAnswerReachability,
-  assertCodeStructureBounds,
-  assertDocsOnlyAnswerability,
   assertNoSinglePageAggregate,
   assertRouterTruthConsistency,
   benchmarkTracks,
   buildManifest,
-  codeAdvancedCommands,
-  codeEvidenceQueryPointerPage,
-  codeGraphExpectation,
-  codeGraphExpectationsForScale,
-  codeRunnerBase,
-  codeTaskCommands,
-  codeownersRulePairs,
   conditions,
   controlProfiles,
   convertCodeIndexForReadOnlyQuery,
   codeEvidenceRelativeDatabasePath,
-  derivationFilesForFamily,
   fingerprintDirectory,
   installLocalRunner,
   maintainedIndex,
   maintainedRecentDecisions,
   maintainedStartup,
   materializeFixturePair,
-  resolveCodeownersOwner,
   scales,
   taskFamilies,
   taskFamilyDefinitions,
   taskTracks,
   trackForTaskFamily,
-  transitiveImportersOfChainRoot,
-  transitiveWorkspaceDependenciesOfLeaf,
   verifyInstalledRunnerCommands,
 };

@@ -7,9 +7,10 @@
 // (which recomputes every field from raw JSONL plus manifest-borne expectations).
 //
 // The sample covers both benchmark tracks and all A3 families at the medium scale:
-// wiki decision_lookup (schema-static), code_graph impact_trace (manifest-borne),
-// wiki multi_session (two sessions per scenario; session-2 metrics primary) and
-// wiki aggregation (manifest-borne aggregate-component expectation).
+// wiki decision_lookup (schema-static), real-corpus code_graph impact_trace
+// (manifest-borne; the synthetic code_graph track was removed), wiki multi_session
+// (two sessions per scenario; session-2 metrics primary) and wiki aggregation
+// (manifest-borne aggregate-component expectation).
 // Run: node benchmarks/llm/samples/build-sample-report.js
 
 const fs = require("node:fs");
@@ -17,7 +18,8 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { summarizeJsonl } = require("../../lib/codex-jsonl");
 const { evaluateCorrectness } = require("../../lib/llm-correctness");
-const { aggregationExpectation, codeGraphExpectation, conditions } = require("../../lib/llm-fixtures");
+const { aggregationExpectation, conditions } = require("../../lib/llm-fixtures");
+const { sampleImpactTraceExpectation } = require("./sample-code-graph-expectation");
 const {
   claimableRuns,
   completePairCount,
@@ -294,15 +296,17 @@ function summarizeScenarios(scenarioList) {
 }
 
 function main() {
-  // Every family is sampled at the medium scale so each track covers the single
-  // selected scale with all its expected tasks present (wiki: decision_lookup,
-  // multi_session, aggregation; code_graph: impact_trace); this lets the per-track
-  // and overall claim gates pass and exercises the passing-gate render path. The
-  // wiki correctness expectations are scale-independent here.
-  const impactExpectation = codeGraphExpectation("impact_trace", "medium");
-  // The real-corpus stub reuses the medium impact_trace transcripts, so it reuses
-  // their expectation; in a true real run this is the hand-authored answer key.
-  const realImpactExpectation = impactExpectation;
+  // The wiki track is sampled at the medium scale with all its expected tasks
+  // present (decision_lookup, multi_session, aggregation). The code_graph track is
+  // supplied ONLY by the real-repository corpus stub below (the synthetic code_graph
+  // track has been removed); together the per-track and overall claim gates pass and
+  // the passing-gate render path is exercised. The wiki correctness expectations are
+  // scale-independent here.
+  //
+  // The real-corpus stub reuses the impact_trace transcripts, so it reuses the same
+  // inline impact_trace expectation the smoke validator uses (required_terms match
+  // those transcripts); in a true real run this is the hand-authored answer key.
+  const realImpactExpectation = sampleImpactTraceExpectation;
   const scenarios = [
     buildScenario({
       scale: "medium",
@@ -321,24 +325,6 @@ function main() {
       jsonlRelative: "benchmarks/llm/samples/codex-turn-completed-control.jsonl",
       cwd: "/tmp/project-librarian-codex-llm/sample-control",
       expectation: null,
-    }),
-    buildScenario({
-      scale: "medium",
-      condition: "with_project_librarian",
-      benchmarkTrack: "code_graph",
-      taskFamily: "impact_trace",
-      jsonlRelative: "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl",
-      cwd: "/tmp/project-librarian-codex-llm/sample-code-graph",
-      expectation: impactExpectation,
-    }),
-    buildScenario({
-      scale: "medium",
-      condition: "without_project_librarian",
-      benchmarkTrack: "code_graph",
-      taskFamily: "impact_trace",
-      jsonlRelative: "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl",
-      cwd: "/tmp/project-librarian-codex-llm/sample-code-graph-control",
-      expectation: impactExpectation,
     }),
     // A3 multi_session pair (two sessions each); session-2 metrics are the primary.
     buildMultiSessionScenario({
@@ -382,9 +368,10 @@ function main() {
     }),
     // Real-corpus stub pair (corpus "real"): exercises the report schema's corpus
     // fields, the pinned-sha fingerprint, the with-arm MCP-injection flag, and the
-    // per-corpus report split. Reuses the impact_trace transcripts/expectation; it
-    // shares the code_graph track with the synthetic impact_trace pair but is
-    // aggregated SEPARATELY (corpus split). Not a measured number.
+    // per-corpus report split. This is the SOLE source of the code_graph track in
+    // the sample (the synthetic code_graph track was removed); it reuses the
+    // impact_trace transcripts/expectation and is aggregated under the real corpus.
+    // Not a measured number.
     buildRealStubScenario({
       condition: "with_project_librarian",
       jsonlRelative: "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl",
