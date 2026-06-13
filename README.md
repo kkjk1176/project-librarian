@@ -5,11 +5,17 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.13-brightgreen.svg)](https://nodejs.org/)
 [![Code evidence index](https://img.shields.io/badge/code%20evidence-node%3Asqlite-blue.svg)](https://nodejs.org/api/sqlite.html)
 
-Compact project memory and code evidence for Codex, Claude Code, Cursor, and Gemini CLI.
-
-Project Librarian creates a repo-local planning wiki, compact startup hooks, and an optional SQLite code evidence index so agents can start with the project plan, route to the right document, and inspect code-backed evidence without repeatedly scanning the whole repository.
+**Give every AI coding agent the same durable memory of your project.** Project Librarian keeps a compact, repo-local planning wiki — plus an optional code-evidence index — that Codex, Claude Code, Cursor, and Gemini CLI read at session start, so they stop rediscovering your codebase from scratch every time.
 
 Languages: [English](README.md) | [한국어](README.ko.md)
+
+## Highlights
+
+- **Small first read.** Session-start hooks inject only `wiki/startup.md` and `wiki/index.md`; agents route to deeper pages on demand instead of grepping the whole repo cold.
+- **One setup, four agents.** Codex, Claude Code, Cursor, and Gemini CLI share the same wiki-first contract, hooks, and rules.
+- **Measured, not hand-wavy.** Every performance claim comes from hermetic Codex benchmarks — and the cases where it costs *more* are published right next to the wins.
+- **Optional code evidence.** A regenerable SQLite index plus answer-shaped MCP tools answer impact, ownership, and workspace-graph questions, with zero extra runtime dependencies.
+- **Safe to re-run.** Bootstrap is idempotent and preservation-first; diagnostics flag broken routes, unreachable pages, and stale truth before they mislead an agent.
 
 ## Why It Exists
 
@@ -30,45 +36,45 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 
 ## Benchmark Results
 
-Benchmarks are maintainer release evidence, not a public user workflow. They exist so README and release notes can make bounded claims with numbers instead of vague performance language. All values are real Codex JSONL usage and local wall-clock measurements (ChatGPT/Codex auth, `gpt-5.5`), measured hermetically (isolated Codex home, allowlist-only env, clean tree, post-run fixture validation) with 3 measured runs plus 1 warmup per scenario against an `organic` no-Project-Librarian control. Negative deltas mean the Project Librarian condition cost less than the control.
+These numbers are maintainer release evidence, not marketing. Every value is real Codex JSONL usage and local wall-clock time (ChatGPT/Codex auth, `gpt-5.5`), measured hermetically — isolated Codex home, allowlist-only environment, clean tree, post-run fixture validation — with 3 measured runs plus 1 warmup per scenario against an `organic` control that has no Project Librarian.
 
-The headline metric is cost-weighted tokens (uncached input + 0.1 × cached input + output + reasoning output): cached resends are discounted because they do not cost full price, and merged totals would structurally penalize any tool that adds turns. The wiki routing track and the code-graph (code evidence) track are measured and reported separately — a win on one track does not back a claim about the other. The earlier 2026-06-10 one-run report (`current-local.*`) is superseded by these hermetic measurements.
+In the tables below, **"less" / "more"** compares cost-weighted tokens against that control, and **"faster" / "slower"** compares wall-clock time. (Cost-weighted = uncached input + 0.1 × cached input + output + reasoning output; cached resends are discounted, and raw merged totals would unfairly penalize any tool that adds a turn.) The wiki-routing track and the code-graph track are measured and reported separately — a win on one never backs a claim about the other. The earlier 2026-06-10 single-run report is superseded by these hermetic measurements.
 
 ### Wiki track (planning-doc routing)
 
-Reports: `benchmarks/reports/llm/stage1-organic.*` and `benchmarks/reports/llm/stage1-large-retry.*` (2026-06-11). Cost-weighted deltas, with vs without Project Librarian:
+Reports: `benchmarks/reports/llm/stage1-organic.*` and `stage1-large-retry.*` (2026-06-11). Cost-weighted tokens, Project Librarian vs control:
 
 | Scale | decision_lookup | aggregation | multi_session (2nd session) |
-| --- | ---: | ---: | ---: |
-| Small | -7.9% | +7.0% | -30.4% |
-| Medium | -69.5% | +8.8% | -56.6% |
-| Large (gate-passed retry) | -62.6% | -45.0%* | -70.7% |
+| --- | --- | --- | --- |
+| Small | 7.9% less | 7.0% more | 30.4% less |
+| Medium | 69.5% less | 8.8% more | 56.6% less |
+| Large (gate-passed retry) | 62.6% less | 45.0% less* | 70.7% less |
 
-Claim-grade cells (claim gate passed, every run passing correctness): large `decision_lookup` (-62.6% cost-weighted, -41.5% wall time) and large `multi_session` (-70.7% cost-weighted, -33.9% wall time). Boundaries disclosed with the claims: `aggregation` at small/medium is a published loss (+7-9%), aggregation wall time is longer with the wiki at every scale even where tokens drop, and *large aggregation (-45.0%) comes from the Stage 1 run whose track gate failed on control-side correctness flakes, so it remains investigation evidence rather than a claim.
+The claim-grade cells (claim gate passed, every run correct) are the two large wins: `decision_lookup` (62.6% fewer cost-weighted tokens, 41.5% faster) and `multi_session` (70.7% fewer tokens, 33.9% faster). Published boundaries, not hidden: `aggregation` costs 7–9% *more* tokens at small/medium, aggregation is *slower* with the wiki at every scale even when tokens drop, and *the large aggregation figure (45.0% less) comes from a Stage 1 run whose gate failed on control-side correctness flakes, so it stays investigation evidence rather than a claim.
 
 ### Code-graph track (code evidence index)
 
-Report: `benchmarks/reports/llm/stage2d-codegraph.*` (2026-06-11, claim gate passed 18/18) — measured on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop dependency chains, traversal-requiring questions), with fixtures advertising the product's task-shaped commands (`--code-impact`, `--code-report` sections). Cost-weighted deltas:
+Report: `benchmarks/reports/llm/stage2d-codegraph.*` (2026-06-11, claim gate passed 18/18), on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop dependency chains, traversal-requiring questions) that advertise the product's task-shaped commands (`--code-impact`, `--code-report` sections):
 
 | Scale | impact_trace | ownership_lookup | workspace_graph |
-| --- | ---: | ---: | ---: |
-| Small | +101% | +47% | +79% |
-| Medium | +29% | +64% | -5% |
-| Large | +217% | +87% | +49% |
+| --- | --- | --- | --- |
+| Small | 101% more | 47% more | 79% more |
+| Medium | 29% more | 64% more | 5% less |
+| Large | 217% more | 87% more | 49% more |
 
-The overhead replicated across three gate-valid variations (deepened structure, fixed evaluator, task-shaped interface), so no code-graph performance claims are made — published as a measured boundary per the losing-scenarios policy. The control answers multi-hop structural questions with 3-9 targeted greps, while any tool interaction (discovery, invocation, output verification) costs more than it saves at these fixture scales.
+This is overhead, and we say so plainly: it replicated across three gate-valid variations (deepened structure, fixed evaluator, task-shaped interface), so **no code-graph performance claims are made.** At these fixture scales the control answers multi-hop structural questions with 3–9 targeted greps, and any tool interaction (discovery, invocation, output verification) costs more than it saves.
 
 #### Real-repository corpus (claim gate passed)
 
-Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (2026-06-12, claim gate passed with 30/30 runs correct after two evaluator false positives were fixed and the report was re-scored from its raw JSONL — originals preserved, recompute-from-raw is the standing audit policy). SHA-pinned excalidraw (~1.2k files) and backstage (~11.8k files), hand-authored answer keys, and the answer-shaped MCP tools injected into the hermetic Codex home. Cost-weighted deltas:
+Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (2026-06-12, claim gate passed with 30/30 runs correct after two evaluator false positives were fixed and the report was re-scored from raw JSONL — originals preserved, recompute-from-raw is the standing audit policy). SHA-pinned excalidraw (~1.2k files) and backstage (~11.8k files), hand-authored answer keys, answer-shaped MCP tools injected into the hermetic Codex home:
 
 | Question | excalidraw (~1.2k files) | backstage (~11.8k files) |
-| --- | ---: | ---: |
-| impact_trace | +117% | **-27.7%** |
-| workspace_graph | +106% | -2.6% |
-| ownership_lookup | — | +99% |
+| --- | --- | --- |
+| impact_trace | 117% more | **27.7% less** |
+| workspace_graph | 106% more | 2.6% less |
+| ownership_lookup | — | 99% more |
 
-A scale crossover is the claim: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace -27.7% cost-weighted, scan bytes -24.5%) and break-evens the workspace graph, while everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale — the losing cells are published with the winning one. This boundary is what the scale-aware gates in the CLI now encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
+The claim is a scale crossover: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace 27.7% fewer cost-weighted tokens, 24.5% fewer scan bytes) and breaks even on the workspace graph, while everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale. The losing cells are published next to the winning one. That boundary is exactly what the CLI's scale-aware gates encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
 
 ## Install
 
