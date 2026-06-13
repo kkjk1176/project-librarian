@@ -52,21 +52,9 @@ Reports: `benchmarks/reports/llm/stage1-organic.*` and `stage1-large-retry.*` (2
 
 The claim-grade cells (claim gate passed, every run correct) are the two large wins: `decision_lookup` (62.6% fewer cost-weighted tokens, 41.5% faster) and `multi_session` (70.7% fewer tokens, 33.9% faster). Published boundaries, not hidden: `aggregation` costs 7–9% *more* tokens at small/medium, aggregation is *slower* with the wiki at every scale even when tokens drop, and *the large aggregation figure (45.0% less) comes from a Stage 1 run whose gate failed on control-side correctness flakes, so it stays investigation evidence rather than a claim.
 
-### Code-graph track (code evidence index)
+### Code-graph track (code evidence index, real repositories)
 
-Report: `benchmarks/reports/llm/stage2d-codegraph.*` (2026-06-11, claim gate passed 18/18), on representativeness-deepened fixtures (scale-proportional CODEOWNERS at 20/80/250 rules with precedence cases, multi-hop dependency chains, traversal-requiring questions) that advertise the product's task-shaped commands (`--code-impact`, `--code-report` sections):
-
-| Scale | impact_trace | ownership_lookup | workspace_graph |
-| --- | --- | --- | --- |
-| Small | 101% more | 47% more | 79% more |
-| Medium | 29% more | 64% more | 5% less |
-| Large | 217% more | 87% more | 49% more |
-
-This is overhead, and we say so plainly: it replicated across three gate-valid variations (deepened structure, fixed evaluator, task-shaped interface), so **no code-graph performance claims are made.** At these fixture scales the control answers multi-hop structural questions with 3–9 targeted greps, and any tool interaction (discovery, invocation, output verification) costs more than it saves.
-
-#### Real-repository corpus (claim gate passed)
-
-Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (2026-06-12, claim gate passed with 30/30 runs correct after two evaluator false positives were fixed and the report was re-scored from raw JSONL — originals preserved, recompute-from-raw is the standing audit policy). SHA-pinned excalidraw (~1.2k files) and backstage (~11.8k files), hand-authored answer keys, answer-shaped MCP tools injected into the hermetic Codex home:
+Measured on two SHA-pinned open-source repositories with hand-authored answer keys and the answer-shaped MCP tools injected into the hermetic Codex home. Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (2026-06-12, claim gate passed with 30/30 runs correct after two evaluator false positives were fixed and the report was re-scored from raw JSONL — originals preserved, recompute-from-raw is the standing audit policy). Cost-weighted tokens, Project Librarian vs control:
 
 | Question | excalidraw (~1.2k files) | backstage (~11.8k files) |
 | --- | --- | --- |
@@ -74,7 +62,23 @@ Reports: `benchmarks/reports/llm/stageR1-real.*` and `stageR1-real-rescored.*` (
 | workspace_graph | 106% more | 2.6% less |
 | ownership_lookup | — | 99% more |
 
-The claim is a scale crossover: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace 27.7% fewer cost-weighted tokens, 24.5% fewer scan bytes) and breaks even on the workspace graph, while everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale. The losing cells are published next to the winning one. That boundary is exactly what the CLI's scale-aware gates encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
+The claim is a scale crossover, and the losses are published next to the win: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace 27.7% fewer cost-weighted tokens, 24.5% fewer scan bytes) and breaks even on the workspace graph, but everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale. In short, the code-evidence index pays off only on genuinely large repositories for expensive-traversal questions — exactly what the CLI's scale-aware gates encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
+
+### What the benchmark names mean
+
+Repositories under test:
+
+- **excalidraw** — a real open-source whiteboard/diagramming app (~1.2k files); the small-repo data point.
+- **backstage** — Spotify's open-source developer-portal platform (~11.8k files); the large-repo data point.
+
+Question types (task families):
+
+- **decision_lookup** — find the latest project decision and its date from the wiki.
+- **aggregation** — answer a question whose facts are scattered across several pages and must be synthesized.
+- **multi_session** — a second session on the same project, measuring whether the durable wiki helps the next session, not just the first.
+- **impact_trace** — "if this module changes, what else is affected?": trace the full set of direct and indirect importers.
+- **ownership_lookup** — "who owns this file?": resolve the owner by CODEOWNERS last-match precedence.
+- **workspace_graph** — "what does this package depend on across the monorepo?": the workspace/package dependency graph.
 
 ## Install
 
