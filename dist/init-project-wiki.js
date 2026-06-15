@@ -14,7 +14,7 @@ function codeIndex() {
 function printUsage() {
     console.log(`Usage:
   project-librarian [init] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
+  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
   project-librarian mcp
 
 Options:

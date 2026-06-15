@@ -1281,7 +1281,7 @@ mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
 HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
 grep -q "install-skill only installs the reusable skill files" user-skill-install.log
-grep -q "agents should run the installed local project-librarian runner" user-skill-install.log
+grep -q "ask your agent to use Project Librarian" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-librarian/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-librarian/SKILL.md"
@@ -1293,7 +1293,7 @@ test -x "$TMPDIR/home/.gemini/skills/project-librarian/dist/init-project-wiki.js
 
 node "$CLI" install-skill --scope project --agents all > project-skill-install.log
 grep -q "install-skill only installs the reusable skill files" project-skill-install.log
-grep -q "agents should run the installed local project-librarian runner" project-skill-install.log
+grep -q "ask your agent to use Project Librarian" project-skill-install.log
 test -f .codex/skills/project-librarian/SKILL.md
 test -x .codex/skills/project-librarian/dist/init-project-wiki.js
 test -f .claude/skills/project-librarian/SKILL.md
@@ -1302,8 +1302,12 @@ test -f .cursor/skills/project-librarian/SKILL.md
 test -x .cursor/skills/project-librarian/dist/init-project-wiki.js
 test -f .gemini/skills/project-librarian/SKILL.md
 test -x .gemini/skills/project-librarian/dist/init-project-wiki.js
-node "$CLI" install-skill --scope project --agents both --dry-run > legacy-both-skill-install.log
-grep -q "agents: codex, claude" legacy-both-skill-install.log
+if node "$CLI" install-skill --scope project --agents both --dry-run > removed-both-skill-install.log 2>&1; then
+  echo "expected removed --agents both alias to fail" >&2
+  exit 1
+fi
+grep -q "invalid --agents entry: both" removed-both-skill-install.log
+grep -q "expected codex, claude, cursor, gemini, or all" removed-both-skill-install.log
 
 mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"
