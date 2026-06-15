@@ -1,7 +1,10 @@
 import * as childProcess from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { noGitConfigMode } from "./args";
-import type { CursorHookCommand, CursorHookConfig, FileStatus, HookCommand, HookConfig, SessionStartHook } from "./types";
-import { exists, isGitRepository, parseJson, read, root, write } from "./workspace";
+import { codeEvidenceDirectory, discoverCodeFiles, SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
+import type { CursorHookCommand, CursorHookConfig, FileStatus, HookCommand, HookConfig, McpServerEntry, McpServersConfig, SessionStartHook } from "./types";
+import { abs, exists, isGitRepository, parseJson, read, root, walkFilesUnder, write } from "./workspace";
 
 export function upsertGitHooksPath(): FileStatus {
   if (noGitConfigMode) return "skipped-no-git-config";
@@ -99,6 +102,90 @@ export function upsertCursorHookConfig(): FileStatus {
   return previous === next ? "exists" : previous ? "updated" : "created";
 }
 
+const mcpServerName = "project-librarian";
+
+// Candidate local-runner paths, project root relative, in the recorded
+// local-runner-first order (mirrors validationTrailers()). The first existing
+// runner wins; absent any local install we register the published binary.
+const localRunnerCandidates = [
+  "tools/project-librarian/dist/init-project-wiki.js",
+  ".codex/skills/project-librarian/dist/init-project-wiki.js",
+  ".claude/skills/project-librarian/dist/init-project-wiki.js",
+  ".cursor/skills/project-librarian/dist/init-project-wiki.js",
+  ".gemini/skills/project-librarian/dist/init-project-wiki.js",
+];
+
+// Deterministic command policy for the registered MCP server: if the repo
+// contains a local runner, register `node <runner> mcp`; otherwise register the
+// installed binary `project-librarian mcp`. This mirrors the local-runner-first
+// skill policy (run the installed local copy with node, not npx) so registration
+// does not depend on network/registry access. The runner path is stored project
+// relative so the registration stays portable across clones.
+function mcpServerEntry(): McpServerEntry {
+  const runner = localRunnerCandidates.find((candidate) => fs.existsSync(abs(candidate)));
+  if (runner) return { command: "node", args: [runner, "mcp"] };
+  return { command: mcpServerName, args: ["mcp"] };
+}
+
+// Preservation-first, idempotent merge of the project-librarian MCP server into a
+// JSON config file's `mcpServers` map. Unknown keys and other servers are never
+// clobbered; only `mcpServers["project-librarian"]` is set. A second run with an
+// unchanged entry returns "exists". Used for Claude `.mcp.json`, Cursor
+// `.cursor/mcp.json`, and (via the same map) Gemini `.gemini/settings.json`.
+//
+// Codex boundary: `codex mcp` only manages USER-level config (~/.codex/config.toml
+// via `codex mcp add`); there is no documented project-level MCP config file under
+// `.codex/`. Per the no-user-level-writes rule we do not register Codex here; the
+// README documents running `codex mcp add project-librarian -- node <runner> mcp`.
+function upsertMcpServersFile(relativePath: string): FileStatus {
+  const config = parseJson<McpServersConfig>(relativePath, {});
+  if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
+    config.mcpServers = {};
+  }
+  config.mcpServers[mcpServerName] = mcpServerEntry();
+  const next = `${JSON.stringify(config, null, 2)}\n`;
+  const previous = exists(relativePath) ? read(relativePath) : "";
+  if (previous === next) return "exists";
+  write(relativePath, next);
+  return previous ? "updated" : "created";
+}
+
+// Scale-aware MCP auto-registration gate (2026-06-12 decision). Below the
+// measured file-count threshold the code-evidence tools cost more tokens than
+// direct reads (stageR1: ~1.2k files lost every question), so bootstrap does not
+// auto-register the MCP server there. An existing .project-wiki index overrides
+// the gate regardless of scale: below the threshold it can only have been built
+// through --code-index --acknowledge-small-repo, so it is standing user consent.
+export type McpRegistrationGate =
+  | { register: true }
+  | { register: false; reason: FileStatus };
+
+export function codeEvidenceIndexExists(): boolean {
+  return walkFilesUnder(codeEvidenceDirectory, (file) => file.endsWith(".sqlite")).length > 0;
+}
+
+export function mcpRegistrationGate(): McpRegistrationGate {
+  if (codeEvidenceIndexExists()) return { register: true };
+  const indexableFileCount = discoverCodeFiles(["."]).length;
+  if (indexableFileCount >= SMALL_REPO_FILE_THRESHOLD) return { register: true };
+  return {
+    register: false,
+    reason: `skipped-small-repo ${indexableFileCount} indexable files < ${SMALL_REPO_FILE_THRESHOLD} (code-evidence tools measured costlier than direct reads at this scale: stageR1; opt in via --code-index --acknowledge-small-repo, then re-run bootstrap)`,
+  };
+}
+
+export function upsertClaudeMcpConfig(): FileStatus {
+  return upsertMcpServersFile(".mcp.json");
+}
+
+export function upsertCursorMcpConfig(): FileStatus {
+  return upsertMcpServersFile(".cursor/mcp.json");
+}
+
+export function upsertGeminiMcpConfig(): FileStatus {
+  return upsertMcpServersFile(".gemini/settings.json");
+}
+
 function buildStartupHookScript(output: string): string {
   return `#!/usr/bin/env node
 
@@ -146,6 +233,8 @@ const sections = files
 
 const additionalContext = [
   "[Project wiki startup review]",
+  "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
+  "Do not re-read these two files this session; route any further reads through the index.",
   "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
   "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",

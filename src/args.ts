@@ -1,4 +1,5 @@
 export interface ParsedArgs {
+  acknowledgeSmallRepoMode: boolean;
   args: Set<string>;
   captureCategory: string;
   captureContent: string;
@@ -21,7 +22,7 @@ export interface ParsedArgs {
   codeSearchSymbol: string;
   codeSearchSymbolMode: boolean;
   codeStatusMode: boolean;
-  command: "init" | "install-skill";
+  command: "init" | "install-skill" | "mcp";
   commandArgs: string[];
   doctorMode: boolean;
   fixMode: boolean;
@@ -48,12 +49,15 @@ export interface ParsedArgs {
   unexpectedValueOptions: string[];
   unknownCommand: string;
   unknownOptions: string[];
+  wikiImpactMode: boolean;
+  wikiImpactTarget: string;
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
-const knownCommands: Set<string> = new Set(["init", "install-skill"]);
+const knownCommands: Set<string> = new Set(["init", "install-skill", "mcp"]);
 
 const flagsWithoutValues: Set<string> = new Set([
+  "--acknowledge-small-repo",
   "--adopt-existing",
   "--capture-inbox",
   "--code-evidence-files",
@@ -112,6 +116,7 @@ const flagsWithValues: Set<string> = new Set([
   "--query",
   "--scope",
   "--title",
+  "--wiki-impact",
 ]);
 const knownFlags: Set<string> = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
 
@@ -167,7 +172,7 @@ function argValuesFrom(commandArgs: string[], name: string): string[] {
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  const command: "init" | "install-skill" = knownCommands.has(argv[0] ?? "") ? argv[0] as "init" | "install-skill" : "init";
+  const command: "init" | "install-skill" | "mcp" = knownCommands.has(argv[0] ?? "") ? argv[0] as "init" | "install-skill" | "mcp" : "init";
   const commandArgs = command === argv[0] ? argv.slice(1) : argv;
   const args = new Set(commandArgs);
   const hasFlag = (name: string): boolean => hasFlagIn(commandArgs, name);
@@ -177,6 +182,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
   const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
   return {
+    acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
     args,
     captureCategory: argValue("--category") || "project-candidate",
     captureContent: argValue("--content"),
@@ -232,6 +238,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       .filter((arg) => arg.startsWith("-"))
       .map(flagName)
       .filter((arg) => !knownFlags.has(arg)))),
+    wikiImpactMode: hasFlag("--wiki-impact"),
+    wikiImpactTarget: argValue("--wiki-impact"),
   };
 }
 
@@ -261,6 +269,7 @@ export const captureInboxMode = parsedArgs.captureInboxMode;
 export const pruneCheckMode = parsedArgs.pruneCheckMode;
 export const reviewMigrationMode = parsedArgs.reviewMigrationMode;
 export const noGitConfigMode = parsedArgs.noGitConfigMode;
+export const acknowledgeSmallRepoMode = parsedArgs.acknowledgeSmallRepoMode;
 export const codeIndexMode = parsedArgs.codeIndexMode;
 export const codeIndexIncrementalMode = parsedArgs.codeIndexIncrementalMode;
 export const codeIndexFullMode = parsedArgs.codeIndexFullMode;
@@ -281,6 +290,8 @@ export function argValues(name: string): string[] {
 }
 
 export const queryTerm = parsedArgs.queryTerm;
+export const wikiImpactMode = parsedArgs.wikiImpactMode;
+export const wikiImpactTarget = parsedArgs.wikiImpactTarget;
 export const codeImpactTarget = parsedArgs.codeImpactTarget;
 export const codeQuerySql = parsedArgs.codeQuerySql;
 export const codeReportSection = parsedArgs.codeReportSection;

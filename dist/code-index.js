@@ -33,6 +33,19 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.CodeEvidenceIndexUnavailableError = void 0;
+exports.codeIndexStaleness = codeIndexStaleness;
+exports.codeownerRules = codeownerRules;
+exports.matchedCodeownerRules = matchedCodeownerRules;
+exports.ownershipContext = ownershipContext;
+exports.ownershipInfo = ownershipInfo;
+exports.evidenceCoverage = evidenceCoverage;
+exports.workspaceSummary = workspaceSummary;
+exports.workspaceDependencyGraph = workspaceDependencyGraph;
+exports.codeReportMetadata = codeReportMetadata;
+exports.codeImpact = codeImpact;
+exports.searchSymbols = searchSymbols;
+exports.openCodeEvidenceDatabaseForServing = openCodeEvidenceDatabaseForServing;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
@@ -43,7 +56,6 @@ exports.runCodeSearchSymbolMode = runCodeSearchSymbolMode;
 exports.isCodeEvidenceMode = isCodeEvidenceMode;
 exports.isCodeEvidenceModeFor = isCodeEvidenceModeFor;
 const crypto = __importStar(require("node:crypto"));
-const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const ts = __importStar(require("typescript"));
@@ -52,7 +64,6 @@ const code_index_db_1 = require("./code-index-db");
 const code_index_file_policy_1 = require("./code-index-file-policy");
 const code_index_sql_1 = require("./code-index-sql");
 const workspace_1 = require("./workspace");
-const codeEvidenceDirectory = ".project-wiki";
 const codeIndexSchemaVersion = "3";
 const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
 const treeSitterGrammarPackages = {
@@ -117,11 +128,11 @@ function normalizeProjectRelative(input, label) {
     return (0, workspace_1.normalizePath)(path.relative(rootResolved, resolved)) || ".";
 }
 function codeEvidenceDatabasePath() {
-    const raw = args_1.codeIndexOutput.trim() || `${codeEvidenceDirectory}/code-evidence.sqlite`;
+    const raw = args_1.codeIndexOutput.trim() || `${code_index_file_policy_1.codeEvidenceDirectory}/code-evidence.sqlite`;
     const absolutePath = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(workspace_1.root, raw);
-    const evidenceRoot = path.resolve(workspace_1.root, codeEvidenceDirectory);
+    const evidenceRoot = path.resolve(workspace_1.root, code_index_file_policy_1.codeEvidenceDirectory);
     if (absolutePath === evidenceRoot || !absolutePath.startsWith(`${evidenceRoot}${path.sep}`)) {
-        fail(`--code-index-out must stay inside ${codeEvidenceDirectory}/`);
+        fail(`--code-index-out must stay inside ${code_index_file_policy_1.codeEvidenceDirectory}/`);
     }
     return {
         absolutePath,
@@ -181,56 +192,6 @@ function extractionProfile(relativePath, parserMode) {
     if ((0, code_index_file_policy_1.fileLanguage)(relativePath) === "config")
         return "config";
     return "inventory-only";
-}
-function walkCodeFiles(relativePath, files = []) {
-    if ((0, code_index_file_policy_1.isIgnoredCodePath)(relativePath))
-        return files.sort();
-    const target = (0, workspace_1.abs)(relativePath);
-    if (!fs.existsSync(target))
-        return files;
-    const stat = fs.statSync(target);
-    if (stat.isFile()) {
-        if (stat.size <= code_index_file_policy_1.maxIndexedBytes && (0, code_index_file_policy_1.shouldIndexFile)(relativePath))
-            files.push(relativePath);
-        return files.sort();
-    }
-    for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
-        const child = (0, workspace_1.normalizePath)(path.join(relativePath, entry.name));
-        if (entry.isDirectory()) {
-            if (!code_index_file_policy_1.ignoredDirectories.has(entry.name))
-                walkCodeFiles(child, files);
-        }
-        else if (entry.isFile() && (0, code_index_file_policy_1.shouldIndexFile)(child)) {
-            const childStat = fs.statSync((0, workspace_1.abs)(child));
-            if (childStat.size <= code_index_file_policy_1.maxIndexedBytes)
-                files.push(child);
-        }
-    }
-    return files.sort();
-}
-function gitTrackedAndUnignoredFiles(scopes) {
-    try {
-        const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...scopes], {
-            cwd: workspace_1.root,
-            encoding: "buffer",
-            stdio: ["ignore", "pipe", "ignore"],
-        });
-        return output.toString("utf8").split("\0").filter(Boolean).map((file) => normalizeProjectRelative(file, "git-indexed file"));
-    }
-    catch {
-        return null;
-    }
-}
-function discoverCodeFiles(scopes) {
-    const gitFiles = gitTrackedAndUnignoredFiles(scopes);
-    const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
-    return Array.from(new Set(candidates))
-        .filter((file) => !(0, code_index_file_policy_1.isIgnoredCodePath)(file))
-        .filter((file) => fs.existsSync((0, workspace_1.abs)(file)))
-        .filter((file) => fs.statSync((0, workspace_1.abs)(file)).isFile())
-        .filter((file) => (0, code_index_file_policy_1.shouldIndexFile)(file))
-        .filter((file) => fs.statSync((0, workspace_1.abs)(file)).size <= code_index_file_policy_1.maxIndexedBytes)
-        .sort();
 }
 function readCodeFile(relativePath, parserMode = "default") {
     const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
@@ -1163,7 +1124,7 @@ function removeDatabaseFiles(databasePath) {
 function codeIndexStaleness(database) {
     const scopes = indexedScopes(database);
     const parserMode = indexedParserMode(database);
-    const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
+    const current = new Map((0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]).map((file) => {
         const codeFile = readCodeFile(file, parserMode);
         return [codeFile.path, codeFile.hash];
     }));
@@ -1310,6 +1271,13 @@ function codeownerPatternMatches(pattern, filePath) {
 function matchingCodeowners(filePath, rules) {
     const matches = rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
     return matches[matches.length - 1]?.owners ?? [];
+}
+// Return every CODEOWNERS rule that matches a path, in file order. The last entry
+// is the effective owner under last-match-wins; earlier entries are overridden.
+// Reuses the same matcher as matchingCodeowners so precedence answers stay
+// consistent with --code-report / --code-impact.
+function matchedCodeownerRules(filePath, rules) {
+    return rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
 }
 function ownershipContext() {
     return {
@@ -1670,16 +1638,66 @@ function codeImpact(database, target) {
         })).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner)),
     };
 }
+// Symbol search reusing the exact SELECT behind --code-search-symbol so the MCP
+// code_search tool returns identical rows without duplicating the query string.
+function searchSymbols(database, term) {
+    const like = `%${term}%`;
+    return database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like);
+}
+// Error thrown when the code-evidence index is missing or schema-incompatible.
+// The MCP server catches this to return an isError tool result (tools/list still
+// works); CLI modes keep their own process.exit path via requireExistingIndex.
+class CodeEvidenceIndexUnavailableError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "CodeEvidenceIndexUnavailableError";
+    }
+}
+exports.CodeEvidenceIndexUnavailableError = CodeEvidenceIndexUnavailableError;
+// Open the existing .project-wiki code-evidence index READ-ONLY for serving:
+// validates existence and schema version, then pins PRAGMA query_only = ON. Uses
+// the same path resolution and schema constant as the indexer so the server and
+// the writer share one contract. Throws CodeEvidenceIndexUnavailableError (never
+// exits) so the MCP server can answer with guidance to run --code-index.
+function openCodeEvidenceDatabaseForServing() {
+    const databasePath = codeEvidenceDatabasePath();
+    if (!fs.existsSync(databasePath.absolutePath)) {
+        throw new CodeEvidenceIndexUnavailableError(`missing code evidence index: ${databasePath.relativePath}; run \`project-librarian --code-index\` first`);
+    }
+    const database = openDatabase(databasePath.absolutePath);
+    let schemaVersion = "";
+    try {
+        schemaVersion = readMetaValue(database, "schema_version");
+    }
+    catch (error) {
+        database.close();
+        const message = error instanceof Error ? error.message : String(error);
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
+    }
+    if (schemaVersion !== codeIndexSchemaVersion) {
+        database.close();
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+    }
+    database.exec("PRAGMA query_only = ON");
+    return { database, relativePath: databasePath.relativePath };
+}
 function prepareOutputPath() {
     const databasePath = codeEvidenceDatabasePath();
     (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
-    (0, workspace_1.mkdirp)(codeEvidenceDirectory);
-    fs.writeFileSync((0, workspace_1.abs)(`${codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
+    (0, workspace_1.mkdirp)(code_index_file_policy_1.codeEvidenceDirectory);
+    fs.writeFileSync((0, workspace_1.abs)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
 }
 function runCodeIndexMode() {
     const databasePath = codeEvidenceDatabasePath();
     const scopes = codeScopes();
     const parserMode = selectedCodeParserMode();
+    // Scale gate before ANY write or database work: below the measured threshold
+    // the build halts with the evidence-citing warning unless --acknowledge-small-repo
+    // was passed (2026-06-12 scale-aware guidance decision).
+    const discoveredFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes);
+    const scaleGate = (0, code_index_file_policy_1.smallRepoCodeIndexGate)(discoveredFiles.length, args_1.acknowledgeSmallRepoMode);
+    if (!scaleGate.proceed)
+        fail(scaleGate.warning);
     const existingIndex = fs.existsSync(databasePath.absolutePath);
     if (args_1.codeIndexIncrementalMode && !existingIndex) {
         fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
@@ -1706,7 +1724,7 @@ function runCodeIndexMode() {
         if (!incremental)
             setupDatabase(database);
         const statements = createIndexStatements(database);
-        const currentFiles = discoverCodeFiles(scopes).map((filePath) => readCodeFile(filePath, parserMode));
+        const currentFiles = discoveredFiles.map((filePath) => readCodeFile(filePath, parserMode));
         const currentByPath = new Map(currentFiles.map((file) => [file.path, file]));
         const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)])) : new Map();
         const deletedPaths = incremental ? Array.from(indexed.keys()).filter((filePath) => !currentByPath.has(filePath)) : [];

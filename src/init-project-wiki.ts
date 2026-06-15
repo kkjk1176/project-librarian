@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 
-import { captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions } from "./args";
-import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, upsertClaudeHookConfig, upsertCursorHookConfig, upsertGeminiHookConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
+import { acknowledgeSmallRepoMode, captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode } from "./args";
+import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
-import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode } from "./modes";
+import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
-import { agentsSection, claudeSection, cursorRule, decisionPolicy, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
-import { deleteIfGenerated, makeExecutable, mkdirp, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
-import { withPreservedMarkedSections } from "./wiki-files";
+import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 type CodeIndexModule = typeof import("./code-index");
 
@@ -19,10 +18,11 @@ function codeIndex(): CodeIndexModule {
 function printUsage(): void {
   console.log(`Usage:
   project-librarian [init] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all|both]
+  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+  project-librarian mcp
 
 Options:
-  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
+  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create unit-level migration map, split plan, coverage ledger, review files, and inboxes.
   --lint                           Validate the generated project wiki setup without editing files.
   --link-check                     Report broken wiki links, duplicate routes, and orphan pages.
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
@@ -35,14 +35,16 @@ Options:
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
   --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
   --issue-title <title>            Override the generated issue draft title.
-  --query <terms>                  Search wiki paths, metadata, titles, and bodies.
+  --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
+  --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
   --prune-check                    Report active pages with stale or unresolved signals.
-  --review-migration               Sync migration inbox statuses into migration review files.
+  --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
@@ -52,7 +54,19 @@ Options:
   --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
   --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
   --code-search-symbol <term>      Search indexed symbols.
+
+Commands:
+  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
+
   --help                           Show this help.`);
+}
+
+// console.log queues asynchronously on pipes; an immediate process.exit() discards
+// anything past the first ~64KB pipe chunk (observed truncating a large
+// --code-report on an 11k-file repo). Exiting from a zero-length write callback
+// guarantees everything queued before it has drained.
+function exitAfterStdoutDrain(code: number): void {
+  process.stdout.write("", () => process.exit(code));
 }
 
 if (helpMode) {
@@ -104,6 +118,11 @@ if (codeIndexIncrementalMode && !codeIndexMode) {
   process.exit(1);
 }
 
+if (acknowledgeSmallRepoMode && !codeIndexMode) {
+  console.error("--acknowledge-small-repo is only supported with --code-index.");
+  process.exit(1);
+}
+
 if (codeIndexFullMode && !codeIndexMode) {
   console.error("--code-index-full is only supported with --code-index.");
   process.exit(1);
@@ -124,6 +143,17 @@ if (command === "install-skill") {
   process.exit(0);
 }
 
+if (command === "mcp") {
+  // Hand-rolled stdio MCP server over the existing code-evidence index. Lazy
+  // require keeps the server (and its node:sqlite dependency) out of the normal
+  // bootstrap path. The server roots at process.cwd() and runs until stdin ends,
+  // exiting from inside runMcpServerMode; the init flow below must not run.
+  (require("./mcp-server") as typeof import("./mcp-server")).runMcpServerMode();
+} else {
+  runInitCommand();
+}
+
+function runInitCommand(): void {
 const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
   console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
@@ -132,35 +162,47 @@ if (activeCodeModes > 1) {
 
 if (codeQueryMode) {
   codeIndex().runCodeQueryMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeReportMode) {
   codeIndex().runCodeReportMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeStatusMode) {
   codeIndex().runCodeStatusMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeFilesMode) {
   codeIndex().runCodeFilesMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeImpactMode) {
   codeIndex().runCodeImpactMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeSearchSymbolMode) {
   codeIndex().runCodeSearchSymbolMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (codeIndexMode) {
   codeIndex().runCodeIndexMode();
   process.exit(0);
 }
+if (wikiImpactMode) {
+  runWikiImpactMode();
+  exitAfterStdoutDrain(0);
+  return;
+}
 if (queryTerm) {
   runQueryMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (issueCreateMode) {
   runIssueCreateMode();
@@ -168,7 +210,8 @@ if (issueCreateMode) {
 }
 if (issueDraftMode) {
   runIssueDraftMode();
-  process.exit(0);
+  exitAfterStdoutDrain(0);
+  return;
 }
 if (pruneCheckMode) {
   runPruneCheckMode();
@@ -223,7 +266,15 @@ mkdirp(".cursor/rules");
 mkdirp(".gemini/hooks");
 mkdirp(".githooks");
 
-results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection)]);
+// B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
+// so non-interactive `codex exec` (which does not run SessionStart hooks) still
+// gets compact startup context. Routers are starter files written later in this
+// flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
+// template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
+// an existing startup.md fails loudly inside extractStartupTldr (no fallback).
+const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
+const startupTldrForAgents = extractStartupTldr(startupForSync);
+results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection(startupTldrForAgents))]);
 results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
 results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
 results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
@@ -241,19 +292,35 @@ results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
 results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
 results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
 results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
-results.push(["wiki/startup.md", writeManaged("wiki/startup.md", withPreservedMarkedSections("wiki/startup.md", startup, [["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"]]))]);
-results.push(["wiki/index.md", writeManaged("wiki/index.md", withPreservedMarkedSections("wiki/index.md", index, [
-  ["<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->"],
-  ["<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->"],
-  ["<!-- PROJECT-WIKI-INBOX:START -->", "<!-- PROJECT-WIKI-INBOX:END -->"],
-  ["<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->"],
-]))]);
+// Bootstrap-managed MCP registration (preservation-first, idempotent). Claude
+// Code reads `.mcp.json`, Cursor reads `.cursor/mcp.json`, and Gemini reads
+// `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
+// config (`codex mcp add` -> ~/.codex/config.toml), so it is intentionally not
+// registered at project level; the README documents the manual user-level step.
+// Registration is scale-gated (2026-06-12 decision): below the measured
+// file-count threshold with no existing .project-wiki index, the rows report the
+// skip reason instead of writing config; an existing index registers regardless.
+const mcpGate = mcpRegistrationGate();
+if (mcpGate.register) {
+  results.push([".mcp.json", upsertClaudeMcpConfig()]);
+  results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
+  results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
+} else {
+  results.push([".mcp.json", mcpGate.reason]);
+  results.push([".cursor/mcp.json", mcpGate.reason]);
+  results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+}
+// Routers accumulate user-maintained project state after bootstrap, so they are
+// starter files: templates are written only when the file is absent, never rebuilt.
+results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);
+results.push(["wiki/index.md", writeStarter("wiki/index.md", index)]);
 results.push(["wiki/meta/operating-model.md", writeManaged("wiki/meta/operating-model.md", wikiOperatingModel)]);
 results.push(["wiki/meta/decision-policy.md", writeManaged("wiki/meta/decision-policy.md", decisionPolicy)]);
 results.push(["wiki/canonical/wiki-operating-model.md", deleteIfGenerated("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);
 results.push(["wiki/canonical/decision-policy.md", deleteIfGenerated("wiki/canonical/decision-policy.md", ["# Decision Policy"])]);
 results.push(["wiki/decisions/wiki-v1-decisions.md", deleteIfGenerated("wiki/decisions/wiki-v1-decisions.md", ["# Wiki v1 Decisions", "# Wiki Operations v1 Decisions"])]);
 for (const [relativePath, content] of Object.entries(starterFiles)) {
+  if (!defaultStarterFilePaths.has(relativePath)) continue;
   results.push([relativePath, writeStarter(relativePath, content)]);
 }
 results.push(["wiki/meta/wiki-ops-v1-decisions.md", writeManaged("wiki/meta/wiki-ops-v1-decisions.md", starterFiles["wiki/meta/wiki-ops-v1-decisions.md"])]);
@@ -282,4 +349,5 @@ if (noGitConfigMode) modes.push("no-git-config");
 console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
 for (const [relativePath, status] of results) {
   console.log(`${String(status).padEnd(7)} ${relativePath}`);
+}
 }

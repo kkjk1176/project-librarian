@@ -39,8 +39,15 @@ exports.upsertHookConfig = upsertHookConfig;
 exports.upsertClaudeHookConfig = upsertClaudeHookConfig;
 exports.upsertGeminiHookConfig = upsertGeminiHookConfig;
 exports.upsertCursorHookConfig = upsertCursorHookConfig;
+exports.codeEvidenceIndexExists = codeEvidenceIndexExists;
+exports.mcpRegistrationGate = mcpRegistrationGate;
+exports.upsertClaudeMcpConfig = upsertClaudeMcpConfig;
+exports.upsertCursorMcpConfig = upsertCursorMcpConfig;
+exports.upsertGeminiMcpConfig = upsertGeminiMcpConfig;
 const childProcess = __importStar(require("node:child_process"));
+const fs = __importStar(require("node:fs"));
 const args_1 = require("./args");
+const code_index_file_policy_1 = require("./code-index-file-policy");
 const workspace_1 = require("./workspace");
 function upsertGitHooksPath() {
     if (args_1.noGitConfigMode)
@@ -136,6 +143,75 @@ function upsertCursorHookConfig() {
     (0, workspace_1.write)(relativePath, next);
     return previous === next ? "exists" : previous ? "updated" : "created";
 }
+const mcpServerName = "project-librarian";
+// Candidate local-runner paths, project root relative, in the recorded
+// local-runner-first order (mirrors validationTrailers()). The first existing
+// runner wins; absent any local install we register the published binary.
+const localRunnerCandidates = [
+    "tools/project-librarian/dist/init-project-wiki.js",
+    ".codex/skills/project-librarian/dist/init-project-wiki.js",
+    ".claude/skills/project-librarian/dist/init-project-wiki.js",
+    ".cursor/skills/project-librarian/dist/init-project-wiki.js",
+    ".gemini/skills/project-librarian/dist/init-project-wiki.js",
+];
+// Deterministic command policy for the registered MCP server: if the repo
+// contains a local runner, register `node <runner> mcp`; otherwise register the
+// installed binary `project-librarian mcp`. This mirrors the local-runner-first
+// skill policy (run the installed local copy with node, not npx) so registration
+// does not depend on network/registry access. The runner path is stored project
+// relative so the registration stays portable across clones.
+function mcpServerEntry() {
+    const runner = localRunnerCandidates.find((candidate) => fs.existsSync((0, workspace_1.abs)(candidate)));
+    if (runner)
+        return { command: "node", args: [runner, "mcp"] };
+    return { command: mcpServerName, args: ["mcp"] };
+}
+// Preservation-first, idempotent merge of the project-librarian MCP server into a
+// JSON config file's `mcpServers` map. Unknown keys and other servers are never
+// clobbered; only `mcpServers["project-librarian"]` is set. A second run with an
+// unchanged entry returns "exists". Used for Claude `.mcp.json`, Cursor
+// `.cursor/mcp.json`, and (via the same map) Gemini `.gemini/settings.json`.
+//
+// Codex boundary: `codex mcp` only manages USER-level config (~/.codex/config.toml
+// via `codex mcp add`); there is no documented project-level MCP config file under
+// `.codex/`. Per the no-user-level-writes rule we do not register Codex here; the
+// README documents running `codex mcp add project-librarian -- node <runner> mcp`.
+function upsertMcpServersFile(relativePath) {
+    const config = (0, workspace_1.parseJson)(relativePath, {});
+    if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
+        config.mcpServers = {};
+    }
+    config.mcpServers[mcpServerName] = mcpServerEntry();
+    const next = `${JSON.stringify(config, null, 2)}\n`;
+    const previous = (0, workspace_1.exists)(relativePath) ? (0, workspace_1.read)(relativePath) : "";
+    if (previous === next)
+        return "exists";
+    (0, workspace_1.write)(relativePath, next);
+    return previous ? "updated" : "created";
+}
+function codeEvidenceIndexExists() {
+    return (0, workspace_1.walkFilesUnder)(code_index_file_policy_1.codeEvidenceDirectory, (file) => file.endsWith(".sqlite")).length > 0;
+}
+function mcpRegistrationGate() {
+    if (codeEvidenceIndexExists())
+        return { register: true };
+    const indexableFileCount = (0, code_index_file_policy_1.discoverCodeFiles)(["."]).length;
+    if (indexableFileCount >= code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD)
+        return { register: true };
+    return {
+        register: false,
+        reason: `skipped-small-repo ${indexableFileCount} indexable files < ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD} (code-evidence tools measured costlier than direct reads at this scale: stageR1; opt in via --code-index --acknowledge-small-repo, then re-run bootstrap)`,
+    };
+}
+function upsertClaudeMcpConfig() {
+    return upsertMcpServersFile(".mcp.json");
+}
+function upsertCursorMcpConfig() {
+    return upsertMcpServersFile(".cursor/mcp.json");
+}
+function upsertGeminiMcpConfig() {
+    return upsertMcpServersFile(".gemini/settings.json");
+}
 function buildStartupHookScript(output) {
     return `#!/usr/bin/env node
 
@@ -183,6 +259,8 @@ const sections = files
 
 const additionalContext = [
   "[Project wiki startup review]",
+  "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
+  "Do not re-read these two files this session; route any further reads through the index.",
   "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
   "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",

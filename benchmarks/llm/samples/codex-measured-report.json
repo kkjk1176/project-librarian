@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 7,
   "benchmark_kind": "codex-actual-llm",
   "auth_mode": "chatgpt_codex",
   "auth": {
@@ -14,45 +14,81 @@
     "platform": "darwin",
     "arch": "arm64"
   },
+  "control_profile": "curated",
+  "corpus": "mixed",
+  "cache_discount": 0.1,
+  "hermetic": {
+    "isolated_codex_home": "/tmp/project-librarian-codex-llm/sample/codex-home",
+    "real_codex_home": "/home/sample/.codex",
+    "auth_source": "/home/sample/.codex/auth.json",
+    "copied_files": [
+      "auth.json"
+    ],
+    "allowlisted_env_keys": [
+      "CODEX_HOME",
+      "HOME",
+      "LANG",
+      "PATH",
+      "TERM"
+    ],
+    "allowlisted_env_key_count": 5,
+    "inherited_process_env": false
+  },
   "codex": {
     "version": "codex-cli-sample"
   },
   "configuration": {
     "runs": 1,
     "warmup_runs": 1,
-    "max_scenarios": 2,
+    "max_scenarios": 8,
     "requested_model": null,
-    "selected_scenarios": 2,
-    "total_manifest_scenarios": 30,
+    "selected_scenarios": 8,
+    "total_manifest_scenarios": 60,
     "full_matrix": false,
     "min_runs_for_claim": 1,
     "require_claimable": false,
+    "control_profile": "curated",
+    "cache_discount": 0.1,
     "selected_scales": [
-      "small"
+      "medium"
     ],
     "selected_tasks": [
-      "decision_lookup"
+      "decision_lookup",
+      "impact_trace",
+      "multi_session",
+      "aggregation"
     ],
-    "manifest_fingerprint": "82a86ab99b5a6dfacc6a0755848218eb81091b3a01fe833a8921786b40b3ed4d",
-    "scenario_matrix_fingerprint": "2707b1ed612d5b7f544e4881c4f2850e0e465c42c81470e7002051ba89eabee6",
+    "manifest_fingerprint": "cafbca22aca80900e839cec116d0d4056f523f83941061ebb460afbd9a6d2d58",
+    "scenario_matrix_fingerprint": "009fcf52a1549fefe04441bff3f0428befb9a83a5a5dced9f65fbb97f0db2a3c",
     "require_clean": false,
     "scenario_order": "deterministic-alternating-pairs"
   },
+  "benchmark_tracks": [
+    "wiki",
+    "code_graph"
+  ],
   "summary": {
-    "scenario_count": 2,
-    "comparison_pair_count": 1,
-    "passed_correctness_count": 2,
+    "scenario_count": 8,
+    "comparison_pair_count": 4,
+    "passed_correctness_count": 8,
     "needs_review_count": 0,
     "failed_correctness_count": 0,
-    "claimable_scenario_count": 2,
+    "claimable_scenario_count": 8,
     "unclaimable_scenario_count": 0
   },
   "scenarios": [
     {
-      "scale": "small",
+      "scale": "medium",
       "condition": "with_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
       "task_family": "decision_lookup",
-      "prompt_id": "decision_lookup-small-with_project_librarian",
+      "prompt_id": "decision_lookup-medium-with_project_librarian",
       "cwd": "/tmp/project-librarian-codex-llm/sample",
       "requested_model": null,
       "model": "gpt-5.5",
@@ -60,6 +96,7 @@
       "models": [
         "gpt-5.5"
       ],
+      "expectation": null,
       "runs": [
         {
           "run_index": 1,
@@ -68,9 +105,12 @@
           "metrics": {
             "input_tokens": 24763,
             "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
             "output_tokens": 122,
             "reasoning_output_tokens": 0,
             "total_tokens": 24885,
+            "tool_output_bytes": 199,
+            "request_count_estimate": 1,
             "wall_ms": 2000,
             "first_response_ms": 0,
             "tokens_per_second": 61,
@@ -145,6 +185,11 @@
                 "passed": true
               },
               {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
                 "name": "correctness passed",
                 "passed": true
               },
@@ -187,15 +232,24 @@
             "exit_code": 0,
             "error": "",
             "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
           }
         }
       ],
       "median": {
         "input_tokens": 24763,
         "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
         "output_tokens": 122,
         "reasoning_output_tokens": 0,
         "total_tokens": 24885,
+        "tool_output_bytes": 199,
+        "request_count_estimate": 1,
         "wall_ms": 2000,
         "first_response_ms": 0,
         "tokens_per_second": 61,
@@ -214,9 +268,12 @@
       "median_all_runs": {
         "input_tokens": 24763,
         "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
         "output_tokens": 122,
         "reasoning_output_tokens": 0,
         "total_tokens": 24885,
+        "tool_output_bytes": 199,
+        "request_count_estimate": 1,
         "wall_ms": 2000,
         "first_response_ms": 0,
         "tokens_per_second": 61,
@@ -275,7 +332,7 @@
       ],
       "fixture_fingerprint": {
         "algorithm": "sha256-relative-path-content",
-        "value": "1d0fe3794338d658c61d7aa509c904e72fdc59c069d805290cfe66fff8b73938",
+        "value": "e30a45c7887c7ec7ec5d1acb7184ccb6c37aa1000715a56a12ab12010c709436",
         "file_count": 1
       },
       "dispersion": {
@@ -291,6 +348,14 @@
           "min": 24448,
           "median": 24448,
           "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -315,6 +380,22 @@
           "min": 24885,
           "median": 24885,
           "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 199,
+          "median": 199,
+          "max": 199,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -449,6 +530,14 @@
           "cv_percent": 0,
           "sample_count": 1
         },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
         "output_tokens": {
           "min": 122,
           "median": 122,
@@ -469,6 +558,22 @@
           "min": 24885,
           "median": 24885,
           "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 199,
+          "median": 199,
+          "max": 199,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -586,7 +691,7 @@
           "sample_count": 1
         }
       },
-      "prompt": "Benchmark scenario: small / with_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nFind the latest decision about benchmark evidence policy, including the decision date. Cite the source file.",
+      "prompt": "Benchmark scenario: medium / with_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
       "command": [
         "codex",
         "exec",
@@ -595,14 +700,21 @@
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
-        "Benchmark scenario: small / with_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nFind the latest decision about benchmark evidence policy, including the decision date. Cite the source file."
+        "Benchmark scenario: medium / with_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
       ]
     },
     {
-      "scale": "small",
+      "scale": "medium",
       "condition": "without_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
       "task_family": "decision_lookup",
-      "prompt_id": "decision_lookup-small-without_project_librarian",
+      "prompt_id": "decision_lookup-medium-without_project_librarian",
       "cwd": "/tmp/project-librarian-codex-llm/sample-control",
       "requested_model": null,
       "model": "gpt-5.5",
@@ -610,6 +722,7 @@
       "models": [
         "gpt-5.5"
       ],
+      "expectation": null,
       "runs": [
         {
           "run_index": 1,
@@ -618,9 +731,12 @@
           "metrics": {
             "input_tokens": 24763,
             "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
             "output_tokens": 122,
             "reasoning_output_tokens": 0,
             "total_tokens": 24885,
+            "tool_output_bytes": 78,
+            "request_count_estimate": 1,
             "wall_ms": 2000,
             "first_response_ms": 0,
             "tokens_per_second": 61,
@@ -695,6 +811,11 @@
                 "passed": true
               },
               {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
                 "name": "correctness passed",
                 "passed": true
               },
@@ -737,15 +858,24 @@
             "exit_code": 0,
             "error": "",
             "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
           }
         }
       ],
       "median": {
         "input_tokens": 24763,
         "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
         "output_tokens": 122,
         "reasoning_output_tokens": 0,
         "total_tokens": 24885,
+        "tool_output_bytes": 78,
+        "request_count_estimate": 1,
         "wall_ms": 2000,
         "first_response_ms": 0,
         "tokens_per_second": 61,
@@ -764,9 +894,12 @@
       "median_all_runs": {
         "input_tokens": 24763,
         "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
         "output_tokens": 122,
         "reasoning_output_tokens": 0,
         "total_tokens": 24885,
+        "tool_output_bytes": 78,
+        "request_count_estimate": 1,
         "wall_ms": 2000,
         "first_response_ms": 0,
         "tokens_per_second": 61,
@@ -825,7 +958,7 @@
       ],
       "fixture_fingerprint": {
         "algorithm": "sha256-relative-path-content",
-        "value": "4a09caacf1184528619a5e3bf2f6ee55eccd0bf6dbf471dd2f678a4ffb1b3e16",
+        "value": "d9fd82270a95b729054da49c3a0374bee169a66cafec04000c2d30d629e6ae2f",
         "file_count": 1
       },
       "dispersion": {
@@ -841,6 +974,14 @@
           "min": 24448,
           "median": 24448,
           "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -865,6 +1006,22 @@
           "min": 24885,
           "median": 24885,
           "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 78,
+          "median": 78,
+          "max": 78,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -999,6 +1156,14 @@
           "cv_percent": 0,
           "sample_count": 1
         },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
         "output_tokens": {
           "min": 122,
           "median": 122,
@@ -1019,6 +1184,22 @@
           "min": 24885,
           "median": 24885,
           "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 78,
+          "median": 78,
+          "max": 78,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
           "range": 0,
           "cv_percent": 0,
           "sample_count": 1
@@ -1136,7 +1317,7 @@
           "sample_count": 1
         }
       },
-      "prompt": "Benchmark scenario: small / without_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nFind the latest decision about benchmark evidence policy, including the decision date. Cite the source file.",
+      "prompt": "Benchmark scenario: medium / without_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
       "command": [
         "codex",
         "exec",
@@ -1145,7 +1326,4757 @@
         "--sandbox",
         "read-only",
         "--skip-git-repo-check",
-        "Benchmark scenario: small / without_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nFind the latest decision about benchmark evidence policy, including the decision date. Cite the source file."
+        "Benchmark scenario: medium / without_project_librarian / decision_lookup.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
+    },
+    {
+      "scale": "medium",
+      "condition": "with_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "multi_session",
+      "prompt_id": "multi_session-medium-with_project_librarian",
+      "cwd": "/tmp/project-librarian-codex-llm/sample-multi-session",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": null,
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-s2.jsonl",
+          "requested_model": null,
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "metrics": {
+            "input_tokens": 21000,
+            "cached_input_tokens": 15000,
+            "uncached_input_tokens": 6000,
+            "output_tokens": 110,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 21110,
+            "tool_output_bytes": 0,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 55,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (wiki/canonical/release-policy.md and wiki/canonical/benchmark-and-release-evidence.md). The latest dated decision is 2026-06-10 in wiki/decisions/log.md.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: benchmark",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-06-10",
+                "passed": true
+              },
+              {
+                "name": "any term: claim | check | publish | release",
+                "passed": true
+              },
+              {
+                "name": "any term: decision | latest",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: wiki/ | AGENTS.md",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: wiki/canonical/release-policy.md | wiki/canonical/benchmark-and-release-evidence.md",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: wiki/decisions/log.md | wiki/decisions/recent.md",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
+          },
+          "session_metrics": [
+            {
+              "session_index": 1,
+              "role": "familiarization",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-s1.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 18000,
+                "cached_input_tokens": 12000,
+                "uncached_input_tokens": 6000,
+                "output_tokens": 90,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 18090,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 45,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "This project is a maintained benchmark-evidence fixture. Project truth lives in wiki/canonical/ and decision history in wiki/decisions/. Read wiki/startup.md and wiki/index.md first, then the benchmark evidence page for policy.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            },
+            {
+              "session_index": 2,
+              "role": "measured",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-s2.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 21000,
+                "cached_input_tokens": 15000,
+                "uncached_input_tokens": 6000,
+                "output_tokens": 110,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 21110,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 55,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (wiki/canonical/release-policy.md and wiki/canonical/benchmark-and-release-evidence.md). The latest dated decision is 2026-06-10 in wiki/decisions/log.md.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            }
+          ],
+          "measured_session_index": 2,
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 21000,
+        "cached_input_tokens": 15000,
+        "uncached_input_tokens": 6000,
+        "output_tokens": 110,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 21110,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 55,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 21000,
+        "cached_input_tokens": 15000,
+        "uncached_input_tokens": 6000,
+        "output_tokens": 110,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 21110,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 55,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: benchmark",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-06-10",
+              "passed": true
+            },
+            {
+              "name": "any term: claim | check | publish | release",
+              "passed": true
+            },
+            {
+              "name": "any term: decision | latest",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: wiki/ | AGENTS.md",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: wiki/canonical/release-policy.md | wiki/canonical/benchmark-and-release-evidence.md",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: wiki/decisions/log.md | wiki/decisions/recent.md",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-multi-session-s2.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "sha256-relative-path-content",
+        "value": "4db00c91084449a585339f0e33a2b516b92c86eac8f7bb2be0ba1c3be3b5ec6c",
+        "file_count": 1
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 21000,
+          "median": 21000,
+          "max": 21000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 15000,
+          "median": 15000,
+          "max": 15000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 6000,
+          "median": 6000,
+          "max": 6000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 110,
+          "median": 110,
+          "max": 110,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 21110,
+          "median": 21110,
+          "max": 21110,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 55,
+          "median": 55,
+          "max": 55,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 21000,
+          "median": 21000,
+          "max": 21000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 15000,
+          "median": 15000,
+          "max": 15000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 6000,
+          "median": 6000,
+          "max": 6000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 110,
+          "median": 110,
+          "max": 110,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 21110,
+          "median": 21110,
+          "max": 21110,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 55,
+          "median": 55,
+          "max": 55,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: medium / with_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: medium / with_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ],
+      "session_count": 2,
+      "sessions": [
+        {
+          "session_index": 1,
+          "role": "familiarization",
+          "prompt": "Benchmark scenario: medium / with_project_librarian / multi_session (session 1 of 2: familiarization).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+          "command": [
+            "codex",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "Benchmark scenario: medium / with_project_librarian / multi_session (session 1 of 2: familiarization).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+          ]
+        },
+        {
+          "session_index": 2,
+          "role": "measured",
+          "prompt": "Benchmark scenario: medium / with_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+          "command": [
+            "codex",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "Benchmark scenario: medium / with_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+          ]
+        }
+      ],
+      "session_metrics": [
+        {
+          "run_index": 1,
+          "measured_session_index": 2,
+          "sessions": [
+            {
+              "session_index": 1,
+              "role": "familiarization",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-s1.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 18000,
+                "cached_input_tokens": 12000,
+                "uncached_input_tokens": 6000,
+                "output_tokens": 90,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 18090,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 45,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "This project is a maintained benchmark-evidence fixture. Project truth lives in wiki/canonical/ and decision history in wiki/decisions/. Read wiki/startup.md and wiki/index.md first, then the benchmark evidence page for policy.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            },
+            {
+              "session_index": 2,
+              "role": "measured",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-s2.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 21000,
+                "cached_input_tokens": 15000,
+                "uncached_input_tokens": 6000,
+                "output_tokens": 110,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 21110,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 55,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (wiki/canonical/release-policy.md and wiki/canonical/benchmark-and-release-evidence.md). The latest dated decision is 2026-06-10 in wiki/decisions/log.md.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scale": "medium",
+      "condition": "without_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "multi_session",
+      "prompt_id": "multi_session-medium-without_project_librarian",
+      "cwd": "/tmp/project-librarian-codex-llm/sample-multi-session-control",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": null,
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-control-s2.jsonl",
+          "requested_model": null,
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "metrics": {
+            "input_tokens": 20000,
+            "cached_input_tokens": 11000,
+            "uncached_input_tokens": 9000,
+            "output_tokens": 118,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 20118,
+            "tool_output_bytes": 0,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 59,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (docs/release-policy.md and docs/benchmark-policy.md). The latest dated decision is 2026-06-10 per docs/decisions.md in the control docs.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: benchmark",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-06-10",
+                "passed": true
+              },
+              {
+                "name": "any term: claim | check | publish | release",
+                "passed": true
+              },
+              {
+                "name": "any term: decision | latest",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: README.md | docs/ | packages/",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: docs/release-policy.md | docs/benchmark-policy.md",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: docs/decisions.md",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
+          },
+          "session_metrics": [
+            {
+              "session_index": 1,
+              "role": "familiarization",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-control-s1.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 17000,
+                "cached_input_tokens": 9000,
+                "uncached_input_tokens": 8000,
+                "output_tokens": 85,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 17085,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 42.5,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "This benchmark fixture validates coding-agent onboarding, risks, and where to read next. Start from README.md and the docs/ overview, then read the benchmark policy.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            },
+            {
+              "session_index": 2,
+              "role": "measured",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-control-s2.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 20000,
+                "cached_input_tokens": 11000,
+                "uncached_input_tokens": 9000,
+                "output_tokens": 118,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 20118,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 59,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (docs/release-policy.md and docs/benchmark-policy.md). The latest dated decision is 2026-06-10 per docs/decisions.md in the control docs.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            }
+          ],
+          "measured_session_index": 2,
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 20000,
+        "cached_input_tokens": 11000,
+        "uncached_input_tokens": 9000,
+        "output_tokens": 118,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 20118,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 59,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 20000,
+        "cached_input_tokens": 11000,
+        "uncached_input_tokens": 9000,
+        "output_tokens": 118,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 20118,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 59,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: benchmark",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-06-10",
+              "passed": true
+            },
+            {
+              "name": "any term: claim | check | publish | release",
+              "passed": true
+            },
+            {
+              "name": "any term: decision | latest",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: README.md | docs/ | packages/",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: docs/release-policy.md | docs/benchmark-policy.md",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: docs/decisions.md",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-multi-session-control-s2.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "sha256-relative-path-content",
+        "value": "c22f7fc2a58b90d213a29d57f7f8ed2d6afc7e7216f79a4cb87a81e7d3f96b12",
+        "file_count": 1
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 20000,
+          "median": 20000,
+          "max": 20000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 11000,
+          "median": 11000,
+          "max": 11000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 9000,
+          "median": 9000,
+          "max": 9000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 118,
+          "median": 118,
+          "max": 118,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 20118,
+          "median": 20118,
+          "max": 20118,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 59,
+          "median": 59,
+          "max": 59,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 20000,
+          "median": 20000,
+          "max": 20000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 11000,
+          "median": 11000,
+          "max": 11000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 9000,
+          "median": 9000,
+          "max": 9000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 118,
+          "median": 118,
+          "max": 118,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 20118,
+          "median": 20118,
+          "max": 20118,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 59,
+          "median": 59,
+          "max": 59,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: medium / without_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: medium / without_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ],
+      "session_count": 2,
+      "sessions": [
+        {
+          "session_index": 1,
+          "role": "familiarization",
+          "prompt": "Benchmark scenario: medium / without_project_librarian / multi_session (session 1 of 2: familiarization).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+          "command": [
+            "codex",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "Benchmark scenario: medium / without_project_librarian / multi_session (session 1 of 2: familiarization).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+          ]
+        },
+        {
+          "session_index": 2,
+          "role": "measured",
+          "prompt": "Benchmark scenario: medium / without_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+          "command": [
+            "codex",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "Benchmark scenario: medium / without_project_librarian / multi_session (session 2 of 2: measured).\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+          ]
+        }
+      ],
+      "session_metrics": [
+        {
+          "run_index": 1,
+          "measured_session_index": 2,
+          "sessions": [
+            {
+              "session_index": 1,
+              "role": "familiarization",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-control-s1.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 17000,
+                "cached_input_tokens": 9000,
+                "uncached_input_tokens": 8000,
+                "output_tokens": 85,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 17085,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 42.5,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "This benchmark fixture validates coding-agent onboarding, risks, and where to read next. Start from README.md and the docs/ overview, then read the benchmark policy.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            },
+            {
+              "session_index": 2,
+              "role": "measured",
+              "raw_jsonl_path": "benchmarks/llm/samples/codex-multi-session-control-s2.jsonl",
+              "execution": {
+                "status": "completed",
+                "exit_code": 0,
+                "error": "",
+                "stderr_path": null
+              },
+              "metrics": {
+                "input_tokens": 20000,
+                "cached_input_tokens": 11000,
+                "uncached_input_tokens": 9000,
+                "output_tokens": 118,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 20118,
+                "tool_output_bytes": 0,
+                "request_count_estimate": 1,
+                "wall_ms": 2000,
+                "first_response_ms": 0,
+                "tokens_per_second": 59,
+                "codex_turn_count": 1,
+                "jsonl_event_count": 5,
+                "command_event_count": 2,
+                "command_invocation_count": 1,
+                "tool_event_count": 2,
+                "tool_invocation_count": 1,
+                "mcp_event_count": 0,
+                "mcp_invocation_count": 0,
+                "plan_event_count": 0,
+                "file_change_event_count": 0,
+                "error_event_count": 0,
+                "event_type_counts": {
+                  "session.started": 1,
+                  "tool.command.started": 1,
+                  "tool.command.completed": 1,
+                  "assistant.message": 1,
+                  "turn.completed": 1
+                },
+                "unknown_event_types": [],
+                "model": "gpt-5.5",
+                "models": [
+                  "gpt-5.5"
+                ],
+                "final_text": "Before publishing benchmark claims you must run the full matrix, require claimable output, and pass correctness checks (docs/release-policy.md and docs/benchmark-policy.md). The latest dated decision is 2026-06-10 per docs/decisions.md in the control docs.",
+                "unavailable_event_fields": [
+                  "first_response_latency"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scale": "medium",
+      "condition": "with_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "aggregation",
+      "prompt_id": "aggregation-medium-with_project_librarian",
+      "cwd": "/tmp/project-librarian-codex-llm/sample-aggregation",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "2026-01-15",
+          "2026-02-09",
+          "2026-03-22",
+          "2026-05-04",
+          "2026-06-10"
+        ],
+        "any_terms": [
+          [
+            "decision",
+            "decisions",
+            "chronological",
+            "dated"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "aggregate_components": [
+          {
+            "date": "2026-01-15",
+            "summary": "initialize the project planning wiki"
+          },
+          {
+            "date": "2026-02-09",
+            "summary": "adopt the compact session-start routing model"
+          },
+          {
+            "date": "2026-03-22",
+            "summary": "split canonical docs from decision logs"
+          },
+          {
+            "date": "2026-05-04",
+            "summary": "require correctness checks on benchmark runs"
+          },
+          {
+            "date": "2026-06-10",
+            "summary": "actual LLM benchmark comparison adopted"
+          }
+        ],
+        "no_single_page_terms": [
+          "initialize the project planning wiki",
+          "adopt the compact session-start routing model",
+          "split canonical docs from decision logs",
+          "require correctness checks on benchmark runs",
+          "actual LLM benchmark comparison adopted"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            [
+              "wiki/canonical/dated-decision-0.md",
+              "wiki/canonical/dated-decision-1.md",
+              "wiki/canonical/dated-decision-2.md",
+              "wiki/canonical/dated-decision-3.md"
+            ]
+          ],
+          "without_project_librarian": {
+            "curated": [
+              [
+                "docs/decisions-history/dated-decision-0.md",
+                "docs/decisions.md"
+              ]
+            ],
+            "organic": [
+              [
+                "docs/history/dated-decision-0.md",
+                "docs/notes/decision-log.md"
+              ]
+            ],
+            "bare": [
+              [
+                "docs/history/dated-decision-0.md",
+                "docs/NOTES.md"
+              ]
+            ]
+          }
+        }
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-aggregation.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 26000,
+            "cached_input_tokens": 17000,
+            "uncached_input_tokens": 9000,
+            "output_tokens": 140,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 26140,
+            "tool_output_bytes": 0,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 70,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "The dated decisions in chronological order, synthesized across wiki/canonical/dated-decision-0.md through wiki/canonical/dated-decision-3.md and wiki/decisions/log.md, are: 2026-01-15, 2026-02-09, 2026-03-22, 2026-05-04, and 2026-06-10.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: 2026-01-15",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-02-09",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-03-22",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-05-04",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-06-10",
+                "passed": true
+              },
+              {
+                "name": "any term: decision | decisions | chronological | dated",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: wiki/ | AGENTS.md",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 26000,
+        "cached_input_tokens": 17000,
+        "uncached_input_tokens": 9000,
+        "output_tokens": 140,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 26140,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 70,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 26000,
+        "cached_input_tokens": 17000,
+        "uncached_input_tokens": 9000,
+        "output_tokens": 140,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 26140,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 70,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: 2026-01-15",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-02-09",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-03-22",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-05-04",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-06-10",
+              "passed": true
+            },
+            {
+              "name": "any term: decision | decisions | chronological | dated",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: wiki/ | AGENTS.md",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-aggregation.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "sha256-relative-path-content",
+        "value": "e899d57d5686ce8641419fcf279d594bd11ef8ecf8ef35fa9a672839b58b5548",
+        "file_count": 1
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 26000,
+          "median": 26000,
+          "max": 26000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 17000,
+          "median": 17000,
+          "max": 17000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 9000,
+          "median": 9000,
+          "max": 9000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 140,
+          "median": 140,
+          "max": 140,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 26140,
+          "median": 26140,
+          "max": 26140,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 70,
+          "median": 70,
+          "max": 70,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 26000,
+          "median": 26000,
+          "max": 26000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 17000,
+          "median": 17000,
+          "max": 17000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 9000,
+          "median": 9000,
+          "max": 9000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 140,
+          "median": 140,
+          "max": 140,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 26140,
+          "median": 26140,
+          "max": 26140,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 70,
+          "median": 70,
+          "max": 70,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: medium / with_project_librarian / aggregation.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: medium / with_project_librarian / aggregation.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
+    },
+    {
+      "scale": "medium",
+      "condition": "without_project_librarian",
+      "benchmark_track": "wiki",
+      "corpus": "synthetic",
+      "repo": null,
+      "repo_sha": null,
+      "question_id": null,
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "aggregation",
+      "prompt_id": "aggregation-medium-without_project_librarian",
+      "cwd": "/tmp/project-librarian-codex-llm/sample-aggregation-control",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "2026-01-15",
+          "2026-02-09",
+          "2026-03-22",
+          "2026-05-04",
+          "2026-06-10"
+        ],
+        "any_terms": [
+          [
+            "decision",
+            "decisions",
+            "chronological",
+            "dated"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "aggregate_components": [
+          {
+            "date": "2026-01-15",
+            "summary": "initialize the project planning wiki"
+          },
+          {
+            "date": "2026-02-09",
+            "summary": "adopt the compact session-start routing model"
+          },
+          {
+            "date": "2026-03-22",
+            "summary": "split canonical docs from decision logs"
+          },
+          {
+            "date": "2026-05-04",
+            "summary": "require correctness checks on benchmark runs"
+          },
+          {
+            "date": "2026-06-10",
+            "summary": "actual LLM benchmark comparison adopted"
+          }
+        ],
+        "no_single_page_terms": [
+          "initialize the project planning wiki",
+          "adopt the compact session-start routing model",
+          "split canonical docs from decision logs",
+          "require correctness checks on benchmark runs",
+          "actual LLM benchmark comparison adopted"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            [
+              "wiki/canonical/dated-decision-0.md",
+              "wiki/canonical/dated-decision-1.md",
+              "wiki/canonical/dated-decision-2.md",
+              "wiki/canonical/dated-decision-3.md"
+            ]
+          ],
+          "without_project_librarian": {
+            "curated": [
+              [
+                "docs/decisions-history/dated-decision-0.md",
+                "docs/decisions.md"
+              ]
+            ],
+            "organic": [
+              [
+                "docs/history/dated-decision-0.md",
+                "docs/notes/decision-log.md"
+              ]
+            ],
+            "bare": [
+              [
+                "docs/history/dated-decision-0.md",
+                "docs/NOTES.md"
+              ]
+            ]
+          }
+        }
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-aggregation-control.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 24000,
+            "cached_input_tokens": 13000,
+            "uncached_input_tokens": 11000,
+            "output_tokens": 132,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24132,
+            "tool_output_bytes": 0,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 66,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Synthesizing the scattered dated-decision pages under docs/decisions-history/dated-decision-0.md and the docs/decisions.md log, the decisions in chronological order are: 2026-01-15, 2026-02-09, 2026-03-22, 2026-05-04, and 2026-06-10.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: 2026-01-15",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-02-09",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-03-22",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-05-04",
+                "passed": true
+              },
+              {
+                "name": "required term: 2026-06-10",
+                "passed": true
+              },
+              {
+                "name": "any term: decision | decisions | chronological | dated",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: README.md | docs/ | packages/",
+                "passed": true
+              },
+              {
+                "name": "expected evidence: docs/decisions-history/dated-decision-0.md | docs/decisions.md",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "runtime_state_paths": [],
+            "fingerprint_matched": true,
+            "file_count": 1
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24000,
+        "cached_input_tokens": 13000,
+        "uncached_input_tokens": 11000,
+        "output_tokens": 132,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24132,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 66,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24000,
+        "cached_input_tokens": 13000,
+        "uncached_input_tokens": 11000,
+        "output_tokens": 132,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24132,
+        "tool_output_bytes": 0,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 66,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: 2026-01-15",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-02-09",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-03-22",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-05-04",
+              "passed": true
+            },
+            {
+              "name": "required term: 2026-06-10",
+              "passed": true
+            },
+            {
+              "name": "any term: decision | decisions | chronological | dated",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: README.md | docs/ | packages/",
+              "passed": true
+            },
+            {
+              "name": "expected evidence: docs/decisions-history/dated-decision-0.md | docs/decisions.md",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-aggregation-control.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "sha256-relative-path-content",
+        "value": "8708b30b6f427d544db235cb38b983f45642b7b8a004e38846985f631c00a0c6",
+        "file_count": 1
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 24000,
+          "median": 24000,
+          "max": 24000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 13000,
+          "median": 13000,
+          "max": 13000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 11000,
+          "median": 11000,
+          "max": 11000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 132,
+          "median": 132,
+          "max": 132,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24132,
+          "median": 24132,
+          "max": 24132,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 66,
+          "median": 66,
+          "max": 66,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 24000,
+          "median": 24000,
+          "max": 24000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 13000,
+          "median": 13000,
+          "max": 13000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 11000,
+          "median": 11000,
+          "max": 11000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 132,
+          "median": 132,
+          "max": 132,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24132,
+          "median": 24132,
+          "max": 24132,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 66,
+          "median": 66,
+          "max": 66,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: medium / without_project_librarian / aggregation.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: medium / without_project_librarian / aggregation.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
+    },
+    {
+      "scale": "real",
+      "condition": "with_project_librarian",
+      "benchmark_track": "code_graph",
+      "corpus": "real",
+      "repo": "_stub-example",
+      "repo_sha": "0000000000000000000000000000000000000000",
+      "question_id": "impact-trace-1",
+      "mcp_injected": true,
+      "control_profile": "curated",
+      "task_family": "impact_trace",
+      "prompt_id": "_stub-example-impact-trace-1-with_project_librarian",
+      "cwd": "/tmp/project-librarian-real-corpus/_stub-example/with_project_librarian",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ],
+        "any_terms": [
+          [
+            "import",
+            "transitive",
+            "depends",
+            "chain"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            "packages/"
+          ],
+          "without_project_librarian": [
+            "packages/"
+          ]
+        },
+        "answer_key_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ]
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 24763,
+            "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
+            "output_tokens": 122,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24885,
+            "tool_output_bytes": 61,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 61,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Following the import edges transitively from packages/workspace-0/src/mod-0.ts (mod-1 imports mod-0, mod-2 imports mod-1, and so on), the full transitive importer set is packages/workspace-0/src/mod-1.ts, packages/workspace-0/src/mod-2.ts, packages/workspace-0/src/mod-3.ts, packages/workspace-0/src/mod-4.ts, packages/workspace-0/src/mod-5.ts, packages/workspace-0/src/mod-6.ts, packages/workspace-0/src/mod-7.ts, packages/workspace-0/src/mod-8.ts, packages/workspace-0/src/mod-9.ts, packages/workspace-0/src/mod-10.ts, packages/workspace-0/src/mod-11.ts, packages/workspace-0/src/mod-12.ts, and packages/workspace-0/src/mod-13.ts.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: packages/workspace-0/src/mod-1.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-2.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-3.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-4.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-5.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-6.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-7.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-8.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-9.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-10.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-11.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-12.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-13.ts",
+                "passed": true
+              },
+              {
+                "name": "any term: import | transitive | depends | chain",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: packages/",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "head": "0000000000000000000000000000000000000000",
+            "pinned_sha_matched": true,
+            "git_clean": true,
+            "new_untracked_runtime_state_paths": []
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 61,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 61,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: packages/workspace-0/src/mod-1.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-2.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-3.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-4.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-5.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-6.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-7.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-8.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-9.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-10.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-11.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-12.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-13.ts",
+              "passed": true
+            },
+            {
+              "name": "any term: import | transitive | depends | chain",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: packages/",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-code-graph-impact-trace.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "pinned-sha-git-clean",
+        "repo_sha": "0000000000000000000000000000000000000000",
+        "value": "35f2f0c4c4d4af20e0614f2e2f0544f3bf149a0c067f026878af38debd79dcde"
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: real / with_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: real / with_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
+      ]
+    },
+    {
+      "scale": "real",
+      "condition": "without_project_librarian",
+      "benchmark_track": "code_graph",
+      "corpus": "real",
+      "repo": "_stub-example",
+      "repo_sha": "0000000000000000000000000000000000000000",
+      "question_id": "impact-trace-1",
+      "mcp_injected": false,
+      "control_profile": "curated",
+      "task_family": "impact_trace",
+      "prompt_id": "_stub-example-impact-trace-1-without_project_librarian",
+      "cwd": "/tmp/project-librarian-real-corpus/_stub-example/without_project_librarian",
+      "requested_model": null,
+      "model": "gpt-5.5",
+      "model_source": "jsonl",
+      "models": [
+        "gpt-5.5"
+      ],
+      "expectation": {
+        "required_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ],
+        "any_terms": [
+          [
+            "import",
+            "transitive",
+            "depends",
+            "chain"
+          ]
+        ],
+        "forbidden_terms": [
+          "I cannot access"
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": [
+            "packages/"
+          ],
+          "without_project_librarian": [
+            "packages/"
+          ]
+        },
+        "answer_key_terms": [
+          "packages/workspace-0/src/mod-1.ts",
+          "packages/workspace-0/src/mod-2.ts",
+          "packages/workspace-0/src/mod-3.ts",
+          "packages/workspace-0/src/mod-4.ts",
+          "packages/workspace-0/src/mod-5.ts",
+          "packages/workspace-0/src/mod-6.ts",
+          "packages/workspace-0/src/mod-7.ts",
+          "packages/workspace-0/src/mod-8.ts",
+          "packages/workspace-0/src/mod-9.ts",
+          "packages/workspace-0/src/mod-10.ts",
+          "packages/workspace-0/src/mod-11.ts",
+          "packages/workspace-0/src/mod-12.ts",
+          "packages/workspace-0/src/mod-13.ts"
+        ]
+      },
+      "runs": [
+        {
+          "run_index": 1,
+          "raw_jsonl_path": "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl",
+          "requested_model": null,
+          "metrics": {
+            "input_tokens": 24763,
+            "cached_input_tokens": 24448,
+            "uncached_input_tokens": 315,
+            "output_tokens": 122,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 24885,
+            "tool_output_bytes": 81,
+            "request_count_estimate": 1,
+            "wall_ms": 2000,
+            "first_response_ms": 0,
+            "tokens_per_second": 61,
+            "codex_turn_count": 1,
+            "jsonl_event_count": 5,
+            "command_event_count": 2,
+            "command_invocation_count": 1,
+            "tool_event_count": 2,
+            "tool_invocation_count": 1,
+            "mcp_event_count": 0,
+            "mcp_invocation_count": 0,
+            "plan_event_count": 0,
+            "file_change_event_count": 0,
+            "error_event_count": 0,
+            "event_type_counts": {
+              "session.started": 1,
+              "tool.command.started": 1,
+              "tool.command.completed": 1,
+              "assistant.message": 1,
+              "turn.completed": 1
+            },
+            "unknown_event_types": [],
+            "model": "gpt-5.5",
+            "models": [
+              "gpt-5.5"
+            ],
+            "final_text": "Grepping the import statements in packages/workspace-0/src and following the chain transitively from mod-0.ts, the modules that import it directly or indirectly are packages/workspace-0/src/mod-1.ts, packages/workspace-0/src/mod-2.ts, packages/workspace-0/src/mod-3.ts, packages/workspace-0/src/mod-4.ts, packages/workspace-0/src/mod-5.ts, packages/workspace-0/src/mod-6.ts, packages/workspace-0/src/mod-7.ts, packages/workspace-0/src/mod-8.ts, packages/workspace-0/src/mod-9.ts, packages/workspace-0/src/mod-10.ts, packages/workspace-0/src/mod-11.ts, packages/workspace-0/src/mod-12.ts, and packages/workspace-0/src/mod-13.ts.",
+            "unavailable_event_fields": [
+              "first_response_latency"
+            ]
+          },
+          "correctness": {
+            "status": "passed",
+            "reason": "",
+            "checks": [
+              {
+                "name": "required term: packages/workspace-0/src/mod-1.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-2.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-3.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-4.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-5.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-6.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-7.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-8.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-9.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-10.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-11.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-12.ts",
+                "passed": true
+              },
+              {
+                "name": "required term: packages/workspace-0/src/mod-13.ts",
+                "passed": true
+              },
+              {
+                "name": "any term: import | transitive | depends | chain",
+                "passed": true
+              },
+              {
+                "name": "forbidden term absent: I cannot access",
+                "passed": true
+              },
+              {
+                "name": "condition evidence: packages/",
+                "passed": true
+              },
+              {
+                "name": "read-only zero file changes",
+                "passed": true
+              }
+            ]
+          },
+          "measurement": {
+            "status": "claimable",
+            "reason": "",
+            "checks": [
+              {
+                "name": "execution completed",
+                "passed": true
+              },
+              {
+                "name": "all sessions completed",
+                "passed": true,
+                "reason": ""
+              },
+              {
+                "name": "correctness passed",
+                "passed": true
+              },
+              {
+                "name": "usage available",
+                "passed": true
+              },
+              {
+                "name": "input tokens positive",
+                "passed": true
+              },
+              {
+                "name": "output tokens positive",
+                "passed": true
+              },
+              {
+                "name": "total tokens positive",
+                "passed": true
+              },
+              {
+                "name": "wall time positive",
+                "passed": true
+              },
+              {
+                "name": "model available",
+                "passed": true
+              },
+              {
+                "name": "single model available",
+                "passed": true
+              },
+              {
+                "name": "final text available",
+                "passed": true
+              }
+            ]
+          },
+          "execution": {
+            "status": "completed",
+            "exit_code": 0,
+            "error": "",
+            "stderr_path": null
+          },
+          "fixture_validation": {
+            "status": "clean",
+            "head": "0000000000000000000000000000000000000000",
+            "pinned_sha_matched": true,
+            "git_clean": true,
+            "new_untracked_runtime_state_paths": []
+          }
+        }
+      ],
+      "median": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 81,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "median_all_runs": {
+        "input_tokens": 24763,
+        "cached_input_tokens": 24448,
+        "uncached_input_tokens": 315,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 24885,
+        "tool_output_bytes": 81,
+        "request_count_estimate": 1,
+        "wall_ms": 2000,
+        "first_response_ms": 0,
+        "tokens_per_second": 61,
+        "codex_turn_count": 1,
+        "jsonl_event_count": 5,
+        "command_event_count": 2,
+        "command_invocation_count": 1,
+        "tool_event_count": 2,
+        "tool_invocation_count": 1,
+        "mcp_event_count": 0,
+        "mcp_invocation_count": 0,
+        "plan_event_count": 0,
+        "file_change_event_count": 0,
+        "error_event_count": 0
+      },
+      "passed_run_count": 1,
+      "claimable_run_count": 1,
+      "correctness": [
+        {
+          "status": "passed",
+          "reason": "",
+          "checks": [
+            {
+              "name": "required term: packages/workspace-0/src/mod-1.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-2.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-3.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-4.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-5.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-6.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-7.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-8.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-9.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-10.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-11.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-12.ts",
+              "passed": true
+            },
+            {
+              "name": "required term: packages/workspace-0/src/mod-13.ts",
+              "passed": true
+            },
+            {
+              "name": "any term: import | transitive | depends | chain",
+              "passed": true
+            },
+            {
+              "name": "forbidden term absent: I cannot access",
+              "passed": true
+            },
+            {
+              "name": "condition evidence: packages/",
+              "passed": true
+            },
+            {
+              "name": "read-only zero file changes",
+              "passed": true
+            }
+          ]
+        }
+      ],
+      "raw_jsonl_paths": [
+        "benchmarks/llm/samples/codex-code-graph-impact-trace-control.jsonl"
+      ],
+      "fixture_fingerprint": {
+        "algorithm": "pinned-sha-git-clean",
+        "repo_sha": "0000000000000000000000000000000000000000",
+        "value": "2b4c55933a482420f92f0fdd6bb62ed2539c8f3678095fa398a81c9c764e4698"
+      },
+      "dispersion": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 81,
+          "median": 81,
+          "max": 81,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "dispersion_all_runs": {
+        "input_tokens": {
+          "min": 24763,
+          "median": 24763,
+          "max": 24763,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "cached_input_tokens": {
+          "min": 24448,
+          "median": 24448,
+          "max": 24448,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "uncached_input_tokens": {
+          "min": 315,
+          "median": 315,
+          "max": 315,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "output_tokens": {
+          "min": 122,
+          "median": 122,
+          "max": 122,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "reasoning_output_tokens": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "total_tokens": {
+          "min": 24885,
+          "median": 24885,
+          "max": 24885,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_output_bytes": {
+          "min": 81,
+          "median": 81,
+          "max": 81,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "request_count_estimate": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "wall_ms": {
+          "min": 2000,
+          "median": 2000,
+          "max": 2000,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "first_response_ms": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tokens_per_second": {
+          "min": 61,
+          "median": 61,
+          "max": 61,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "codex_turn_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "jsonl_event_count": {
+          "min": 5,
+          "median": 5,
+          "max": 5,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "command_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_event_count": {
+          "min": 2,
+          "median": 2,
+          "max": 2,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "tool_invocation_count": {
+          "min": 1,
+          "median": 1,
+          "max": 1,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "mcp_invocation_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "plan_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "file_change_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        },
+        "error_event_count": {
+          "min": 0,
+          "median": 0,
+          "max": 0,
+          "range": 0,
+          "cv_percent": 0,
+          "sample_count": 1
+        }
+      },
+      "prompt": "Benchmark scenario: real / without_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "Benchmark scenario: real / without_project_librarian / impact_trace.\nWork as a coding agent in this repository.\nUse only local repository evidence.\nDo not modify files unless explicitly asked.\nSample transcript for parser/report smoke validation."
       ]
     }
   ],
@@ -1157,10 +6088,183 @@
     "dirty": false,
     "status_entry_count": 0
   },
+  "tracks": {
+    "wiki": {
+      "benchmark_track": "wiki",
+      "expected_tasks": [
+        "decision_lookup",
+        "multi_session",
+        "aggregation"
+      ],
+      "summary": {
+        "scenario_count": 6,
+        "comparison_pair_count": 3,
+        "passed_correctness_count": 6,
+        "needs_review_count": 0,
+        "failed_correctness_count": 0,
+        "claimable_scenario_count": 6,
+        "unclaimable_scenario_count": 0
+      },
+      "prompt_ids": [
+        "decision_lookup-medium-with_project_librarian",
+        "decision_lookup-medium-without_project_librarian",
+        "multi_session-medium-with_project_librarian",
+        "multi_session-medium-without_project_librarian",
+        "aggregation-medium-with_project_librarian",
+        "aggregation-medium-without_project_librarian"
+      ],
+      "corpora_present": [
+        "synthetic"
+      ],
+      "corpora": {
+        "synthetic": {
+          "corpus": "synthetic",
+          "summary": {
+            "scenario_count": 6,
+            "comparison_pair_count": 3,
+            "passed_correctness_count": 6,
+            "needs_review_count": 0,
+            "failed_correctness_count": 0,
+            "claimable_scenario_count": 6,
+            "unclaimable_scenario_count": 0
+          },
+          "prompt_ids": [
+            "decision_lookup-medium-with_project_librarian",
+            "decision_lookup-medium-without_project_librarian",
+            "multi_session-medium-with_project_librarian",
+            "multi_session-medium-without_project_librarian",
+            "aggregation-medium-with_project_librarian",
+            "aggregation-medium-without_project_librarian"
+          ],
+          "claim_gate": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        }
+      },
+      "claim_gate": {
+        "status": "passed",
+        "issues": [],
+        "corpora_present": [
+          "synthetic"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
+        "min_runs_for_claim": 1
+      }
+    },
+    "code_graph": {
+      "benchmark_track": "code_graph",
+      "expected_tasks": [
+        "impact_trace"
+      ],
+      "summary": {
+        "scenario_count": 2,
+        "comparison_pair_count": 1,
+        "passed_correctness_count": 2,
+        "needs_review_count": 0,
+        "failed_correctness_count": 0,
+        "claimable_scenario_count": 2,
+        "unclaimable_scenario_count": 0
+      },
+      "prompt_ids": [
+        "_stub-example-impact-trace-1-with_project_librarian",
+        "_stub-example-impact-trace-1-without_project_librarian"
+      ],
+      "corpora_present": [
+        "real"
+      ],
+      "corpora": {
+        "real": {
+          "corpus": "real",
+          "summary": {
+            "scenario_count": 2,
+            "comparison_pair_count": 1,
+            "passed_correctness_count": 2,
+            "needs_review_count": 0,
+            "failed_correctness_count": 0,
+            "claimable_scenario_count": 2,
+            "unclaimable_scenario_count": 0
+          },
+          "prompt_ids": [
+            "_stub-example-impact-trace-1-with_project_librarian",
+            "_stub-example-impact-trace-1-without_project_librarian"
+          ],
+          "claim_gate": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        }
+      },
+      "claim_gate": {
+        "status": "passed",
+        "issues": [],
+        "corpora_present": [
+          "real"
+        ],
+        "per_corpus": {
+          "real": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
+        "min_runs_for_claim": 1
+      }
+    }
+  },
   "claim_gate": {
     "status": "passed",
     "issues": [],
-    "expected_scenarios": null,
+    "tracks_present": [
+      "wiki",
+      "code_graph"
+    ],
+    "per_track": {
+      "wiki": {
+        "status": "passed",
+        "issues": [],
+        "corpora_present": [
+          "synthetic"
+        ],
+        "per_corpus": {
+          "synthetic": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
+        "min_runs_for_claim": 1
+      },
+      "code_graph": {
+        "status": "passed",
+        "issues": [],
+        "corpora_present": [
+          "real"
+        ],
+        "per_corpus": {
+          "real": {
+            "status": "passed",
+            "issues": [],
+            "expected_scenarios": null,
+            "min_runs_for_claim": 1
+          }
+        },
+        "min_runs_for_claim": 1
+      }
+    },
     "min_runs_for_claim": 1
   }
 }

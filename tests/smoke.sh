@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI="$ROOT/dist/init-project-wiki.js"
 TMPDIR="$(mktemp -d)"
 ROOT_DIRTY_PROBE="$ROOT/benchmarks/reports/dirty-baseline-smoke.tmp"
+TODAY="$(date +%F)"
 
 cleanup() {
   cd "$ROOT" 2>/dev/null || cd /
@@ -56,10 +57,12 @@ grep -q -- "--issue-draft" help.log
 grep -q -- "--issue-create" help.log
 grep -q -- "--issue-body-file" help.log
 grep -q -- "--incremental" help.log
+grep -q -- "--acknowledge-small-repo" help.log
 grep -q -- "--code-index-full" help.log
 grep -q -- "--code-impact" help.log
 grep -q -- "--code-parser" help.log
 grep -q -- "--code-report-section" help.log
+grep -q "project-librarian mcp" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
 grep -Fq 'run `$PROJECT_LIBRARIAN --issue-draft --issue-title' "$ROOT/SKILL.md"
 grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
@@ -98,6 +101,11 @@ if node "$CLI" --code-parser default > lone-default-code-parser.log 2>&1; then
   exit 1
 fi
 grep -q -- "--code-parser is only supported with --code-index" lone-default-code-parser.log
+if node "$CLI" --acknowledge-small-repo > lone-acknowledge-small-repo.log 2>&1; then
+  echo "expected --acknowledge-small-repo without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--acknowledge-small-repo is only supported with --code-index" lone-acknowledge-small-repo.log
 if node "$CLI" --code-report --code-report-section > missing-code-report-section.log 2>&1; then
   echo "expected missing --code-report-section value to fail" >&2
   exit 1
@@ -126,6 +134,12 @@ test -f .cursor/hooks/wiki-session-start.js
 test -f .cursor/hooks.json
 test -f .gemini/hooks/wiki-session-start.js
 test -f .gemini/settings.json
+test ! -e wiki/canonical/project-brief.md
+test ! -e wiki/canonical/open-questions.md
+test ! -e wiki/canonical/assumptions.md
+test ! -e wiki/canonical/risks.md
+test ! -e wiki/decisions/decision-pack-template.md
+test ! -e wiki/decisions/full-adr-template.md
 
 node "$CLI" > rerun.log
 grep -q "exists  AGENTS.md" rerun.log
@@ -135,6 +149,23 @@ grep -q "exists  wiki/AGENTS.md" rerun.log
 
 node "$CLI" --lint
 node "$CLI" init --lint
+
+mkdir "$TMPDIR/agent-aware-lint"
+cd "$TMPDIR/agent-aware-lint"
+node "$CLI" --no-git-config > agent-aware-init.log
+rm -rf GEMINI.md .cursor .gemini
+node "$CLI" --lint > codex-claude-only-lint.log
+grep -q "passed:" codex-claude-only-lint.log
+mkdir -p .cursor
+printf '{"version":1,"hooks":{}}\n' > .cursor/hooks.json
+if node "$CLI" --lint > partial-cursor-lint.log 2>&1; then
+  echo "expected partial Cursor surface to fail lint" >&2
+  exit 1
+fi
+grep -q "missing required file: .cursor/rules/project-librarian.mdc" partial-cursor-lint.log
+grep -q "missing required file: .cursor/hooks/wiki-session-start.js" partial-cursor-lint.log
+cd "$TMPDIR"
+
 node .codex/hooks/wiki-session-start.js > hook.json
 node .claude/hooks/wiki-session-start.js > claude-hook.json
 node .cursor/hooks/wiki-session-start.js > cursor-hook.json
@@ -161,6 +192,68 @@ grep -q "@AGENTS.md" CLAUDE.md
 grep -q "@AGENTS.md" GEMINI.md
 grep -q "alwaysApply: true" .cursor/rules/project-librarian.mdc
 grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
+# B1 fallback: managed AGENTS.md carries the auto-synced startup TL;DR sub-block,
+# and the synced bullets match the startup.md TL;DR (first TL;DR bullet sample).
+grep -q "Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)" AGENTS.md
+grep -q "This project is in an initial planning state unless the canonical wiki says otherwise." AGENTS.md
+# B4 trust contract: single authoritative-wiki sentence, gated on B2 (shipped together).
+grep -q "Wiki decision documents are authoritative for project decisions" AGENTS.md
+grep -q -- "--doctor\` router-truth rule guards against stale routers" AGENTS.md
+# B3: SessionStart hook payload carries the injected-context marker and no-duplicate-read instruction.
+grep -q "ALREADY included" hook.json
+grep -q "Do not re-read these two files this session" hook.json
+grep -q "ALREADY included" claude-hook.json
+grep -q "ALREADY included" cursor-hook.json
+grep -q "ALREADY included" gemini-hook.json
+# B3 budgets: startup/index file budgets are unchanged by the marker text.
+grep -q '"wiki/startup.md", 3500' .codex/hooks/wiki-session-start.js
+grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
+# Code-evidence trust contract (B4 analogue) in the managed AGENTS.md block.
+grep -q "Code-evidence tool and report outputs" AGENTS.md
+grep -q -- "\`--code-status\`/\`code_status\` reports staleness" AGENTS.md
+# Bootstrap-managed MCP registration is scale-gated: this fixture sits below the
+# small-repo threshold with no code-evidence index, so bootstrap reports the skip
+# reason and writes no MCP config.
+node "$CLI" --no-git-config > mcp-skip.log
+grep -q "skipped-small-repo" mcp-skip.log
+grep -q -- "--code-index --acknowledge-small-repo" mcp-skip.log
+test ! -e .mcp.json
+test ! -e .cursor/mcp.json
+node -e 'const c=require("./.gemini/settings.json"); if (c.mcpServers) process.exit(1)'
+# The same scale gate halts a sub-threshold --code-index without the acknowledge
+# flag, before any .project-wiki write, citing the benchmark evidence.
+if node "$CLI" --code-index > code-index-gate.log 2>&1; then
+  echo "expected sub-threshold --code-index without --acknowledge-small-repo to fail" >&2
+  exit 1
+fi
+grep -q "scale threshold" code-index-gate.log
+grep -q "stageR1" code-index-gate.log
+grep -q "Not measured, so not disproven" code-index-gate.log
+grep -q -- "--acknowledge-small-repo" code-index-gate.log
+test ! -e .project-wiki
+# Acknowledged index build is standing consent: the next bootstrap registers the
+# MCP server in Claude .mcp.json, Cursor .cursor/mcp.json, and Gemini mcpServers
+# inside .gemini/settings.json regardless of scale.
+node "$CLI" --code-index --acknowledge-small-repo > code-index-acknowledged.log
+grep -q "Project wiki code evidence index complete." code-index-acknowledged.log
+node "$CLI" --no-git-config > mcp-register.log
+grep -q "created .mcp.json" mcp-register.log
+test -f .mcp.json
+test -f .cursor/mcp.json
+node -e 'const c=require("./.mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
+node -e 'const c=require("./.cursor/mcp.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1)'
+node -e 'const c=require("./.gemini/settings.json"); const e=c.mcpServers&&c.mcpServers["project-librarian"]; if (!e||e.args[e.args.length-1]!=="mcp") process.exit(1); if (!Array.isArray(c.hooks&&c.hooks.SessionStart)) process.exit(1)'
+# Second registering run reports the registrations as idempotent.
+node "$CLI" --no-git-config > mcp-rerun.log
+grep -q "exists  .mcp.json" mcp-rerun.log
+grep -q "exists  .cursor/mcp.json" mcp-rerun.log
+grep -q "exists  .gemini/settings.json mcpServers" mcp-rerun.log
+# One stdio MCP handshake against the built server: initialize + tools/list.
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | node "$CLI" mcp 2>/dev/null > mcp-handshake.ndjson
+node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-handshake.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const init=lines.find((m)=>m.id===1); if (!init||init.result.protocolVersion!=="2025-06-18"||!init.result.capabilities.tools) process.exit(1); if (init.result.serverInfo.name!=="project-librarian") process.exit(1); const list=lines.find((m)=>m.id===2); const names=list.result.tools.map((t)=>t.name).sort().join(","); if (names!=="code_impact,code_ownership,code_search,code_status,code_workspace_graph") process.exit(1); for (const t of list.result.tools) if (!t.description.includes("do not re-verify with repo-wide greps unless `code_status` reports staleness")) process.exit(1)'
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
@@ -168,7 +261,8 @@ node "$CLI" --refresh-index
 node "$CLI" --capture-inbox --title "Smoke" --content "Candidate content"
 node "$CLI" --capture-inbox > capture-inbox-empty-rerun.log
 grep -q "exists  wiki/inbox/project-candidates.md" capture-inbox-empty-rerun.log
-node "$CLI" --query Smoke
+node "$CLI" --query Smoke > query-smoke.log
+grep -q "Project wiki query \"Smoke\": best match" query-smoke.log
 node "$CLI" --prune-check
 node "$CLI" --lint
 
@@ -290,13 +384,29 @@ node "$CLI"
 node "$CLI" --link-check > link-check-ok.log
 grep -q "Project wiki link-check" link-check-ok.log
 grep -q "passed:" link-check-ok.log
-cat >> wiki/canonical/project-brief.md <<'EOF'
+mkdir -p wiki/canonical
+cat > wiki/canonical/project-brief.md <<EOF
+---
+status: active
+updated: $TODAY
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: smoke diagnostics fixture
+---
+
+# Project Brief
+
+## TL;DR
+
+- Smoke fixture project truth.
 
 Image asset probe: ![diagram](assets/diagram.png)
 PDF asset probe: [spec](assets/spec.pdf)
-Angle markdown probe: [assumptions](<assumptions.md>)
+Angle markdown probe: [decisions](<../decisions/README.md>)
 Root wiki probe: [startup](/wiki/startup.md)
 EOF
+node "$CLI" --refresh-index > refresh-project-brief.log
 node "$CLI" --link-check > link-check-assets-ok.log
 grep -q "Project wiki link-check" link-check-assets-ok.log
 grep -q "passed:" link-check-assets-ok.log
@@ -306,12 +416,51 @@ grep -q "0 warnings" quality-check.log
 node "$CLI" --doctor > doctor.log
 grep -q "Project wiki link-check" doctor.log
 grep -q "Project wiki quality-check" doctor.log
+grep -q "Project wiki router-truth check" doctor.log
 grep -q "Project wiki lint" doctor.log
+# B2 router-truth rule: a fresh bootstrap wiki (log has no dated entry) passes the rule.
+if grep -q "router-truth-contradiction" doctor.log; then
+  echo "expected fresh bootstrap to pass the router-truth rule" >&2
+  exit 1
+fi
 if node "$CLI" --fix > bad-fix.log 2>&1; then
   echo "expected --fix without --doctor to fail" >&2
   exit 1
 fi
 grep -q -- "--fix is only supported with --doctor" bad-fix.log
+# Wiki impact: answer-first backlink/decision_ref/routing envelope for a page.
+node "$CLI" --wiki-impact canonical/project-brief > wiki-impact.log
+grep -q "Wiki impact \"canonical/project-brief\":" wiki-impact.log
+grep -q "incoming links" wiki-impact.log
+grep -q "router: reachable at depth" wiki-impact.log
+# Router reachability (A1 promoted to the real wiki): a linked-but-disconnected
+# island warns router-unreachable while link-check still passes (warn severity).
+cat > wiki/canonical/island-a.md <<'EOF'
+# Island A
+
+Linked island probe: [[canonical/island-b]]
+EOF
+cat > wiki/canonical/island-b.md <<'EOF'
+# Island B
+
+Linked island probe: [[canonical/island-a]]
+EOF
+node "$CLI" --link-check > island-link-check.log
+grep -q "router-unreachable wiki/canonical/island-a.md" island-link-check.log
+grep -q "router-unreachable wiki/canonical/island-b.md" island-link-check.log
+grep -q "passed:" island-link-check.log
+rm wiki/canonical/island-a.md wiki/canonical/island-b.md
+# B2 router-truth rule: a dated decision-log entry while startup/recent still say
+# "None yet." is an error-level contradiction that fails --doctor and names both sides.
+node -e 'const fs=require("fs"); const f="wiki/decisions/log.md"; fs.writeFileSync(f, fs.readFileSync(f,"utf8").replace("No project decisions yet.", "- 2026-06-10 | metrics | benchmark evidence policy adopted | canonical: [[canonical/project-brief]]"));'
+if node "$CLI" --doctor > doctor-router-truth.log 2>&1; then
+  echo "expected --doctor to fail on a router-truth contradiction" >&2
+  exit 1
+fi
+grep -q "router-truth-contradiction" doctor-router-truth.log
+grep -q "wiki/decisions/recent.md" doctor-router-truth.log
+grep -q "wiki/startup.md" doctor-router-truth.log
+grep -q "wiki/decisions/log.md holds a dated decision entry" doctor-router-truth.log
 cat >> wiki/canonical/project-brief.md <<'EOF'
 
 Broken route probe: [[canonical/missing-page]]
@@ -383,30 +532,167 @@ mkdir wiki
 cat > 'wiki/spec|decision.md' <<'EOF'
 # Pipe Decision
 
-Decision: preserve a source path containing a pipe.
+Decision: preserve a source path containing a pipe, a legacy-only [[missing-legacy-target]] wikilink, and a [legacy markdown link](legacy-only.md) inside generated migration ledgers.
 EOF
 node "$CLI" --migrate
+test -f wiki/migration/unit-map.md
+test -f wiki/migration/split-plan.md
+test -f wiki/migration/review.md
+test -f wiki/migration/bulk-review.md
 grep -q 'spec\\|decision.md' wiki/migration/verification.md
 grep -q 'spec\\|decision.md#u' wiki/migration/coverage.md
+grep -q 'spec\\|decision.md#u' wiki/migration/unit-map.md
+grep -q 'spec\\|decision.md#u' wiki/migration/split-plan.md
 grep -Fq "[[migration/coverage]]" wiki/index.md
+grep -Fq "[[migration/unit-map]]" wiki/index.md
+grep -Fq "[[migration/split-plan]]" wiki/index.md
+grep -Fq "[[migration/bulk-review]]" wiki/index.md
 grep -q "Completion Scope" wiki/migration/verification.md
+grep -q "Bulk Review Summary" wiki/migration/review.md
+grep -q "Human-Review Triage" wiki/migration/bulk-review.md
+grep -q "Content-Bearing Human-Review Batches" wiki/migration/bulk-review.md
+grep -q "High-confidence target batches" wiki/migration/bulk-review.md
 grep -q "For a fresh rebuild request" wiki/migration/verification.md
 grep -q "future fresh rebuild request" wiki/startup.md
 grep -q "fresh rebuild procedure" wiki/index.md
+node -e 'const fs=require("fs"); if (fs.readFileSync("wiki/index.md","utf8").length > 4500) process.exit(1)'
+grep -q "&#91;&#91;missing-legacy-target&#93;&#93;" wiki/migration/coverage.md
+grep -q "&#91;legacy markdown link&#93;(legacy-only.md)" wiki/migration/coverage.md
+node "$CLI" --link-check > migration-link-check.log
+grep -q "passed:" migration-link-check.log
 node "$CLI" --migration-lint > migration-lint-pipe.log
 grep -q "migration-pending-unit" migration-lint-pipe.log
+mkdir wiki_legacy_stale
+cat > wiki_legacy_stale/stale.md <<'EOF'
+# Stale Legacy Root
+
+Feature content from an older migration batch should not be required by the current verification root.
+EOF
+node "$CLI" --migration-lint > migration-active-root.log
+if grep -q "stale.md" migration-active-root.log; then
+  echo "expected migration lint to scope expected units to the current verification legacy root" >&2
+  exit 1
+fi
 node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
 node "$CLI" --review-migration > review-migration-pipe.log
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/review.md
+grep -q "Open rows: 0" wiki/migration/bulk-review.md
+grep -q "Content-bearing low rows | 0 | 0" wiki/migration/bulk-review.md
 grep -q "For a fresh rebuild request" wiki/migration/review.md
 grep -q 'spec\\|decision.md' wiki/migration/review.md
+test ! -e wiki/canonical/migration-inbox.md
+test ! -e wiki/decisions/migration-inbox.md
+test ! -e wiki/sources/migration-inbox.md
+test -e wiki_legacy
+test -e wiki/migration/coverage.md
+if grep -Fq "[[decisions/migration-inbox]]" wiki/index.md; then
+  echo "expected completed migration cleanup to remove pruned inbox links" >&2
+  exit 1
+fi
+grep -q "Generated file-level migration inboxes were pruned" wiki/index.md
+node "$CLI" --link-check > migration-complete-link-check.log
+grep -q "passed:" migration-complete-link-check.log
+node "$CLI" --migration-doctor > migration-complete-doctor.log
+grep -q "passed:" migration-complete-doctor.log
 node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let removed=false; const kept=lines.filter((line)=>{ if (!removed && /^\| spec\\\|decision\.md#u/.test(line)) { removed=true; return false; } return true; }); fs.writeFileSync(file, kept.join("\n"));'
 if node "$CLI" --migration-lint > migration-lint-missing-unit.log 2>&1; then
   echo "expected --migration-lint to fail when coverage ledger drops a legacy meaning unit" >&2
   exit 1
 fi
 grep -q "migration-unaccounted-unit" migration-lint-missing-unit.log
+
+mkdir "$TMPDIR/migration-mixed-split"
+cd "$TMPDIR/migration-mixed-split"
+mkdir wiki
+cat > wiki/mixed-page.md <<'EOF'
+# Checkout Mixed Spec
+
+## Feature
+
+Feature: customers can save checkout drafts before payment.
+
+## UX
+
+User flow: customer reviews the cart, chooses a payment method, then confirms the order.
+
+## API
+
+API endpoint POST /checkout accepts a request body and returns a response with order_id.
+
+## QA
+
+Test cases cover expired coupons, duplicate submissions, and payment retry regression.
+EOF
+node "$CLI" --migrate > migration-mixed.log
+grep -q "product-requirements" wiki/migration/split-plan.md
+grep -q "user-flows" wiki/migration/split-plan.md
+grep -q "api-contracts" wiki/migration/split-plan.md
+grep -q "qa-test-plan" wiki/migration/split-plan.md
+grep -q "API Contract" wiki/migration/unit-map.md
+grep -q "User Flow / Journey" wiki/migration/unit-map.md
+node "$CLI" --migration-lint > migration-mixed-lint.log
+grep -q "migration-pending-unit" migration-mixed-lint.log
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let changed=false; const next=lines.map((line)=>{ if (!changed && /^\| mixed-page\.md#u/.test(line) && line.includes("| pending |")) { changed=true; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[6]="wiki/canonical/reviewed-retarget-product-requirements.md"; cells[7]="reviewed low-confidence content; retargeted for semantic rewrite"; cells[10]="reviewed source context; taxonomy target assigned"; return `| ${cells.join(" | ")} |`; } return line; }); if (!changed) process.exit(1); fs.writeFileSync(file, next.join("\n"));'
+node "$CLI" --migration-lint > migration-reviewed-retarget.log
+if grep -q "migration-pending-target-drift" migration-reviewed-retarget.log; then
+  echo "expected --migration-lint to allow reviewed pending retargets" >&2
+  exit 1
+fi
+node -e 'const fs=require("fs"); const file="wiki/canonical/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node "$CLI" --review-migration > migration-mixed-review-file-level.log
+grep -q "semantic migration complete: no" wiki/migration/verification.md
+grep -q "file-level inbox row ignored for mixed-target legacy source" wiki/migration/review.md
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/).map((line)=>/^\| mixed-page\.md#u/.test(line) ? line.replace("| pending |", "| adopted |").replace("| needs-human-review |", "| adopted |") : line); fs.writeFileSync(file, lines.join("\n"));'
+node "$CLI" --review-migration > migration-mixed-review-coverage.log
+grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
+node -e 'const fs=require("fs"); const file="wiki/migration/split-plan.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| ([0-9]+) \| mixed-page\.md#u/, "| 99 | mixed-page.md#u"));'
+if node "$CLI" --migration-lint > migration-split-plan-bad-count.log 2>&1; then
+  echo "expected --migration-lint to fail when split-plan unit count drifts" >&2
+  exit 1
+fi
+grep -q "migration-split-plan-count-mismatch" migration-split-plan-bad-count.log
+node -e 'const fs=require("fs"); const file="wiki/migration/unit-map.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| (high|medium|low) \| wiki\//, "| impossible | wiki/"));'
+if node "$CLI" --migration-lint > migration-unit-map-bad-confidence.log 2>&1; then
+  echo "expected --migration-lint to fail when unit-map confidence is invalid" >&2
+  exit 1
+fi
+grep -q "migration-unit-map-invalid-confidence" migration-unit-map-bad-confidence.log
+
+mkdir "$TMPDIR/migration-junk-protection"
+cd "$TMPDIR/migration-junk-protection"
+mkdir wiki
+cat > wiki/decision.md <<'EOF'
+# Durable Decision
+
+Decision: the migration cleanup must keep manually repurposed pages even when their filename is migration-inbox.md.
+EOF
+node "$CLI" --migrate > migration-junk-protection.log
+cat > wiki/canonical/migration-inbox.md <<EOF
+---
+status: active
+updated: $TODAY
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: retained migrated project content changes
+---
+
+# Migration Inbox
+
+## TL;DR
+
+- This page has been manually repurposed into project content and must not be pruned as generated migration scaffolding.
+EOF
+node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node "$CLI" --review-migration > migration-junk-protection-review.log
+grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
+test -e wiki/canonical/migration-inbox.md
+test ! -e wiki/decisions/migration-inbox.md
+test ! -e wiki/sources/migration-inbox.md
+grep -Fq "[[canonical/migration-inbox]]" wiki/index.md
+node "$CLI" --link-check > migration-junk-protection-link-check.log
+grep -q "passed:" migration-junk-protection-link-check.log
 
 mkdir "$TMPDIR/migration-copy-policy"
 cd "$TMPDIR/migration-copy-policy"
@@ -872,16 +1158,19 @@ EOF
 cat > service-token.yaml <<'EOF'
 SERVICE_TOKEN: do-not-index
 EOF
-if node "$CLI" --code-index --incremental --code-scope src --code-scope package.json > missing-incremental-code-index.log 2>&1; then
+# This fixture sits below the small-repo scale gate, so every --code-index run
+# here carries --acknowledge-small-repo; the gate's own halt path is covered in
+# the bootstrap section above.
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope src --code-scope package.json > missing-incremental-code-index.log 2>&1; then
   echo "expected --code-index --incremental without existing index to fail" >&2
   exit 1
 fi
 grep -q -- "--incremental requires an existing compatible code evidence index" missing-incremental-code-index.log
 test ! -f .project-wiki/code-evidence.sqlite
-node "$CLI" --code-index --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > code-index.log
 test -f .project-wiki/code-evidence.sqlite
 grep -q "files: 6" code-index.log
-if node "$CLI" --code-index --incremental --code-scope package.json > mismatched-incremental-code-index.log 2>&1; then
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope package.json > mismatched-incremental-code-index.log 2>&1; then
   echo "expected --code-index --incremental with mismatched scopes to fail" >&2
   exit 1
 fi
@@ -902,7 +1191,7 @@ grep -q ".env.example" code-files.json
 ! grep -q "LOCAL_SECRET" code-files.json
 ! grep -q "TOP_SECRET" code-files.json
 ! grep -q "SERVICE_TOKEN" code-files.json
-node "$CLI" --code-index --code-index-out .project-wiki/all.sqlite > all-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-out .project-wiki/all.sqlite > all-code-index.log
 node "$CLI" --code-files --code-index-out .project-wiki/all.sqlite > all-code-files.json
 ! grep -q "dist/built.js" all-code-files.json
 ! grep -q "vendor/vendor.js" all-code-files.json
@@ -923,6 +1212,13 @@ node "$CLI" --code-impact healthHandler > code-impact-health.json
 node -e 'const r=require("./code-impact-health.json"); if (r.target !== "healthHandler") process.exit(1); if (!r.matches.symbols.some((row) => row.name === "healthHandler")) process.exit(1); if (!r.matches.routes.some((row) => row.route === "/health")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "route_to_handler" && row.target === "healthHandler")) process.exit(1); if (!r.impacted_owners.some((row) => row.owner === "src" && row.codeowners.includes("@platform-team"))) process.exit(1)'
 node "$CLI" --code-impact express > code-impact-express.json
 node -e 'const r=require("./code-impact-express.json"); if (r.target !== "express") process.exit(1); if (!r.matches.imports.some((row) => row.to_ref === "express")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "import" && row.target === "express")) process.exit(1)'
+# MCP server over the built index: one code_ownership call returns the
+# answer-shaped response (first-line answer + grouped CODEOWNERS evidence).
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code_ownership","arguments":{"path":"src/app.js"}}}' \
+  | node "$CLI" mcp 2>/dev/null > mcp-ownership.ndjson
+node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-ownership.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const r=lines.find((m)=>m.id===2); if (!r||r.result.isError) process.exit(1); const text=r.result.content[0].text; const first=text.split("\n")[0]; if (!/^Owner of src\/app\.js is @platform-team /.test(first)) process.exit(1); if (!/last match/.test(first)) process.exit(1)'
 node "$CLI" --code-report > code-report.json
 node -e 'const r=require("./code-report.json"); if (r.schema_version !== 1) process.exit(1); if (!r.report_sections.includes("ownership_summary") || !r.report_sections.includes("parser_backend_summary") || !r.report_sections.includes("workspace_summary") || !r.report_sections.includes("workspace_dependency_graph")) process.exit(1); if (!r.evidence_coverage || r.evidence_coverage.files !== 6 || r.evidence_coverage.routes < 1) process.exit(1); if (!r.language_profile_summary.some((row) => row.language === "go" && row.profile === "go-light")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "typescript-ast" && row.backend === "typescript-compiler" && row.extraction_strength === "structural")) process.exit(1); if (!r.parser_backend_summary.some((row) => row.profile === "go-light" && row.backend === "regex-light")) process.exit(1); if (!r.workspace_summary.workspace_packages.some((row) => row.root === "apps/web" && row.name === "@example/web" && row.files === 2)) process.exit(1); if (!r.workspace_summary.codeowners.some((row) => row.pattern === "/apps/web/" && row.owners === "@web-team")) process.exit(1); if (!r.workspace_dependency_graph.workspaces.some((row) => row.root === "apps/web" && row.name === "@example/web")) process.exit(1); if (!r.workspace_dependency_graph.lockfiles.some((row) => row.file_path === "package-lock.json" && row.package_manager === "npm")) process.exit(1); if (!r.workspace_dependency_graph.internal_dependencies.some((row) => row.from_package === "@example/web" && row.to_package === "@example/api")) process.exit(1); if (!r.workspace_dependency_graph.external_dependency_hotspots.some((row) => row.dependency === "express" && row.workspace_count >= 1)) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "apps/web" && row.owner_source === "workspace" && row.codeowners.includes("@web-team"))) process.exit(1); if (!r.ownership_summary.some((row) => row.owner === "src" && row.routes >= 1 && row.codeowners.includes("@platform-team"))) process.exit(1); if (!r.route_inventory.some((row) => row.route === "/health")) process.exit(1); if (!r.dependency_hotspots.package_dependencies.some((row) => row.package === "express")) process.exit(1); if (!r.edge_summary.by_kind.some((row) => row.kind === "route_to_handler")) process.exit(1)'
 node "$CLI" --code-report --code-report-section routes > code-report-routes.json
@@ -1058,7 +1354,7 @@ public class SmokeService
     }
 }
 EOF
-node "$CLI" --code-index --code-parser tree-sitter --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > tree-sitter-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-parser tree-sitter --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > tree-sitter-code-index.log
 grep -q "parser_mode: tree-sitter" tree-sitter-code-index.log
 node "$CLI" --code-files --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-files.json
 grep -q "tree-sitter-c" tree-sitter-files.json
@@ -1103,7 +1399,7 @@ node "$CLI" --code-query "select to_ref from imports where to_ref = 'net/http'" 
 grep -q "net/http" tree-sitter-go-imports.json
 node "$CLI" --code-report --code-report-section parsers --code-index-out .project-wiki/tree-sitter.sqlite > tree-sitter-parsers.json
 node -e 'const r=require("./tree-sitter-parsers.json"); if (r.parser_mode !== "tree-sitter" || r.section !== "parsers") process.exit(1); for (const profile of ["tree-sitter-c", "tree-sitter-cpp", "tree-sitter-csharp", "tree-sitter-javascript", "tree-sitter-go", "tree-sitter-java", "tree-sitter-kotlin", "tree-sitter-php", "tree-sitter-python", "tree-sitter-rust", "tree-sitter-swift", "tree-sitter-typescript"]) if (!r.data.some((row) => row.profile === profile && row.backend === profile && row.extraction_strength === "structural")) process.exit(1)'
-if node "$CLI" --code-index --incremental --code-parser default --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > mismatched-parser-mode-code-index.log 2>&1; then
+if node "$CLI" --code-index --acknowledge-small-repo --incremental --code-parser default --code-index-out .project-wiki/tree-sitter.sqlite --code-scope src --code-scope apps/web --code-scope tree-sitter-src --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > mismatched-parser-mode-code-index.log 2>&1; then
   echo "expected --code-index --incremental with mismatched parser mode to fail" >&2
   exit 1
 fi
@@ -1119,7 +1415,7 @@ node "$CLI" --code-status > stale-status.json
 node -e 'const rows = require("./stale-status.json"); const metric = Object.fromEntries(rows.map((row) => [row.metric, row.value])); if (metric.stale_files !== 3 || metric.stale_changed_files !== 1 || metric.stale_added_files !== 1 || metric.stale_deleted_files !== 1) process.exit(1)'
 node "$CLI" --code-files > stale-files.json 2> stale-warning.log
 grep -q "code evidence index may be stale" stale-warning.log
-node "$CLI" --code-index --incremental --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --incremental --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > incremental-code-index.log
 grep -q "mode: incremental" incremental-code-index.log
 grep -q "files: 6" incremental-code-index.log
 grep -q "reindexed_files: 2" incremental-code-index.log
@@ -1130,16 +1426,16 @@ node "$CLI" --code-search-symbol newHandler > incremental-symbols.json
 grep -q "newHandler" incremental-symbols.json
 node "$CLI" --code-files > fresh-files.json
 ! grep -q ".env.example" fresh-files.json
-node "$CLI" --code-index --code-index-full --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > full-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-full --code-scope src --code-scope apps/web --code-scope package.json --code-scope .env.example --code-scope secrets.json --code-scope service-token.yaml > full-code-index.log
 grep -q "mode: full" full-code-index.log
 grep -q "files: 6" full-code-index.log
 grep -q "reindexed_files: 6" full-code-index.log
 grep -q "unchanged_files: 0" full-code-index.log
 printf "not sqlite" > .project-wiki/broken.sqlite
-node "$CLI" --code-index --code-index-full --code-index-out .project-wiki/broken.sqlite --code-scope src > broken-full-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-full --code-index-out .project-wiki/broken.sqlite --code-scope src > broken-full-code-index.log
 grep -q "mode: full" broken-full-code-index.log
 grep -q "files: 3" broken-full-code-index.log
-node "$CLI" --code-index --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
+node "$CLI" --code-index --acknowledge-small-repo --code-index-out .project-wiki/custom.sqlite --code-scope src > custom-code-index.log
 test -f .project-wiki/custom.sqlite
 if node "$CLI" --code-index --code-index-out ../outside.sqlite > bad-code-index-out.log 2>&1; then
   echo "expected --code-index-out outside project-wiki to fail" >&2
@@ -1162,7 +1458,7 @@ mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
 HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
 grep -q "install-skill only installs the reusable skill files" user-skill-install.log
-grep -q "agents should run the installed local project-librarian runner" user-skill-install.log
+grep -q "ask your agent to use Project Librarian" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-librarian/dist/init-project-wiki.js"
 test -f "$TMPDIR/home/.claude/skills/project-librarian/SKILL.md"
@@ -1174,7 +1470,7 @@ test -x "$TMPDIR/home/.gemini/skills/project-librarian/dist/init-project-wiki.js
 
 node "$CLI" install-skill --scope project --agents all > project-skill-install.log
 grep -q "install-skill only installs the reusable skill files" project-skill-install.log
-grep -q "agents should run the installed local project-librarian runner" project-skill-install.log
+grep -q "ask your agent to use Project Librarian" project-skill-install.log
 test -f .codex/skills/project-librarian/SKILL.md
 test -x .codex/skills/project-librarian/dist/init-project-wiki.js
 test -f .claude/skills/project-librarian/SKILL.md
@@ -1183,8 +1479,12 @@ test -f .cursor/skills/project-librarian/SKILL.md
 test -x .cursor/skills/project-librarian/dist/init-project-wiki.js
 test -f .gemini/skills/project-librarian/SKILL.md
 test -x .gemini/skills/project-librarian/dist/init-project-wiki.js
-node "$CLI" install-skill --scope project --agents both --dry-run > legacy-both-skill-install.log
-grep -q "agents: codex, claude" legacy-both-skill-install.log
+if node "$CLI" install-skill --scope project --agents both --dry-run > removed-both-skill-install.log 2>&1; then
+  echo "expected removed --agents both alias to fail" >&2
+  exit 1
+fi
+grep -q "invalid --agents entry: both" removed-both-skill-install.log
+grep -q "expected codex, claude, cursor, gemini, or all" removed-both-skill-install.log
 
 mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"

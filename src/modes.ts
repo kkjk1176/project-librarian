@@ -2,12 +2,13 @@ import * as fs from "node:fs";
 import * as childProcess from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
-import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm } from "./args";
-import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiLinkReference } from "./types";
+import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm, wikiImpactTarget } from "./args";
+import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
-import { collectMigrationCoverageDiagnostics } from "./migration";
-import { canonicalBodyForLint, extractWikiLinks, hasGlossaryNeedSignal, hasGlossaryTable, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
+import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, migrationSemanticReviewComplete } from "./migration";
+import { canonicalBodyForLint, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
+import { buildWikiGraph, finalizeWikiAnswer, wikiImpactAnswer, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
@@ -119,24 +120,46 @@ This block is managed by \`--refresh-index\`. Move useful rows into a hand-writt
 ${rows}<!-- PROJECT-WIKI-AUTO-INDEX:END -->`;
 }
 
+// Answer-shaped query output (2026-06-12 method-transfer decision): first line is
+// the answer, each result carries the page's TL;DR first bullet so the agent can
+// pick a page without opening it, and the whole body sits under the shared hard
+// cap with an explicit truncation notice.
 export function runQueryMode(): void {
   if (!queryTerm.trim()) {
     console.error("missing query: use --query \"search terms\"");
     process.exit(1);
   }
   const terms = queryTerm.toLowerCase().split(/\s+/).filter(Boolean);
-  const results: QueryResult[] = wikiMarkdownFiles().map((file) => {
+  const matches: QueryResult[] = wikiMarkdownFiles().map((file) => {
     const text = read(file);
     const body = stripMetadataHeader(text);
     const title = wikiTitleForFile(file, text);
     const meta = metadataSummary(file, text);
     const weighted = `${file}\n${title}\n${meta.scope}\n${metadataValue(text, "tags")}\n${body}`.toLowerCase();
     const score = terms.reduce((sum, term) => sum + (weighted.split(term).length - 1) + (file.toLowerCase().includes(term) ? 3 : 0) + (title.toLowerCase().includes(term) ? 5 : 0), 0);
-    return { file, title, score, ...meta };
-  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, 10);
-  console.log(`Project wiki query: ${queryTerm}`);
-  if (results.length === 0) console.log("no matches");
-  for (const item of results) console.log(`${item.score.toString().padStart(3)}  ${item.file}  ${item.scope}  ${item.status}  ${item.title}`);
+    return { file, title, score, tldr: firstTldrBullet(text), ...meta };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
+  const results = matches.slice(0, 10);
+  const best = results[0];
+  const lines = [best
+    ? `Project wiki query "${queryTerm}": best match ${best.file} — ${best.title} (${matches.length} matching page${matches.length === 1 ? "" : "s"}, top ${results.length} shown).`
+    : `Project wiki query "${queryTerm}": no matches.`];
+  for (const item of results) {
+    lines.push(`${item.score.toString().padStart(3)}  ${item.file}  [${item.scope}|${item.status}|${item.budget}]  ${item.title}`);
+    if (item.tldr) lines.push(`     tldr: ${item.tldr}`);
+  }
+  console.log(finalizeWikiAnswer(lines.join("\n")));
+}
+
+// Wiki impact mode: backlink/decision_ref/routing evidence for a page so wiki
+// maintenance can find review candidates when project truth changes.
+export function runWikiImpactMode(): void {
+  if (!wikiImpactTarget.trim()) {
+    console.error("missing wiki impact target: use --wiki-impact \"page-or-term\"");
+    process.exit(1);
+  }
+  const pages = wikiMarkdownFiles().map((file) => ({ file, text: read(file) }));
+  console.log(wikiImpactAnswer(pages, wikiImpactTarget.trim()));
 }
 
 export function projectCandidatesContent(): string {
@@ -400,16 +423,12 @@ function printDiagnostics(title: string, diagnostics: WikiDiagnostic[], checked:
   return true;
 }
 
-function collectWikiLinkReferences(files: string[]): WikiLinkReference[] {
-  return files.flatMap((file) => extractWikiLinks(file, read(file)));
-}
-
 export function collectLinkDiagnostics(): WikiDiagnostic[] {
   const diagnostics: WikiDiagnostic[] = [];
   const files = wikiMarkdownFiles();
   const fileSet = new Set(files);
-  const links = collectWikiLinkReferences(files);
-  for (const link of links) {
+  const graph = buildWikiGraph(files.map((file) => ({ file, text: read(file) })));
+  for (const link of graph.links) {
     if (!fileSet.has(link.normalizedTarget)) {
       diagnostics.push({
         code: "broken-link",
@@ -419,23 +438,28 @@ export function collectLinkDiagnostics(): WikiDiagnostic[] {
       });
     }
   }
-  if (exists("wiki/index.md")) {
-    const indexLinks = extractWikiLinks("wiki/index.md", read("wiki/index.md"));
-    const indexTargets = new Map<string, number>();
-    for (const link of indexLinks) indexTargets.set(link.normalizedTarget, (indexTargets.get(link.normalizedTarget) ?? 0) + 1);
-    for (const [target, count] of indexTargets) {
-      if (count > 1) {
-        diagnostics.push({
-          code: "duplicate-route",
-          severity: "warn",
-          file: "wiki/index.md",
-          message: `${count} index routes resolve to ${target}`,
-        });
-      }
+  const indexTargets = new Map<string, number>();
+  for (const link of graph.outgoingLinks.get("wiki/index.md") ?? []) {
+    indexTargets.set(link.normalizedTarget, (indexTargets.get(link.normalizedTarget) ?? 0) + 1);
+  }
+  for (const [target, count] of indexTargets) {
+    if (count > 1) {
+      diagnostics.push({
+        code: "duplicate-route",
+        severity: "warn",
+        file: "wiki/index.md",
+        message: `${count} index routes resolve to ${target}`,
+      });
     }
   }
+  // Self-links are not connectivity: a page whose only incoming link is its own
+  // self-loop has no route into it and must stay an orphan-page finding, keeping
+  // the orphan and router-unreachable rules disjoint.
   const incoming = new Map<string, number>();
-  for (const link of links) incoming.set(link.normalizedTarget, (incoming.get(link.normalizedTarget) ?? 0) + 1);
+  for (const link of graph.links) {
+    if (link.file === link.normalizedTarget) continue;
+    incoming.set(link.normalizedTarget, (incoming.get(link.normalizedTarget) ?? 0) + 1);
+  }
   const orphanExemptions = new Set(["wiki/index.md", "wiki/startup.md", "wiki/README.md"]);
   for (const file of files) {
     if (orphanExemptions.has(file)) continue;
@@ -446,6 +470,47 @@ export function collectLinkDiagnostics(): WikiDiagnostic[] {
         file,
         message: "no incoming wiki links; route it from wiki/index.md or remove/merge it",
       });
+    }
+  }
+  // Bounded router reachability, promoted from the benchmark fixture A1 hard
+  // assert (benchmarks/lib/llm-fixtures.js assertBoundedAnswerReachability) to the
+  // real wiki: fixture wikis were guaranteed navigable from startup while real
+  // wikis were never checked for the same property. Pages with zero incoming
+  // links are already the orphan-page rule's finding, so reachability reports
+  // only the cases orphan cannot see: linked-but-disconnected islands, an index
+  // the startup router never links (hop 1), and routes deeper than the budget.
+  // When wiki/startup.md itself is missing, lint owns that as a required-file
+  // error and reachability has no root to check from.
+  if (fileSet.has(wikiRouterRoot)) {
+    const depths = wikiRouterDepths(graph);
+    for (const file of files) {
+      if (wikiRouterExemptPages.has(file)) continue;
+      const depth = depths.get(file);
+      const isIndex = file === "wiki/index.md";
+      if (depth === undefined) {
+        if (isIndex) {
+          diagnostics.push({
+            code: "router-unreachable",
+            severity: "warn",
+            file,
+            message: `${wikiRouterRoot} does not link [[index]], so the router chain never starts (hop 1 broken)`,
+          });
+        } else if ((incoming.get(file) ?? 0) > 0) {
+          diagnostics.push({
+            code: "router-unreachable",
+            severity: "warn",
+            file,
+            message: `linked only from pages that never connect to ${wikiRouterRoot}; route it from wiki/index.md or a scoped router`,
+          });
+        }
+      } else if (depth > wikiRouterDepthBudget) {
+        diagnostics.push({
+          code: "router-depth-exceeded",
+          severity: "warn",
+          file,
+          message: `reachable from ${wikiRouterRoot} only at depth ${depth} (budget ${wikiRouterDepthBudget}); add a shorter route`,
+        });
+      }
     }
   }
   return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
@@ -529,15 +594,19 @@ export function collectMigrationQualityDiagnostics(): WikiDiagnostic[] {
 
 export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
   if (legacyWikiRoots().length === 0) return [];
-  const requiredFiles = [
+  const requiredCoreFiles = [
+    "wiki/meta/document-taxonomy.md",
     "wiki/migration/inventory.md",
+    "wiki/migration/unit-map.md",
+    "wiki/migration/split-plan.md",
     "wiki/migration/coverage.md",
     "wiki/migration/plan.md",
+    "wiki/migration/review.md",
     "wiki/migration/verification.md",
-    "wiki/canonical/migration-inbox.md",
-    "wiki/decisions/migration-inbox.md",
-    "wiki/sources/migration-inbox.md",
+    "wiki/migration/bulk-review.md",
   ];
+  const requiredInboxFiles = migrationSemanticReviewComplete() ? [] : [...generatedMigrationInboxFiles];
+  const requiredFiles = [...requiredCoreFiles, ...requiredInboxFiles];
   const diagnostics: WikiDiagnostic[] = requiredFiles
     .filter((file) => !exists(file))
     .map((file) => ({
@@ -547,6 +616,8 @@ export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
       message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
     }));
   diagnostics.push(...collectMigrationCoverageDiagnostics());
+  diagnostics.push(...collectMigrationUnitMapDiagnostics());
+  diagnostics.push(...collectMigrationSplitPlanDiagnostics());
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 
@@ -576,6 +647,71 @@ export function runMigrationDoctorMode(): void {
   if (!lintOk || !qualityOk) process.exit(1);
 }
 
+// B2 router-truth contradiction rule. A compact router that contradicts the
+// decision log is worse than none: the measured 2026-06-10 run spiraled into
+// post-answer verification because wiki/startup.md Recent Decisions and
+// wiki/decisions/recent.md said "None yet." while wiki/decisions/log.md held the
+// dated answer. This flags that exact contradiction as an error-level diagnostic.
+// "None yet." is the bootstrap template marker for an empty decision surface
+// (startup template "## Recent Project Decisions" and recent.md template
+// "## Decisions" both seed "- None yet."), so its presence while the log carries a
+// dated entry is the template-equivalent of an unmaintained router.
+//
+// SECTION-ANCHORED SCAN: the rule checks the relevant section body only, not the
+// whole file, to avoid false-positives on other sections (e.g. an open-questions
+// list that legitimately says "None yet." while Recent Decisions is maintained).
+//   wiki/startup.md   → "## Recent Project Decisions" section body
+//   decisions/recent.md → "## Decisions" section body
+//
+// MINOR 2: the marker regex is tolerant of trailing whitespace / omitted terminal
+// period ("None yet", "None yet. ") but stays anchored to the section scope above.
+// Coupling: this English-only marker matches the bootstrap template text only;
+// a project using a different language for these sections will not be checked.
+const ROUTER_TRUTH_NONE_YET_REGEX = /\bNone yet\.?\s*$/m;
+
+// Extract the body of a named heading section (from the heading line to the next
+// same-or-higher-level heading, or end of string). Returns empty string when the
+// heading is absent so the caller can decide whether to flag or skip.
+function extractSectionBody(markdown: string, headingText: string): string {
+  // Match `## <headingText>` (level-2 only, matching the template structure).
+  const headingRe = new RegExp(`^##\\s+${headingText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+  const match = headingRe.exec(markdown);
+  if (!match) return "";
+  const afterHeading = markdown.slice(match.index + match[0].length);
+  // Stop at the next ## heading (same or higher level), or end of string.
+  const nextHeading = /^##\s/m.exec(afterHeading);
+  return nextHeading ? afterHeading.slice(0, nextHeading.index) : afterHeading;
+}
+
+export function collectRouterTruthDiagnostics(): WikiDiagnostic[] {
+  const logPath = "wiki/decisions/log.md";
+  if (!exists(logPath)) return [];
+  const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test(stripMetadataHeader(read(logPath)));
+  if (!logHasDatedEntry) return [];
+  const diagnostics: WikiDiagnostic[] = [];
+  // Each tuple: [file, headingText, surfaceLabel]
+  // headingText must match the bootstrap template section heading exactly so the
+  // section-anchored scan never accidentally reads unrelated sections.
+  const routers: Array<[file: string, heading: string, surface: string]> = [
+    ["wiki/startup.md", "Recent Project Decisions", "Recent Decisions"],
+    ["wiki/decisions/recent.md", "Decisions", "Decisions"],
+  ];
+  for (const [file, heading, surface] of routers) {
+    if (!exists(file)) continue;
+    const section = extractSectionBody(stripMetadataHeader(read(file)), heading);
+    if (section === "") continue; // section absent — skip rather than false-positive
+    if (ROUTER_TRUTH_NONE_YET_REGEX.test(section)) {
+      diagnostics.push({
+        code: "router-truth-contradiction",
+        severity: "error",
+        file,
+        message: `${file} ${surface} still says "None yet." while ${logPath} holds a dated decision entry; update ${file} to reflect the recorded decision`,
+      });
+    }
+  }
+  return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+}
+
 export function runDoctorMode(fix: boolean): void {
   if (fix) {
     console.log("Project wiki doctor --fix");
@@ -589,24 +725,18 @@ export function runDoctorMode(fix: boolean): void {
   const files = wikiMarkdownFiles();
   const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), files.length);
   const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), files.length);
+  const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(), files.length);
   runLintMode();
-  if (!linkOk || !qualityOk) process.exit(1);
+  if (!linkOk || !qualityOk || !routerTruthOk) process.exit(1);
 }
 
-export function runLintMode(): void {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const requiredFiles = [
+type AgentSurface = "codex" | "claude" | "cursor" | "gemini";
+
+const commonLintRequiredFiles = [
     "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
     "wiki/AGENTS.md",
     "wiki/startup.md",
     "wiki/index.md",
-    "wiki/canonical/project-brief.md",
-    "wiki/canonical/open-questions.md",
-    "wiki/canonical/assumptions.md",
-    "wiki/canonical/risks.md",
     "wiki/decisions/log.md",
     "wiki/decisions/recent.md",
     "wiki/meta/operating-model.md",
@@ -614,15 +744,30 @@ export function runLintMode(): void {
     "wiki/meta/wiki-ops-v1-decisions.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
-    ".codex/hooks/wiki-session-start.js",
-    ".codex/hooks.json",
-    ".claude/hooks/wiki-session-start.js",
-    ".claude/settings.json",
-    ".cursor/rules/project-librarian.mdc",
-    ".cursor/hooks/wiki-session-start.js",
-    ".cursor/hooks.json",
-    ".gemini/hooks/wiki-session-start.js",
-    ".gemini/settings.json",
+] as const;
+
+const agentLintRequiredFiles: Record<AgentSurface, readonly string[]> = {
+  codex: [".codex/hooks/wiki-session-start.js", ".codex/hooks.json"],
+  claude: ["CLAUDE.md", ".claude/hooks/wiki-session-start.js", ".claude/settings.json"],
+  cursor: [".cursor/rules/project-librarian.mdc", ".cursor/hooks/wiki-session-start.js", ".cursor/hooks.json"],
+  gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
+};
+
+function activeLintAgentSurfaces(): Set<AgentSurface> {
+  const active = new Set<AgentSurface>();
+  for (const [agent, files] of Object.entries(agentLintRequiredFiles) as Array<[AgentSurface, readonly string[]]>) {
+    if (files.some((file) => exists(file))) active.add(agent);
+  }
+  return active;
+}
+
+export function runLintMode(): void {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const activeAgents = activeLintAgentSurfaces();
+  const requiredFiles = [
+    ...commonLintRequiredFiles,
+    ...Array.from(activeAgents).flatMap((agent) => agentLintRequiredFiles[agent]),
   ];
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);

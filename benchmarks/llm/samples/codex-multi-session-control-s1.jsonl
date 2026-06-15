@@ -1,0 +1,5 @@
+{"type":"session.started","model":"gpt-5.5","cwd":"/tmp/project-librarian-codex-llm/sample-multi-session-control"}
+{"type":"tool.command.started","command":"rg -l benchmark docs README.md"}
+{"type":"tool.command.completed","command":"rg -l benchmark docs README.md","exit_code":0}
+{"type":"assistant.message","message":{"content":"This benchmark fixture validates coding-agent onboarding, risks, and where to read next. Start from README.md and the docs/ overview, then read the benchmark policy."}}
+{"type":"turn.completed","usage":{"input_tokens":17000,"cached_input_tokens":9000,"output_tokens":85,"reasoning_output_tokens":0}}

@@ -121,7 +121,7 @@ $PROJECT_LIBRARIAN --lint
 
 Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
 
-Use `--review-migration` or `--semantic-migrate` after migration inbox rows are processed. It syncs inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
+Use `--review-migration` or `--semantic-migrate` after migration coverage or compatible inbox rows are processed. It syncs unit coverage and safe file-level inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
 ## Code-Informed Canonicalization
 
@@ -200,8 +200,8 @@ Execution contract:
    - Code structure, entrypoints, module relationships, execution flows, read-on-demand routes, and evidence paths belong under `wiki/meta/` with descriptive project-specific filenames chosen by the LLM.
    - Code-backed current project behavior, features, policies, constraints, terminology, domain rules, and operational facts belong under `wiki/canonical/`.
    - Important design rationale or tradeoffs inferred from code may belong under `wiki/decisions/` when they meet the decision policy.
-   - Unclear, conflicting, or low-confidence interpretations belong in `wiki/inbox/` or `wiki/canonical/open-questions.md`, not directly in canonical truth.
-4. Do not use fixed canonical filenames beyond existing starter docs. Choose or create files from topic boundaries, expected read frequency, and token budget.
+   - Unclear, conflicting, or low-confidence interpretations belong in `wiki/inbox/` or a focused canonical questions page created for the topic, not directly in canonical truth.
+4. Do not use fixed canonical filenames. Choose or create files from topic boundaries, expected read frequency, and token budget.
 5. Split large subjects into focused documents when a single file would force agents to read unrelated content.
 6. Cite concrete evidence with repository-relative paths and distinguish code-proven facts from inference.
 7. Update `wiki/startup.md` and `wiki/index.md` only with compact routing hints, not large code summaries.
@@ -226,11 +226,11 @@ It installs:
 - `.gemini/hooks/wiki-session-start.js` compact startup context injector for Gemini CLI.
 - `wiki/startup.md` compact session-start context.
 - `wiki/index.md` router with read/update/token-budget hints.
-- `wiki/canonical/` project-current-truth starter documents.
+- `wiki/canonical/` directory for project-current-truth documents, created only when real content exists.
 - Optional `wiki/canonical/glossary.md` project terminology contract when `--glossary-init` is used.
-- `wiki/decisions/` project-decision starter documents and ADR templates.
+- `wiki/decisions/` project-decision directory and lightweight decision ledgers.
 - `wiki/meta/` wiki operating rules, project decision policy, and wiki-operations Decision Pack.
-- `wiki/sources/` source summary starter documents.
+- `wiki/sources/` source summary documents.
 
 The Codex, Claude Code, Cursor, and Gemini CLI startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Claude Code uses `.claude/settings.json` plus `.claude/hooks/wiki-session-start.js`; Cursor uses `.cursor/hooks.json` plus `.cursor/hooks/wiki-session-start.js`; Gemini CLI uses `.gemini/settings.json` plus `.gemini/hooks/wiki-session-start.js`. `CLAUDE.md` and `GEMINI.md` import `AGENTS.md`, and `.cursor/rules/project-librarian.mdc` references `AGENTS.md`, so Claude Code, Gemini CLI, and Cursor share the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
 
@@ -277,7 +277,7 @@ It appends these trailers when they are missing:
 
 Do not hand-write wiki trailers unless the hook is unavailable or the generated value needs correction.
 
-`--lint` verifies the Codex, Claude, Cursor, and Gemini hook files/settings, Cursor and Gemini instruction files, git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
+`--lint` verifies common wiki files plus the agent surfaces that are present in the project. If any file for a surface exists, lint requires the rest of that surface's files and settings; uninstalled Cursor or Gemini surfaces are not hard requirements. It also checks git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
 
 ## Glossary Mode
 
@@ -316,7 +316,8 @@ Migration mode is a reset-and-restructure flow:
 - If `./wiki_legacy` already exists, preserves both by using a timestamped `wiki_legacy_...` directory for the current wiki.
 - Creates a fresh `./wiki` using the current standard rules.
 - Scans markdown files under the legacy wiki directory.
-- Writes `wiki/migration/inventory.md`, `wiki/migration/coverage.md`, `wiki/migration/plan.md`, and `wiki/migration/verification.md`.
+- Skips form-only/template legacy files as non-semantic input; `inventory.md` records the skipped source and reason instead of creating review rows or new wiki pages.
+- Writes `wiki/migration/inventory.md`, `wiki/migration/unit-map.md`, `wiki/migration/split-plan.md`, `wiki/migration/coverage.md`, `wiki/migration/plan.md`, `wiki/migration/review.md`, and `wiki/migration/verification.md`.
 - Writes rewrite inboxes:
   - `wiki/canonical/migration-inbox.md`
   - `wiki/decisions/migration-inbox.md`
@@ -325,7 +326,11 @@ Migration mode is a reset-and-restructure flow:
 
 After migration mode, inspect inboxes and fold legacy content into canonical docs, Decision Packs, ADRs, source summaries, or meta docs. Minimize information loss while converting useful legacy meaning to the current wiki structure and rules. Legacy files, sections, blocks, and wording may be retained when review confirms each retained unit belongs in the new topic shape and remains current project truth. Do not link to or cite `wiki_legacy*` from the new wiki; cite current-project evidence when possible, and keep ambiguous material in the migration inbox or mark it `needs-human-review`.
 
-`wiki/migration/coverage.md` is the unit-level coverage ledger. It accounts for legacy headings, paragraphs, list items, table rows, and code blocks with stable unit IDs. Every unit should end as `adopted`, `merged`, `superseded`, `rejected`, `resolved`, or `needs-human-review`; `pending` means the unit is still open. `adopted` and `merged` rows require a new-wiki target under `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, or `wiki/meta/`. Deleting a unit row is treated as possible information loss and `--migration-lint` reports it as `migration-unaccounted-unit`.
+`wiki/migration/coverage.md` is the unit-level coverage ledger. It accounts for extracted legacy headings, paragraphs, list items, table rows, and code blocks with stable unit IDs. Form-only/template files are excluded before unit extraction and are listed in `inventory.md` instead. Every extracted unit should end as `adopted`, `merged`, `superseded`, `rejected`, `resolved`, or `needs-human-review`; `pending` means the unit is still open. `adopted` and `merged` rows require a new-wiki target under `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, or `wiki/meta/`. Deleting an extracted unit row is treated as possible information loss and `--migration-lint` reports it as `migration-unaccounted-unit`.
+
+`wiki/migration/unit-map.md` is the generated per-unit classification ledger. `wiki/migration/split-plan.md` groups units by suggested new target file. `--migration-lint` validates these files alongside `coverage.md`: stale or duplicate units, invalid storage/confidence/status values, split count drift, target drift, and old coverage schemas are reported separately from normal lint.
+
+When one legacy file maps to multiple target pages, file-level migration inbox status is not enough to close every unit. In that case, update `wiki/migration/coverage.md` unit rows directly; `--review-migration` records that the file-level inbox row was ignored for the mixed-target source. File-level inbox fallback remains available only when all units from the legacy source point to the same target, preserving older migration workflows without masking mixed-page splits.
 
 Inbox rows use these statuses:
 
@@ -341,7 +346,7 @@ Run semantic review sync after LLM or human processing:
 $PROJECT_LIBRARIAN --review-migration
 ```
 
-`wiki/migration/verification.md` verifies file coverage: every legacy markdown file should be mapped to a new-wiki migration target. `wiki/migration/coverage.md` verifies unit coverage: every extracted legacy meaning unit should remain accounted for. Semantic migration is complete only after inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0, and unit coverage has no unaccounted rows.
+`wiki/migration/verification.md` verifies current-batch unit coverage: every extracted legacy meaning unit should be mapped to a new-wiki target and remain accounted for. Semantic migration is complete only after unit coverage or safe inbox rows are marked adopted/rejected/resolved and `needs-human-review` is 0.
 
 Human review is not required for every inbox item. LLM may process ordinary rows and close them as adopted/rejected/resolved. Human review is reserved for `needs-human-review`.
 

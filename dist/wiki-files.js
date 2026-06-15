@@ -46,10 +46,9 @@ exports.extractWikiLinks = extractWikiLinks;
 exports.wikiTitleForFile = wikiTitleForFile;
 exports.metadataSummary = metadataSummary;
 exports.stripMarkedSection = stripMarkedSection;
-exports.extractMarkedSection = extractMarkedSection;
-exports.withPreservedMarkedSections = withPreservedMarkedSections;
 exports.hasGlossaryNeedSignal = hasGlossaryNeedSignal;
 exports.hasGlossaryTable = hasGlossaryTable;
+exports.firstTldrBullet = firstTldrBullet;
 exports.canonicalBodyForLint = canonicalBodyForLint;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
@@ -75,24 +74,22 @@ exports.standardWikiFiles = new Set([
     "wiki/index.md",
     "wiki/inbox/project-candidates.md",
     "wiki/migration/inventory.md",
+    "wiki/migration/unit-map.md",
+    "wiki/migration/split-plan.md",
     "wiki/migration/coverage.md",
     "wiki/migration/plan.md",
     "wiki/migration/review.md",
     "wiki/migration/verification.md",
-    "wiki/canonical/project-brief.md",
+    "wiki/migration/bulk-review.md",
     "wiki/canonical/glossary.md",
-    "wiki/canonical/open-questions.md",
-    "wiki/canonical/assumptions.md",
-    "wiki/canonical/risks.md",
     "wiki/canonical/migration-inbox.md",
     "wiki/decisions/README.md",
     "wiki/decisions/log.md",
     "wiki/decisions/recent.md",
-    "wiki/decisions/decision-pack-template.md",
-    "wiki/decisions/full-adr-template.md",
     "wiki/decisions/migration-inbox.md",
     "wiki/meta/operating-model.md",
     "wiki/meta/decision-policy.md",
+    "wiki/meta/document-taxonomy.md",
     "wiki/meta/wiki-ops-v1-decisions.md",
     "wiki/sources/karpathy-llm-wiki.md",
     "wiki/sources/migration-inbox.md",
@@ -264,31 +261,22 @@ function stripMarkedSection(text, startMarker, endMarker) {
         return text;
     return `${text.slice(0, start).trimEnd()}\n\n${text.slice(end + endMarker.length).trimStart()}`.trim() + "\n";
 }
-function extractMarkedSection(text, startMarker, endMarker) {
-    const start = text.indexOf(startMarker);
-    const end = text.indexOf(endMarker);
-    if (start < 0 || end <= start)
-        return "";
-    return text.slice(start, end + endMarker.length).trim();
-}
-function withPreservedMarkedSections(relativePath, base, markerPairs) {
-    if (!(0, workspace_1.exists)(relativePath))
-        return base;
-    const current = (0, workspace_1.read)(relativePath);
-    const preserved = markerPairs
-        .map(([startMarker, endMarker]) => extractMarkedSection(current, startMarker, endMarker))
-        .filter(Boolean)
-        .filter((section) => !base.includes(section));
-    if (preserved.length === 0)
-        return base;
-    return `${base.trimEnd()}\n\n${preserved.join("\n\n")}\n`;
-}
 function hasGlossaryNeedSignal(text) {
     return /(^|\n)##\s+(Glossary|Terms|Roles|Entities|Data Model|State Model|Permissions|Events|용어|역할|엔티티|상태 모델|권한|이벤트)(\s|$)|`[^`]+`\s*(term|role|state|permission|event|entity|API|DB|UI|용어|역할|상태|권한|이벤트|엔티티)/i.test(text);
 }
 function hasGlossaryTable(text) {
     const body = (0, workspace_1.stripMetadataHeader)(text);
     return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
+}
+// First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
+// page's one-line summary without opening the page. Pages without a TL;DR section
+// return "" and the envelope simply omits the line — quality-check separately
+// flags the missing TL;DR, so this is optional enrichment, not a fallback path.
+function firstTldrBullet(text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const match = body.match(/^##\s+TL;DR[^\n]*\n([\s\S]*?)(?=\n##\s|(?![\s\S]))/m);
+    const bullet = match?.[1]?.split(/\r?\n/).find((line) => /^\s*-\s+\S/.test(line));
+    return bullet ? bullet.replace(/^\s*-\s*/, "").trim().slice(0, 160) : "";
 }
 function canonicalBodyForLint() {
     return (0, workspace_1.walkFilesUnder)("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")

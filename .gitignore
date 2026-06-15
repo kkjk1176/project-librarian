@@ -14,7 +14,10 @@ CLAUDE.local.md
 .cursor/
 .gemini/
 wiki/
+wiki_legacy/
 AGENTS.md
 CLAUDE.md
 GEMINI.md
 .githooks/
+.npm-cache/
+.omc/

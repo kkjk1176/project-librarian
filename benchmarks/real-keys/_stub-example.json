@@ -1,0 +1,53 @@
+{
+  "repo": "_stub-example",
+  "sha": "STUB-SHA-SET-AT-TEST-TIME",
+  "code_scopes": ["packages", "package.json", "CODEOWNERS"],
+  "questions": [
+    {
+      "question_id": "impact-trace-1",
+      "task_family": "impact_trace",
+      "prompt": "Compute the transitive importer set of packages/workspace-a/src/core.ts: every module that imports it directly or indirectly. List the relative file paths. Answer from code evidence, do not modify files.",
+      "expectation": {
+        "required_terms": ["packages/workspace-a/src/mid.ts", "packages/workspace-a/src/leaf.ts"],
+        "any_terms": [["import", "transitive", "depends", "chain"]],
+        "forbidden_terms": ["I cannot access"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "CODEOWNERS", "@stub/workspace-"],
+          "without_project_librarian": ["packages/", "CODEOWNERS", "@stub/workspace-"]
+        },
+        "answer_key_terms": ["packages/workspace-a/src/mid.ts", "packages/workspace-a/src/leaf.ts"]
+      }
+    },
+    {
+      "question_id": "ownership-lookup-1",
+      "task_family": "ownership_lookup",
+      "prompt": "Using CODEOWNERS last-matching-rule-wins precedence, find the owner of packages/workspace-a/src/service/handler.go. Several rules match; report the owner from the rule that wins. Answer from code evidence, do not modify files.",
+      "expectation": {
+        "required_terms": ["@stub-service-team"],
+        "any_terms": [["CODEOWNERS", "owner", "precedence", "last match", "last-match"]],
+        "forbidden_terms": ["I cannot access"],
+        "designation_forbidden": [{ "team": "@stub-go-team", "correct_owner": "@stub-service-team" }],
+        "evidence_by_condition": {
+          "with_project_librarian": ["CODEOWNERS"],
+          "without_project_librarian": ["CODEOWNERS"]
+        },
+        "answer_key_terms": ["@stub-service-team"]
+      }
+    },
+    {
+      "question_id": "workspace-graph-1",
+      "task_family": "workspace_graph",
+      "prompt": "Compute the transitive workspace dependency set of @stub/workspace-b through the package.json dependency graph. List those package names. Answer from code evidence, do not modify files.",
+      "expectation": {
+        "required_terms": ["@stub/workspace-a"],
+        "any_terms": [["depends", "dependency", "transitive", "workspace:", "chain"]],
+        "forbidden_terms": ["I cannot access"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "CODEOWNERS", "@stub/workspace-"],
+          "without_project_librarian": ["packages/", "CODEOWNERS", "@stub/workspace-"]
+        },
+        "answer_key_terms": ["@stub/workspace-a"]
+      }
+    }
+  ]
+}

@@ -10,14 +10,11 @@ type InstallRow = [label: string, status: InstallStatus];
 
 const skillName = "project-librarian";
 const allAgentTargets: AgentTarget[] = ["codex", "claude", "cursor", "gemini"];
-const legacyBothAgentTargets: AgentTarget[] = ["codex", "claude"];
 const packageFiles = [
   "SKILL.md",
   "dist",
   "README.md",
   "README.ko.md",
-  "README.ja.md",
-  "README.zh.md",
   "LICENSE",
   "package.json",
   "agents",
@@ -41,12 +38,10 @@ function installAgents(): AgentTarget[] {
   for (const part of parts) {
     if (part === "all") {
       for (const agent of allAgentTargets) agents.add(agent);
-    } else if (part === "both") {
-      for (const agent of legacyBothAgentTargets) agents.add(agent);
     } else if (allAgentTargets.includes(part as AgentTarget)) {
       agents.add(part as AgentTarget);
     } else {
-      return fail(`invalid --agents entry: ${part}; expected codex, claude, cursor, gemini, all, or legacy both`);
+      return fail(`invalid --agents entry: ${part}; expected codex, claude, cursor, gemini, or all`);
     }
   }
   return Array.from(agents);
@@ -120,7 +115,7 @@ export function runInstallSkillMode(): void {
   console.log(`scope: ${scope}`);
   console.log(`agents: ${agents.join(", ")}`);
   console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
-  console.log("next: agents should run the installed local project-librarian runner from the target project root; direct shell users can still run `npx project-librarian` when registry access is available.");
+  console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
   for (const [label, status] of rows) {
     console.log(`${status.padEnd(7)} ${label}`);
   }

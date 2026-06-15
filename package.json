@@ -1,6 +1,6 @@
 {
   "name": "project-librarian",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Create and maintain compact project context for humans and LLM coding agents.",
   "license": "MIT",
   "type": "commonjs",
@@ -28,8 +28,6 @@
     "LICENSE",
     "README.md",
     "README.ko.md",
-    "README.ja.md",
-    "README.zh.md",
     "SKILL.md"
   ],
   "bin": {
@@ -45,6 +43,8 @@
     "benchmark:llm": "npm run build && node benchmarks/codex-llm-metrics.js",
     "benchmark:llm:dry-run": "npm run build && node benchmarks/codex-llm-metrics.js --dry-run",
     "benchmark:llm:parse-smoke": "node tests/validators/codex-llm-benchmark-smoke.js",
+    "benchmark:injection-sentinel": "node benchmarks/tools/injection-sentinel.js",
+    "benchmark:real-corpus:demo": "npm run build && node benchmarks/tools/real-corpus-offline-demo.js",
     "benchmark:release": "npm run benchmark:llm -- --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md",
     "build": "tsc && chmod +x dist/init-project-wiki.js",
     "typecheck": "tsc --noEmit",

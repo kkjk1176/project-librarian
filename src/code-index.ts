@@ -1,11 +1,10 @@
 import * as crypto from "node:crypto";
-import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
-import { codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase, type SqliteStatement, type SqliteValue } from "./code-index-db";
-import { fileLanguage, ignoredDirectories, isIgnoredCodePath, isJavaScriptLike, maxIndexedBytes, shouldIndexFile } from "./code-index-file-policy";
+import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, isJavaScriptLike, maxIndexedBytes, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
 import { abs, mkdirp, normalizePath, root } from "./workspace";
 
@@ -39,7 +38,7 @@ interface IndexStatements {
   insertSymbolFts: SqliteStatement;
 }
 
-interface CodeIndexStaleness {
+export interface CodeIndexStaleness {
   added: number;
   changed: number;
   deleted: number;
@@ -67,15 +66,25 @@ interface CodeownerRule {
   pattern: string;
 }
 
-interface OwnershipContext {
+export interface OwnershipContext {
   codeownerRules: CodeownerRule[];
   workspaces: WorkspacePackage[];
 }
 
-interface OwnershipInfo {
+export interface OwnershipInfo {
   codeowners: string;
   owner: string;
   owner_source: string;
+}
+
+// A single CODEOWNERS rule that matched a path, kept in file order so the MCP
+// server can report last-match-wins precedence (which rule won, how many were
+// overridden) without re-deriving the matching logic.
+export interface MatchedCodeownerRule {
+  file_path: string;
+  line: number;
+  owners: string[];
+  pattern: string;
 }
 
 interface WorkspacePackage {
@@ -135,7 +144,6 @@ interface ExtractionBackend {
   strength: ExtractionStrength;
 }
 
-const codeEvidenceDirectory = ".project-wiki";
 const codeIndexSchemaVersion = "3";
 const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
 const treeSitterGrammarPackages: Record<string, string> = {
@@ -249,52 +257,6 @@ function extractionProfile(relativePath: string, parserMode: CodeParserMode): st
   if (fileLanguage(relativePath) === "go") return "go-light";
   if (fileLanguage(relativePath) === "config") return "config";
   return "inventory-only";
-}
-
-function walkCodeFiles(relativePath: string, files: string[] = []): string[] {
-  if (isIgnoredCodePath(relativePath)) return files.sort();
-  const target = abs(relativePath);
-  if (!fs.existsSync(target)) return files;
-  const stat = fs.statSync(target);
-  if (stat.isFile()) {
-    if (stat.size <= maxIndexedBytes && shouldIndexFile(relativePath)) files.push(relativePath);
-    return files.sort();
-  }
-  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
-    const child = normalizePath(path.join(relativePath, entry.name));
-    if (entry.isDirectory()) {
-      if (!ignoredDirectories.has(entry.name)) walkCodeFiles(child, files);
-    } else if (entry.isFile() && shouldIndexFile(child)) {
-      const childStat = fs.statSync(abs(child));
-      if (childStat.size <= maxIndexedBytes) files.push(child);
-    }
-  }
-  return files.sort();
-}
-
-function gitTrackedAndUnignoredFiles(scopes: string[]): string[] | null {
-  try {
-    const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...scopes], {
-      cwd: root,
-      encoding: "buffer",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return output.toString("utf8").split("\0").filter(Boolean).map((file) => normalizeProjectRelative(file, "git-indexed file"));
-  } catch {
-    return null;
-  }
-}
-
-function discoverCodeFiles(scopes: string[]): string[] {
-  const gitFiles = gitTrackedAndUnignoredFiles(scopes);
-  const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
-  return Array.from(new Set(candidates))
-    .filter((file) => !isIgnoredCodePath(file))
-    .filter((file) => fs.existsSync(abs(file)))
-    .filter((file) => fs.statSync(abs(file)).isFile())
-    .filter((file) => shouldIndexFile(file))
-    .filter((file) => fs.statSync(abs(file)).size <= maxIndexedBytes)
-    .sort();
 }
 
 function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
@@ -1211,7 +1173,7 @@ function removeDatabaseFiles(databasePath: string): void {
   }
 }
 
-function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
+export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
   const scopes = indexedScopes(database);
   const parserMode = indexedParserMode(database);
   const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
@@ -1316,7 +1278,7 @@ function matchingWorkspace(filePath: string, workspaces: WorkspacePackage[]): Wo
     .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
 }
 
-function codeownerRules(): CodeownerRule[] {
+export function codeownerRules(): CodeownerRule[] {
   const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
   const rules: CodeownerRule[] = [];
   for (const filePath of files) {
@@ -1358,14 +1320,22 @@ function matchingCodeowners(filePath: string, rules: CodeownerRule[]): string[] 
   return matches[matches.length - 1]?.owners ?? [];
 }
 
-function ownershipContext(): OwnershipContext {
+// Return every CODEOWNERS rule that matches a path, in file order. The last entry
+// is the effective owner under last-match-wins; earlier entries are overridden.
+// Reuses the same matcher as matchingCodeowners so precedence answers stay
+// consistent with --code-report / --code-impact.
+export function matchedCodeownerRules(filePath: string, rules: CodeownerRule[]): MatchedCodeownerRule[] {
+  return rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
+}
+
+export function ownershipContext(): OwnershipContext {
   return {
     codeownerRules: codeownerRules(),
     workspaces: workspacePackages(),
   };
 }
 
-function ownershipInfo(filePath: string, context: OwnershipContext): OwnershipInfo {
+export function ownershipInfo(filePath: string, context: OwnershipContext): OwnershipInfo {
   const workspace = matchingWorkspace(filePath, context.workspaces);
   const owners = matchingCodeowners(filePath, context.codeownerRules);
   return {
@@ -1398,7 +1368,7 @@ function incrementOwnerField(owners: Map<string, OwnerSummary>, context: Ownersh
   owners.set(key, current);
 }
 
-function evidenceCoverage(database: SqliteDatabase): Record<string, number> {
+export function evidenceCoverage(database: SqliteDatabase): Record<string, number> {
   const rows = database.prepare(`
     SELECT 'files' AS table_name, count(*) AS rows FROM files
     UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -1456,7 +1426,7 @@ function parserBackendSummary(database: SqliteDatabase): Record<string, unknown>
   });
 }
 
-function workspaceSummary(database: SqliteDatabase): Record<string, unknown> {
+export function workspaceSummary(database: SqliteDatabase): Record<string, unknown> {
   const context = ownershipContext();
   const counts = new Map<string, { bytes: number; files: number; lines: number; name: string; root: string; source: string; workspace_pattern: string }>();
   for (const workspace of context.workspaces) {
@@ -1491,7 +1461,7 @@ function packageManagerFromLockfile(filePath: string): string {
   return "unknown";
 }
 
-function workspaceDependencyGraph(): Record<string, unknown> {
+export function workspaceDependencyGraph(): Record<string, unknown> {
   const workspaces = workspacePackages();
   const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace] as const));
   const lockfiles = ["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"]
@@ -1608,7 +1578,7 @@ function codeReportSectionData(database: SqliteDatabase, section: CodeReportSect
   }
 }
 
-function codeReportMetadata(database: SqliteDatabase): Record<string, unknown> {
+export function codeReportMetadata(database: SqliteDatabase): Record<string, unknown> {
   const databasePath = codeEvidenceDatabasePath();
   const staleness = codeIndexStaleness(database);
   return {
@@ -1664,7 +1634,7 @@ function codeReportForRequestedSection(database: SqliteDatabase): Record<string,
   };
 }
 
-function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
+export function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
   const like = `%${target}%`;
   const fileMatches = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ORDER BY path LIMIT 25").all(like);
   const symbolMatches = database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
@@ -1725,6 +1695,50 @@ function codeImpact(database: SqliteDatabase, target: string): Record<string, un
   };
 }
 
+// Symbol search reusing the exact SELECT behind --code-search-symbol so the MCP
+// code_search tool returns identical rows without duplicating the query string.
+export function searchSymbols(database: SqliteDatabase, term: string): Record<string, unknown>[] {
+  const like = `%${term}%`;
+  return database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like);
+}
+
+// Error thrown when the code-evidence index is missing or schema-incompatible.
+// The MCP server catches this to return an isError tool result (tools/list still
+// works); CLI modes keep their own process.exit path via requireExistingIndex.
+export class CodeEvidenceIndexUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CodeEvidenceIndexUnavailableError";
+  }
+}
+
+// Open the existing .project-wiki code-evidence index READ-ONLY for serving:
+// validates existence and schema version, then pins PRAGMA query_only = ON. Uses
+// the same path resolution and schema constant as the indexer so the server and
+// the writer share one contract. Throws CodeEvidenceIndexUnavailableError (never
+// exits) so the MCP server can answer with guidance to run --code-index.
+export function openCodeEvidenceDatabaseForServing(): { database: SqliteDatabase; relativePath: string } {
+  const databasePath = codeEvidenceDatabasePath();
+  if (!fs.existsSync(databasePath.absolutePath)) {
+    throw new CodeEvidenceIndexUnavailableError(`missing code evidence index: ${databasePath.relativePath}; run \`project-librarian --code-index\` first`);
+  }
+  const database = openDatabase(databasePath.absolutePath);
+  let schemaVersion = "";
+  try {
+    schemaVersion = readMetaValue(database, "schema_version");
+  } catch (error: unknown) {
+    database.close();
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
+  }
+  if (schemaVersion !== codeIndexSchemaVersion) {
+    database.close();
+    throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+  }
+  database.exec("PRAGMA query_only = ON");
+  return { database, relativePath: databasePath.relativePath };
+}
+
 function prepareOutputPath(): void {
   const databasePath = codeEvidenceDatabasePath();
   mkdirp(path.dirname(databasePath.relativePath));
@@ -1736,6 +1750,12 @@ export function runCodeIndexMode(): void {
   const databasePath = codeEvidenceDatabasePath();
   const scopes = codeScopes();
   const parserMode = selectedCodeParserMode();
+  // Scale gate before ANY write or database work: below the measured threshold
+  // the build halts with the evidence-citing warning unless --acknowledge-small-repo
+  // was passed (2026-06-12 scale-aware guidance decision).
+  const discoveredFiles = discoverCodeFiles(scopes);
+  const scaleGate = smallRepoCodeIndexGate(discoveredFiles.length, acknowledgeSmallRepoMode);
+  if (!scaleGate.proceed) fail(scaleGate.warning);
   const existingIndex = fs.existsSync(databasePath.absolutePath);
   if (codeIndexIncrementalMode && !existingIndex) {
     fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
@@ -1758,7 +1778,7 @@ export function runCodeIndexMode(): void {
   try {
     if (!incremental) setupDatabase(database);
     const statements = createIndexStatements(database);
-    const currentFiles = discoverCodeFiles(scopes).map((filePath) => readCodeFile(filePath, parserMode));
+    const currentFiles = discoveredFiles.map((filePath) => readCodeFile(filePath, parserMode));
     const currentByPath = new Map(currentFiles.map((file) => [file.path, file] as const));
     const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)] as const)) : new Map<string, string>();
     const deletedPaths = incremental ? Array.from(indexed.keys()).filter((filePath) => !currentByPath.has(filePath)) : [];

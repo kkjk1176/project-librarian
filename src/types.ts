@@ -8,6 +8,7 @@ export type FileStatus =
   | "skipped-no-git"
   | "skipped-no-git-config"
   | `skipped-existing-hooksPath ${string}`
+  | `skipped-small-repo ${string}`
   | "updated"
   | `updated from ${string}`
   | `moved wiki to ${string}`
@@ -17,7 +18,9 @@ export type FileStatus =
 export type ResultRow = [label: string, status: FileStatus];
 export type WikiBudget = "short" | "medium" | "on-demand";
 export type WikiStatus = "active" | "template";
-export type MigrationKind = "canonical" | "decision" | "source" | "other";
+export type MigrationKind = "canonical" | "decision" | "source" | "meta" | "other";
+export type MigrationStorage = "canonical" | "decisions" | "sources" | "meta";
+export type MigrationConfidence = "high" | "medium" | "low";
 export type MigrationInboxStatus = "adopted" | "rejected" | "resolved" | "needs-human-review" | "pending";
 export type MigrationCoverageStatus = MigrationInboxStatus | "merged" | "superseded";
 export type SemanticStatus = MigrationInboxStatus | "pending semantic rewrite";
@@ -39,6 +42,17 @@ export interface HookConfig {
     SessionStart?: SessionStartHook[];
     [key: string]: unknown;
   };
+  [key: string]: unknown;
+}
+
+export interface McpServerEntry {
+  command: string;
+  args: string[];
+  [key: string]: unknown;
+}
+
+export interface McpServersConfig {
+  mcpServers?: Record<string, McpServerEntry>;
   [key: string]: unknown;
 }
 
@@ -75,7 +89,19 @@ export interface MigrationUnit {
   legacyPath: string;
   type: "heading" | "paragraph" | "list-item" | "table-row" | "code-block";
   heading: string;
+  headingPath: string[];
+  content: string;
   summary: string;
+  classification: MigrationUnitClassification;
+}
+
+export interface MigrationUnitClassification {
+  area: string;
+  label: string;
+  storage: MigrationStorage;
+  target: string;
+  confidence: MigrationConfidence;
+  reason: string;
 }
 
 export interface MigrationState {
@@ -102,6 +128,51 @@ export interface MigrationReviewRow extends MigrationVerificationRow {
   note: string;
 }
 
+export interface MigrationBulkReviewRow {
+  unitId: string;
+  legacySource: string;
+  unitType: string;
+  heading: string;
+  summary: string;
+  target: string;
+  area: string;
+  confidence: MigrationConfidence;
+  inboxStatus: MigrationInboxStatus;
+  semanticStatus: SemanticStatus;
+  reason: string;
+}
+
+export interface MigrationBulkReviewGroup {
+  key: string;
+  rows: number;
+  high: number;
+  medium: number;
+  low: number;
+  sources: string[];
+  targets: string[];
+  areas: string[];
+  sampleUnitIds: string[];
+  sampleSummaries: string[];
+}
+
+export interface MigrationBulkReviewPlan {
+  totalRows: number;
+  openRows: number;
+  completedRows: number;
+  highConfidenceRows: number;
+  mediumConfidenceRows: number;
+  humanReviewRows: number;
+  humanReviewStructuralRows: number;
+  humanReviewContentRows: number;
+  highTargetGroups: MigrationBulkReviewGroup[];
+  mediumTargetGroups: MigrationBulkReviewGroup[];
+  singleTargetSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewStructuralSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewContentSourceGroups: MigrationBulkReviewGroup[];
+  generatedSourceGroups: MigrationBulkReviewGroup[];
+}
+
 export interface MetadataSummary {
   status: string;
   scope: string;
@@ -125,6 +196,7 @@ export interface QueryResult extends MetadataSummary {
   file: string;
   title: string;
   score: number;
+  tldr: string;
 }
 
 export interface PruneCandidate {

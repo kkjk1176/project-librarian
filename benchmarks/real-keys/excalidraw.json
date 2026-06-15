@@ -1,0 +1,60 @@
+{
+  "repo": "excalidraw",
+  "sha": "a83ac488536dbf4bc4dcf1f472f72ce3b4bd2073",
+  "code_scopes": ["packages", "package.json"],
+  "questions": [
+    {
+      "question_id": "impact-trace-pointrotaterads",
+      "task_family": "impact_trace",
+      "prompt": "In this repository, the function `pointRotateRads` is defined and exported from packages/math/src/point.ts (the @excalidraw/math package). Trace its transitive impact across the codebase: identify the source files that depend on it by calling or importing it (directly, or transitively through the @excalidraw/math package barrel). List the relative file paths of the dependent files. The impact crosses package boundaries (the symbol lives in packages/math but is used inside the packages/element layer). Answer from code evidence only; do not modify any files.",
+      "expectation": {
+        "required_terms": [
+          "packages/element/src/binding.ts",
+          "packages/element/src/bounds.ts",
+          "packages/element/src/collision.ts"
+        ],
+        "any_terms": [
+          ["import", "call", "depends", "transitive", "uses", "dependent"]
+        ],
+        "forbidden_terms": ["I cannot access", "no such file"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "@excalidraw/", "pointRotateRads"],
+          "without_project_librarian": ["packages/", "@excalidraw/", "pointRotateRads"]
+        },
+        "answer_key_terms": [
+          "packages/element/src/binding.ts",
+          "packages/element/src/bounds.ts",
+          "packages/element/src/collision.ts"
+        ]
+      }
+    },
+    {
+      "question_id": "workspace-graph-excalidraw-app",
+      "task_family": "workspace_graph",
+      "prompt": "This is a workspace monorepo whose internal packages live under packages/ and are named @excalidraw/*. Using the package.json dependency declarations, compute the TRANSITIVE set of internal workspace packages that @excalidraw/excalidraw depends on (follow the dependency edges through intermediate packages; consider only internal @excalidraw/* packages that exist under packages/, not external npm packages). List those internal package names. Note that at least one member is reachable only transitively, not as a direct dependency of @excalidraw/excalidraw. Answer from code evidence only; do not modify any files.",
+      "expectation": {
+        "required_terms": [
+          "@excalidraw/element",
+          "@excalidraw/math",
+          "@excalidraw/common",
+          "@excalidraw/fractional-indexing"
+        ],
+        "any_terms": [
+          ["depends", "dependency", "transitive", "workspace", "chain", "internal"]
+        ],
+        "forbidden_terms": ["I cannot access", "no such file"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "@excalidraw/", "package.json"],
+          "without_project_librarian": ["packages/", "@excalidraw/", "package.json"]
+        },
+        "answer_key_terms": [
+          "@excalidraw/element",
+          "@excalidraw/math",
+          "@excalidraw/common",
+          "@excalidraw/fractional-indexing"
+        ]
+      }
+    }
+  ],
+  "notes": "Stage R1 repo A (excalidraw, SHA a83ac488536dbf4bc4dcf1f472f72ce3b4bd2073). Repo A has NO CODEOWNERS file (no root/.github/docs CODEOWNERS), so the ownership_lookup family is INVALID for this repo (no ownership ground truth exists and inventing one is forbidden). Per the key-format task_family constraint, excalidraw therefore carries only its two valid families: impact_trace and workspace_graph. The ownership_lookup family is provided exclusively by repo B (backstage). ANTI-CIRCULARITY: every expected component was derived independently from the source clone first, then cross-checked against our own index built in a CORPUS COPY (never the pristine clone). impact-trace-pointrotaterads: pointRotateRads is defined in packages/math/src/point.ts; independent grep found 27 non-test caller files across the math/element/excalidraw packages, and code_impact on the symbol reported 100 incoming call edges whose callers include binding.ts/bounds.ts/collision.ts (the three required_terms) — hand-grep and index agree, no reconciliation needed. The question is symbol-scoped because the index stores imports as raw refs and resolves transitive dependents through the symbol call-graph (a file-path-only query returns 0 incoming edges), so a symbol target is what both a manual reader and the tool can trace. workspace-graph-excalidraw-app: the authoritative internal edge set (hand-read from package.json dependencies, confirmed identical by --code-report workspace-graph) is element->{common,math,fractional-indexing}, excalidraw->{common,element,math}, math->{common}; @excalidraw/excalidraw does NOT directly depend on @excalidraw/fractional-indexing, so fractional-indexing is the traversal-proving member reachable only via @excalidraw/element. laser-pointer/mermaid-to-excalidraw/random-username are external npm packages (the index lists them as external hotspots), correctly excluded from the internal closure."
+}

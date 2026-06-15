@@ -1,0 +1,76 @@
+{
+  "repo": "backstage",
+  "sha": "73d8ac07b9ab9989057655b937fe63c7d88cc491",
+  "code_scopes": ["packages", "plugins", "package.json", ".github/CODEOWNERS"],
+  "questions": [
+    {
+      "question_id": "impact-trace-stringifyentityref",
+      "task_family": "impact_trace",
+      "prompt": "In this repository, the function `stringifyEntityRef` is defined and exported from packages/catalog-model/src/entity/ref.ts (the @backstage/catalog-model package). Trace its transitive impact: identify source files outside catalog-model that depend on it by importing or calling it. List the relative file paths of dependent files. The impact crosses package boundaries (the symbol is defined in packages/catalog-model but consumed inside the plugins/catalog layer). Answer from code evidence only; do not modify any files.",
+      "expectation": {
+        "required_terms": [
+          "plugins/catalog/src/components/CatalogTable/CatalogTable.tsx",
+          "plugins/catalog/src/components/AboutCard/AboutCard.tsx"
+        ],
+        "any_terms": [
+          ["import", "call", "depends", "transitive", "uses", "dependent"]
+        ],
+        "forbidden_terms": ["I cannot access", "no such file"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "plugins/", "stringifyEntityRef"],
+          "without_project_librarian": ["packages/", "plugins/", "stringifyEntityRef"]
+        },
+        "answer_key_terms": [
+          "plugins/catalog/src/components/CatalogTable/CatalogTable.tsx",
+          "plugins/catalog/src/components/AboutCard/AboutCard.tsx"
+        ]
+      }
+    },
+    {
+      "question_id": "ownership-lookup-packages-cli-src-index",
+      "task_family": "ownership_lookup",
+      "prompt": "This repository has a CODEOWNERS file at .github/CODEOWNERS. Using GitHub's last-matching-pattern-wins precedence rule, determine the effective owning team of the path packages/cli/src/index.ts. Several patterns match this path; evaluate them in file order and report the owner from the LAST matching pattern (the winner), not an earlier broader match. State the winning owner. Answer from code evidence only; do not modify any files.",
+      "expectation": {
+        "required_terms": ["@backstage/tooling-maintainers"],
+        "any_terms": [
+          ["last match", "last-match", "last matching", "precedence", "wins", "CODEOWNERS"]
+        ],
+        "forbidden_terms": ["I cannot access", "no such file"],
+        "designation_forbidden": [
+          { "team": "@backstage/framework-maintainers", "correct_owner": "@backstage/tooling-maintainers" }
+        ],
+        "evidence_by_condition": {
+          "with_project_librarian": ["CODEOWNERS", "packages/cli"],
+          "without_project_librarian": ["CODEOWNERS", "packages/cli"]
+        },
+        "answer_key_terms": ["@backstage/tooling-maintainers"]
+      }
+    },
+    {
+      "question_id": "workspace-graph-catalog-model-dependents",
+      "task_family": "workspace_graph",
+      "prompt": "This is a workspace monorepo whose internal packages live under packages/ and plugins/ (named @backstage/*) and declare dependencies in their package.json files with workspace: protocol versions. Compute the TRANSITIVE set of internal workspace packages that depend on @backstage/catalog-model (its dependents, followed through intermediate packages). List the dependent package names. Note that some members depend on @backstage/catalog-model only INDIRECTLY, through @backstage/catalog-client (which itself depends on @backstage/catalog-model); include those transitive dependents. Answer from code evidence only; do not modify any files.",
+      "expectation": {
+        "required_terms": [
+          "@backstage/catalog-client",
+          "@backstage/plugin-connections-example-backend",
+          "@backstage/plugin-mcp-actions-backend"
+        ],
+        "any_terms": [
+          ["depends", "dependent", "transitive", "workspace", "chain", "indirect"]
+        ],
+        "forbidden_terms": ["I cannot access", "no such file"],
+        "evidence_by_condition": {
+          "with_project_librarian": ["packages/", "plugins/", "@backstage/", "catalog-model"],
+          "without_project_librarian": ["packages/", "plugins/", "@backstage/", "catalog-model"]
+        },
+        "answer_key_terms": [
+          "@backstage/catalog-client",
+          "@backstage/plugin-connections-example-backend",
+          "@backstage/plugin-mcp-actions-backend"
+        ]
+      }
+    }
+  ],
+  "notes": "Stage R1 repo B (backstage, SHA 73d8ac07b9ab9989057655b937fe63c7d88cc491). Selected after rejecting backstage's order-mates on named gates and re-reading the file-count gate by intent (see deliverable): backstage is the only ordered candidate with a non-trivial CODEOWNERS (.github/CODEOWNERS, 86 non-comment rules with genuine last-match precedence chains), which is required for the ownership_lookup family; pnpm (8 CODEOWNERS rules), turborepo (1), and nx (1, plus >8k files) cannot support a precedence question without fabrication. ANTI-CIRCULARITY: every expected component was derived independently from the source clone first (git/grep/manual package.json + CODEOWNERS reading), then cross-checked against our own index built in a CORPUS COPY (never the pristine clone). impact-trace-stringifyentityref: stringifyEntityRef is defined in packages/catalog-model/src/entity/ref.ts; independent grep found 112 non-test importer files across packages/ and plugins/, including the two required_terms (plugins/catalog CatalogTable.tsx and AboutCard.tsx, hand-confirmed to import it) — symbol-scoped because the index resolves transitive dependents through the symbol call-graph rather than file-path import refs. ownership-lookup-packages-cli-src-index: packages/cli/src/index.ts is a real tracked file; the ONLY .github/CODEOWNERS patterns matching it are (in file order) `*` -> @backstage/maintainers (line 7), `/packages` -> @backstage/framework-maintainers (line 33), `/packages/cli` -> @backstage/tooling-maintainers (line 37). `/packages/cli-*` (line 38) and `/packages/cli/src/commands/onboard` (line 39) do NOT match this path; no later rule matches. Last match wins => @backstage/tooling-maintainers; @backstage/framework-maintainers (the broad /packages rule) is the tempting wrong answer and is set as designation_forbidden. The index's code_ownership tool independently reported the same winner and overridden chain (cross-check below in the deliverable). workspace-graph-catalog-model-dependents: @backstage/catalog-model has 56 direct plugin dependents plus packages (catalog-client, dev-utils, repo-tools, ...); @backstage/catalog-client depends on it directly (workspace:^); @backstage/plugin-connections-example-backend and @backstage/plugin-mcp-actions-backend depend on @backstage/catalog-client but NOT on @backstage/catalog-model directly, so they are transitive-only dependents and force graph traversal. All three required members hand-verified from package.json dependency blocks."
+}
