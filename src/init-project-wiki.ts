@@ -5,7 +5,7 @@ import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTra
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
-import { agentsSection, claudeSection, cursorRule, decisionPolicy, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
 import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
@@ -22,7 +22,7 @@ function printUsage(): void {
   project-librarian mcp
 
 Options:
-  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
+  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create unit-level migration map, split plan, coverage ledger, review files, and inboxes.
   --lint                           Validate the generated project wiki setup without editing files.
   --link-check                     Report broken wiki links, duplicate routes, and orphan pages.
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
@@ -41,7 +41,7 @@ Options:
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
   --prune-check                    Report active pages with stale or unresolved signals.
-  --review-migration               Sync migration inbox statuses into migration review files.
+  --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
@@ -320,6 +320,7 @@ results.push(["wiki/canonical/wiki-operating-model.md", deleteIfGenerated("wiki/
 results.push(["wiki/canonical/decision-policy.md", deleteIfGenerated("wiki/canonical/decision-policy.md", ["# Decision Policy"])]);
 results.push(["wiki/decisions/wiki-v1-decisions.md", deleteIfGenerated("wiki/decisions/wiki-v1-decisions.md", ["# Wiki v1 Decisions", "# Wiki Operations v1 Decisions"])]);
 for (const [relativePath, content] of Object.entries(starterFiles)) {
+  if (!defaultStarterFilePaths.has(relativePath)) continue;
   results.push([relativePath, writeStarter(relativePath, content)]);
 }
 results.push(["wiki/meta/wiki-ops-v1-decisions.md", writeManaged("wiki/meta/wiki-ops-v1-decisions.md", starterFiles["wiki/meta/wiki-ops-v1-decisions.md"])]);

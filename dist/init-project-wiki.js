@@ -18,7 +18,7 @@ function printUsage() {
   project-librarian mcp
 
 Options:
-  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create migration inboxes.
+  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create unit-level migration map, split plan, coverage ledger, review files, and inboxes.
   --lint                           Validate the generated project wiki setup without editing files.
   --link-check                     Report broken wiki links, duplicate routes, and orphan pages.
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
@@ -37,7 +37,7 @@ Options:
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
   --prune-check                    Report active pages with stale or unresolved signals.
-  --review-migration               Sync migration inbox statuses into migration review files.
+  --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
@@ -298,6 +298,8 @@ function runInitCommand() {
     results.push(["wiki/canonical/decision-policy.md", (0, workspace_1.deleteIfGenerated)("wiki/canonical/decision-policy.md", ["# Decision Policy"])]);
     results.push(["wiki/decisions/wiki-v1-decisions.md", (0, workspace_1.deleteIfGenerated)("wiki/decisions/wiki-v1-decisions.md", ["# Wiki v1 Decisions", "# Wiki Operations v1 Decisions"])]);
     for (const [relativePath, content] of Object.entries(templates_1.starterFiles)) {
+        if (!templates_1.defaultStarterFilePaths.has(relativePath))
+            continue;
         results.push([relativePath, (0, workspace_1.writeStarter)(relativePath, content)]);
     }
     results.push(["wiki/meta/wiki-ops-v1-decisions.md", (0, workspace_1.writeManaged)("wiki/meta/wiki-ops-v1-decisions.md", templates_1.starterFiles["wiki/meta/wiki-ops-v1-decisions.md"])]);

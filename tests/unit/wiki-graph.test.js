@@ -228,14 +228,15 @@ test("wiki-impact reports backlinks, decision_ref citations, and router depth", 
   const root = makeTmpDir("wg-impact-");
   try {
     runCli(root);
+    writePage(root, "wiki/canonical/project-brief.md", "# Project Brief\n\n## TL;DR\n\n- Impact fixture project truth.\n");
+    fs.appendFileSync(path.join(root, "wiki", "index.md"), "\n- [[canonical/project-brief]]\n");
     writePage(root, "wiki/canonical/citing-page.md", "---\nstatus: active\ndecision_ref: wiki/canonical/project-brief.md\n---\n\n# Citing Page\n\n- [[canonical/project-brief]]\n");
     const output = runCli(root, ["--wiki-impact", "canonical/project-brief"]);
     const firstLine = output.split(/\r?\n/)[0];
     assert.match(firstLine, /^Wiki impact "canonical\/project-brief": 1 matching page/);
     assert.match(output, /incoming links \(\d+\):.*wiki\/index\.md/);
     assert.match(output, /decision_ref from \(1\): wiki\/canonical\/citing-page\.md/);
-    // The bootstrap startup template routes project-brief directly (depth 1).
-    assert.match(output, /router: reachable at depth 1 \(budget 3\)/);
+    assert.match(output, /router: reachable at depth 2 \(budget 3\)/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

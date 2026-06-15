@@ -653,15 +653,19 @@ function collectMigrationQualityDiagnostics() {
 function collectMigrationLintDiagnostics() {
     if (legacyWikiRoots().length === 0)
         return [];
-    const requiredFiles = [
+    const requiredCoreFiles = [
+        "wiki/meta/document-taxonomy.md",
         "wiki/migration/inventory.md",
+        "wiki/migration/unit-map.md",
+        "wiki/migration/split-plan.md",
         "wiki/migration/coverage.md",
         "wiki/migration/plan.md",
+        "wiki/migration/review.md",
         "wiki/migration/verification.md",
-        "wiki/canonical/migration-inbox.md",
-        "wiki/decisions/migration-inbox.md",
-        "wiki/sources/migration-inbox.md",
+        "wiki/migration/bulk-review.md",
     ];
+    const requiredInboxFiles = (0, migration_1.migrationSemanticReviewComplete)() ? [] : [...migration_1.generatedMigrationInboxFiles];
+    const requiredFiles = [...requiredCoreFiles, ...requiredInboxFiles];
     const diagnostics = requiredFiles
         .filter((file) => !(0, workspace_1.exists)(file))
         .map((file) => ({
@@ -671,6 +675,8 @@ function collectMigrationLintDiagnostics() {
         message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
     }));
     diagnostics.push(...(0, migration_1.collectMigrationCoverageDiagnostics)());
+    diagnostics.push(...(0, migration_1.collectMigrationUnitMapDiagnostics)());
+    diagnostics.push(...(0, migration_1.collectMigrationSplitPlanDiagnostics)());
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 function runLinkCheckMode() {
@@ -795,10 +801,6 @@ function runLintMode() {
         "wiki/AGENTS.md",
         "wiki/startup.md",
         "wiki/index.md",
-        "wiki/canonical/project-brief.md",
-        "wiki/canonical/open-questions.md",
-        "wiki/canonical/assumptions.md",
-        "wiki/canonical/risks.md",
         "wiki/decisions/log.md",
         "wiki/decisions/recent.md",
         "wiki/meta/operating-model.md",

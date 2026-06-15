@@ -6,7 +6,7 @@ import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraf
 import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
-import { collectMigrationCoverageDiagnostics } from "./migration";
+import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
 import { buildWikiGraph, finalizeWikiAnswer, wikiImpactAnswer, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 
@@ -594,15 +594,19 @@ export function collectMigrationQualityDiagnostics(): WikiDiagnostic[] {
 
 export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
   if (legacyWikiRoots().length === 0) return [];
-  const requiredFiles = [
+  const requiredCoreFiles = [
+    "wiki/meta/document-taxonomy.md",
     "wiki/migration/inventory.md",
+    "wiki/migration/unit-map.md",
+    "wiki/migration/split-plan.md",
     "wiki/migration/coverage.md",
     "wiki/migration/plan.md",
+    "wiki/migration/review.md",
     "wiki/migration/verification.md",
-    "wiki/canonical/migration-inbox.md",
-    "wiki/decisions/migration-inbox.md",
-    "wiki/sources/migration-inbox.md",
+    "wiki/migration/bulk-review.md",
   ];
+  const requiredInboxFiles = migrationSemanticReviewComplete() ? [] : [...generatedMigrationInboxFiles];
+  const requiredFiles = [...requiredCoreFiles, ...requiredInboxFiles];
   const diagnostics: WikiDiagnostic[] = requiredFiles
     .filter((file) => !exists(file))
     .map((file) => ({
@@ -612,6 +616,8 @@ export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
       message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
     }));
   diagnostics.push(...collectMigrationCoverageDiagnostics());
+  diagnostics.push(...collectMigrationUnitMapDiagnostics());
+  diagnostics.push(...collectMigrationSplitPlanDiagnostics());
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 
@@ -734,10 +740,6 @@ export function runLintMode(): void {
     "wiki/AGENTS.md",
     "wiki/startup.md",
     "wiki/index.md",
-    "wiki/canonical/project-brief.md",
-    "wiki/canonical/open-questions.md",
-    "wiki/canonical/assumptions.md",
-    "wiki/canonical/risks.md",
     "wiki/decisions/log.md",
     "wiki/decisions/recent.md",
     "wiki/meta/operating-model.md",

@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI="$ROOT/dist/init-project-wiki.js"
 TMPDIR="$(mktemp -d)"
 ROOT_DIRTY_PROBE="$ROOT/benchmarks/reports/dirty-baseline-smoke.tmp"
+TODAY="$(date +%F)"
 
 cleanup() {
   cd "$ROOT" 2>/dev/null || cd /
@@ -133,6 +134,12 @@ test -f .cursor/hooks/wiki-session-start.js
 test -f .cursor/hooks.json
 test -f .gemini/hooks/wiki-session-start.js
 test -f .gemini/settings.json
+test ! -e wiki/canonical/project-brief.md
+test ! -e wiki/canonical/open-questions.md
+test ! -e wiki/canonical/assumptions.md
+test ! -e wiki/canonical/risks.md
+test ! -e wiki/decisions/decision-pack-template.md
+test ! -e wiki/decisions/full-adr-template.md
 
 node "$CLI" > rerun.log
 grep -q "exists  AGENTS.md" rerun.log
@@ -360,13 +367,29 @@ node "$CLI"
 node "$CLI" --link-check > link-check-ok.log
 grep -q "Project wiki link-check" link-check-ok.log
 grep -q "passed:" link-check-ok.log
-cat >> wiki/canonical/project-brief.md <<'EOF'
+mkdir -p wiki/canonical
+cat > wiki/canonical/project-brief.md <<EOF
+---
+status: active
+updated: $TODAY
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: smoke diagnostics fixture
+---
+
+# Project Brief
+
+## TL;DR
+
+- Smoke fixture project truth.
 
 Image asset probe: ![diagram](assets/diagram.png)
 PDF asset probe: [spec](assets/spec.pdf)
-Angle markdown probe: [assumptions](<assumptions.md>)
+Angle markdown probe: [decisions](<../decisions/README.md>)
 Root wiki probe: [startup](/wiki/startup.md)
 EOF
+node "$CLI" --refresh-index > refresh-project-brief.log
 node "$CLI" --link-check > link-check-assets-ok.log
 grep -q "Project wiki link-check" link-check-assets-ok.log
 grep -q "passed:" link-check-assets-ok.log
@@ -492,30 +515,167 @@ mkdir wiki
 cat > 'wiki/spec|decision.md' <<'EOF'
 # Pipe Decision
 
-Decision: preserve a source path containing a pipe.
+Decision: preserve a source path containing a pipe, a legacy-only [[missing-legacy-target]] wikilink, and a [legacy markdown link](legacy-only.md) inside generated migration ledgers.
 EOF
 node "$CLI" --migrate
+test -f wiki/migration/unit-map.md
+test -f wiki/migration/split-plan.md
+test -f wiki/migration/review.md
+test -f wiki/migration/bulk-review.md
 grep -q 'spec\\|decision.md' wiki/migration/verification.md
 grep -q 'spec\\|decision.md#u' wiki/migration/coverage.md
+grep -q 'spec\\|decision.md#u' wiki/migration/unit-map.md
+grep -q 'spec\\|decision.md#u' wiki/migration/split-plan.md
 grep -Fq "[[migration/coverage]]" wiki/index.md
+grep -Fq "[[migration/unit-map]]" wiki/index.md
+grep -Fq "[[migration/split-plan]]" wiki/index.md
+grep -Fq "[[migration/bulk-review]]" wiki/index.md
 grep -q "Completion Scope" wiki/migration/verification.md
+grep -q "Bulk Review Summary" wiki/migration/review.md
+grep -q "Human-Review Triage" wiki/migration/bulk-review.md
+grep -q "Content-Bearing Human-Review Batches" wiki/migration/bulk-review.md
+grep -q "High-confidence target batches" wiki/migration/bulk-review.md
 grep -q "For a fresh rebuild request" wiki/migration/verification.md
 grep -q "future fresh rebuild request" wiki/startup.md
 grep -q "fresh rebuild procedure" wiki/index.md
+node -e 'const fs=require("fs"); if (fs.readFileSync("wiki/index.md","utf8").length > 4500) process.exit(1)'
+grep -q "&#91;&#91;missing-legacy-target&#93;&#93;" wiki/migration/coverage.md
+grep -q "&#91;legacy markdown link&#93;(legacy-only.md)" wiki/migration/coverage.md
+node "$CLI" --link-check > migration-link-check.log
+grep -q "passed:" migration-link-check.log
 node "$CLI" --migration-lint > migration-lint-pipe.log
 grep -q "migration-pending-unit" migration-lint-pipe.log
+mkdir wiki_legacy_stale
+cat > wiki_legacy_stale/stale.md <<'EOF'
+# Stale Legacy Root
+
+Feature content from an older migration batch should not be required by the current verification root.
+EOF
+node "$CLI" --migration-lint > migration-active-root.log
+if grep -q "stale.md" migration-active-root.log; then
+  echo "expected migration lint to scope expected units to the current verification legacy root" >&2
+  exit 1
+fi
 node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
 node "$CLI" --review-migration > review-migration-pipe.log
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/review.md
+grep -q "Open rows: 0" wiki/migration/bulk-review.md
+grep -q "Content-bearing low rows | 0 | 0" wiki/migration/bulk-review.md
 grep -q "For a fresh rebuild request" wiki/migration/review.md
 grep -q 'spec\\|decision.md' wiki/migration/review.md
+test ! -e wiki/canonical/migration-inbox.md
+test ! -e wiki/decisions/migration-inbox.md
+test ! -e wiki/sources/migration-inbox.md
+test -e wiki_legacy
+test -e wiki/migration/coverage.md
+if grep -Fq "[[decisions/migration-inbox]]" wiki/index.md; then
+  echo "expected completed migration cleanup to remove pruned inbox links" >&2
+  exit 1
+fi
+grep -q "Generated file-level migration inboxes were pruned" wiki/index.md
+node "$CLI" --link-check > migration-complete-link-check.log
+grep -q "passed:" migration-complete-link-check.log
+node "$CLI" --migration-doctor > migration-complete-doctor.log
+grep -q "passed:" migration-complete-doctor.log
 node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let removed=false; const kept=lines.filter((line)=>{ if (!removed && /^\| spec\\\|decision\.md#u/.test(line)) { removed=true; return false; } return true; }); fs.writeFileSync(file, kept.join("\n"));'
 if node "$CLI" --migration-lint > migration-lint-missing-unit.log 2>&1; then
   echo "expected --migration-lint to fail when coverage ledger drops a legacy meaning unit" >&2
   exit 1
 fi
 grep -q "migration-unaccounted-unit" migration-lint-missing-unit.log
+
+mkdir "$TMPDIR/migration-mixed-split"
+cd "$TMPDIR/migration-mixed-split"
+mkdir wiki
+cat > wiki/mixed-page.md <<'EOF'
+# Checkout Mixed Spec
+
+## Feature
+
+Feature: customers can save checkout drafts before payment.
+
+## UX
+
+User flow: customer reviews the cart, chooses a payment method, then confirms the order.
+
+## API
+
+API endpoint POST /checkout accepts a request body and returns a response with order_id.
+
+## QA
+
+Test cases cover expired coupons, duplicate submissions, and payment retry regression.
+EOF
+node "$CLI" --migrate > migration-mixed.log
+grep -q "product-requirements" wiki/migration/split-plan.md
+grep -q "user-flows" wiki/migration/split-plan.md
+grep -q "api-contracts" wiki/migration/split-plan.md
+grep -q "qa-test-plan" wiki/migration/split-plan.md
+grep -q "API Contract" wiki/migration/unit-map.md
+grep -q "User Flow / Journey" wiki/migration/unit-map.md
+node "$CLI" --migration-lint > migration-mixed-lint.log
+grep -q "migration-pending-unit" migration-mixed-lint.log
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let changed=false; const next=lines.map((line)=>{ if (!changed && /^\| mixed-page\.md#u/.test(line) && line.includes("| pending |")) { changed=true; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[6]="wiki/canonical/reviewed-retarget-product-requirements.md"; cells[7]="reviewed low-confidence content; retargeted for semantic rewrite"; cells[10]="reviewed source context; taxonomy target assigned"; return `| ${cells.join(" | ")} |`; } return line; }); if (!changed) process.exit(1); fs.writeFileSync(file, next.join("\n"));'
+node "$CLI" --migration-lint > migration-reviewed-retarget.log
+if grep -q "migration-pending-target-drift" migration-reviewed-retarget.log; then
+  echo "expected --migration-lint to allow reviewed pending retargets" >&2
+  exit 1
+fi
+node -e 'const fs=require("fs"); const file="wiki/canonical/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node "$CLI" --review-migration > migration-mixed-review-file-level.log
+grep -q "semantic migration complete: no" wiki/migration/verification.md
+grep -q "file-level inbox row ignored for mixed-target legacy source" wiki/migration/review.md
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/).map((line)=>/^\| mixed-page\.md#u/.test(line) ? line.replace("| pending |", "| adopted |").replace("| needs-human-review |", "| adopted |") : line); fs.writeFileSync(file, lines.join("\n"));'
+node "$CLI" --review-migration > migration-mixed-review-coverage.log
+grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
+node -e 'const fs=require("fs"); const file="wiki/migration/split-plan.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| ([0-9]+) \| mixed-page\.md#u/, "| 99 | mixed-page.md#u"));'
+if node "$CLI" --migration-lint > migration-split-plan-bad-count.log 2>&1; then
+  echo "expected --migration-lint to fail when split-plan unit count drifts" >&2
+  exit 1
+fi
+grep -q "migration-split-plan-count-mismatch" migration-split-plan-bad-count.log
+node -e 'const fs=require("fs"); const file="wiki/migration/unit-map.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| (high|medium|low) \| wiki\//, "| impossible | wiki/"));'
+if node "$CLI" --migration-lint > migration-unit-map-bad-confidence.log 2>&1; then
+  echo "expected --migration-lint to fail when unit-map confidence is invalid" >&2
+  exit 1
+fi
+grep -q "migration-unit-map-invalid-confidence" migration-unit-map-bad-confidence.log
+
+mkdir "$TMPDIR/migration-junk-protection"
+cd "$TMPDIR/migration-junk-protection"
+mkdir wiki
+cat > wiki/decision.md <<'EOF'
+# Durable Decision
+
+Decision: the migration cleanup must keep manually repurposed pages even when their filename is migration-inbox.md.
+EOF
+node "$CLI" --migrate > migration-junk-protection.log
+cat > wiki/canonical/migration-inbox.md <<EOF
+---
+status: active
+updated: $TODAY
+scope: project-canonical
+read_budget: medium
+decision_ref: none
+review_trigger: retained migrated project content changes
+---
+
+# Migration Inbox
+
+## TL;DR
+
+- This page has been manually repurposed into project content and must not be pruned as generated migration scaffolding.
+EOF
+node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node "$CLI" --review-migration > migration-junk-protection-review.log
+grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
+test -e wiki/canonical/migration-inbox.md
+test ! -e wiki/decisions/migration-inbox.md
+test ! -e wiki/sources/migration-inbox.md
+grep -Fq "[[canonical/migration-inbox]]" wiki/index.md
+node "$CLI" --link-check > migration-junk-protection-link-check.log
+grep -q "passed:" migration-junk-protection-link-check.log
 
 mkdir "$TMPDIR/migration-copy-policy"
 cd "$TMPDIR/migration-copy-policy"

@@ -18,7 +18,9 @@ export type FileStatus =
 export type ResultRow = [label: string, status: FileStatus];
 export type WikiBudget = "short" | "medium" | "on-demand";
 export type WikiStatus = "active" | "template";
-export type MigrationKind = "canonical" | "decision" | "source" | "other";
+export type MigrationKind = "canonical" | "decision" | "source" | "meta" | "other";
+export type MigrationStorage = "canonical" | "decisions" | "sources" | "meta";
+export type MigrationConfidence = "high" | "medium" | "low";
 export type MigrationInboxStatus = "adopted" | "rejected" | "resolved" | "needs-human-review" | "pending";
 export type MigrationCoverageStatus = MigrationInboxStatus | "merged" | "superseded";
 export type SemanticStatus = MigrationInboxStatus | "pending semantic rewrite";
@@ -87,7 +89,19 @@ export interface MigrationUnit {
   legacyPath: string;
   type: "heading" | "paragraph" | "list-item" | "table-row" | "code-block";
   heading: string;
+  headingPath: string[];
+  content: string;
   summary: string;
+  classification: MigrationUnitClassification;
+}
+
+export interface MigrationUnitClassification {
+  area: string;
+  label: string;
+  storage: MigrationStorage;
+  target: string;
+  confidence: MigrationConfidence;
+  reason: string;
 }
 
 export interface MigrationState {
@@ -112,6 +126,51 @@ export interface MigrationReviewRow extends MigrationVerificationRow {
   inboxStatus: MigrationInboxStatus;
   semanticStatus: SemanticStatus;
   note: string;
+}
+
+export interface MigrationBulkReviewRow {
+  unitId: string;
+  legacySource: string;
+  unitType: string;
+  heading: string;
+  summary: string;
+  target: string;
+  area: string;
+  confidence: MigrationConfidence;
+  inboxStatus: MigrationInboxStatus;
+  semanticStatus: SemanticStatus;
+  reason: string;
+}
+
+export interface MigrationBulkReviewGroup {
+  key: string;
+  rows: number;
+  high: number;
+  medium: number;
+  low: number;
+  sources: string[];
+  targets: string[];
+  areas: string[];
+  sampleUnitIds: string[];
+  sampleSummaries: string[];
+}
+
+export interface MigrationBulkReviewPlan {
+  totalRows: number;
+  openRows: number;
+  completedRows: number;
+  highConfidenceRows: number;
+  mediumConfidenceRows: number;
+  humanReviewRows: number;
+  humanReviewStructuralRows: number;
+  humanReviewContentRows: number;
+  highTargetGroups: MigrationBulkReviewGroup[];
+  mediumTargetGroups: MigrationBulkReviewGroup[];
+  singleTargetSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewStructuralSourceGroups: MigrationBulkReviewGroup[];
+  humanReviewContentSourceGroups: MigrationBulkReviewGroup[];
+  generatedSourceGroups: MigrationBulkReviewGroup[];
 }
 
 export interface MetadataSummary {

@@ -34,8 +34,25 @@ test("bootstrap creates router templates when absent", () => {
   try {
     runCli(root);
     assert.match(readFile(root, "wiki/startup.md"), /## Read On Demand/);
+    assert.match(readFile(root, "wiki/startup.md"), /meta\/document-taxonomy/);
     assert.match(readFile(root, "wiki/index.md"), /# Wiki Index/);
     assert.match(readFile(root, "wiki/index.md"), /## Language Policy/);
+    assert.match(readFile(root, "wiki/index.md"), /decisions\/README/);
+    assert.match(readFile(root, "AGENTS.md"), /Classify new project-planning content with `wiki\/meta\/document-taxonomy.md`/);
+    assert.match(readFile(root, "wiki/index.md"), /meta\/document-taxonomy/);
+    assert.match(readFile(root, "wiki/AGENTS.md"), /Before adding or consolidating project content/);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /# Document Taxonomy/);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Source-of-truth governance/);
+    for (const emptyStarter of [
+      "wiki/canonical/project-brief.md",
+      "wiki/canonical/open-questions.md",
+      "wiki/canonical/assumptions.md",
+      "wiki/canonical/risks.md",
+      "wiki/decisions/decision-pack-template.md",
+      "wiki/decisions/full-adr-template.md",
+    ]) {
+      assert.equal(fs.existsSync(path.join(root, emptyStarter)), false, `${emptyStarter} should not be created without content`);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -90,14 +107,32 @@ test("--refresh-index preserves customized routers while updating the auto-index
   }
 });
 
-test("re-bootstrap preserves customized canonical starter pages", () => {
+test("re-bootstrap preserves user-created canonical pages", () => {
   const root = makeTmpDir("starter-preserve-");
   try {
     runCli(root);
-    appendLine(root, "wiki/canonical/project-brief.md", "- CUSTOM-BRIEF-FACT: project truth added after bootstrap.");
+    fs.writeFileSync(path.join(root, "wiki", "canonical", "project-brief.md"), [
+      "---",
+      "status: active",
+      "updated: 2026-06-14",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: project direction changes",
+      "---",
+      "",
+      "# Project Brief",
+      "",
+      "## TL;DR",
+      "",
+      "- CUSTOM-BRIEF-FACT: project truth added after bootstrap.",
+      "",
+    ].join("\n"));
     const customized = readFile(root, "wiki/canonical/project-brief.md");
     runCli(root);
     assert.equal(readFile(root, "wiki/canonical/project-brief.md"), customized);
+    runCli(root, ["--refresh-index"]);
+    assert.match(readFile(root, "wiki/index.md"), /canonical\/project-brief/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
