@@ -128,6 +128,58 @@ test("firstTldrBullet extracts the first TL;DR bullet and stays empty without on
   assert.equal(wikiFiles.firstTldrBullet("# Page\n\nNo summary section here.\n"), "");
 });
 
+test("extractMarkdownBlocks ignores fenced headings and keeps section-level blocks", () => {
+  const blocks = wikiFiles.extractMarkdownBlocks([
+    "---",
+    "status: active",
+    "---",
+    "",
+    "# Real Heading",
+    "",
+    "Paragraph with AlphaTerm evidence.",
+    "",
+    "```md",
+    "# Fenced Heading",
+    "AlphaTerm inside code.",
+    "```",
+    "",
+    "## Real Heading",
+    "",
+    "- AlphaTerm list item",
+    "  - nested continuation",
+    "",
+    "| Term | Meaning |",
+    "| --- | --- |",
+    "| AlphaTerm | table evidence |",
+    "",
+  ].join("\n"));
+
+  const headings = blocks.filter((block) => block.kind === "heading");
+  assert.deepEqual(headings.map((block) => block.text), ["Real Heading", "Real Heading"]);
+  assert.equal(headings[0].id === headings[1].id, false);
+  assert.equal(headings.some((block) => block.text === "Fenced Heading"), false);
+  assert.ok(blocks.some((block) => block.kind === "code_fence" && /AlphaTerm inside code/.test(block.text)));
+  assert.ok(blocks.some((block) => block.kind === "list_item" && /AlphaTerm list item/.test(block.text)));
+  assert.ok(blocks.some((block) => block.kind === "table_row" && /AlphaTerm \| table evidence/.test(block.text)));
+});
+
+test("extractMarkdownBlocks requires matching fence length before leaving code", () => {
+  const blocks = wikiFiles.extractMarkdownBlocks([
+    "# Page",
+    "",
+    "````md",
+    "```",
+    "## Still Fenced",
+    "````",
+    "",
+    "## Real After",
+  ].join("\n"));
+
+  const headings = blocks.filter((block) => block.kind === "heading").map((block) => block.text);
+  assert.deepEqual(headings, ["Page", "Real After"]);
+  assert.ok(blocks.some((block) => block.kind === "code_fence" && /Still Fenced/.test(block.text)));
+});
+
 // ---------------------------------------------------------------------------
 // --link-check router reachability diagnostics (A1 promoted to the real wiki)
 // ---------------------------------------------------------------------------
@@ -278,7 +330,100 @@ test("query output is answer-first with per-result TL;DR envelopes", () => {
     const firstLine = output.split(/\r?\n/)[0];
     assert.match(firstLine, /^Project wiki query "decision": best match wiki\/.+ — .+ \(\d+ matching pages?, top \d+ shown\)\.$/);
     assert.match(output, /^\s+tldr: /m);
+    assert.match(output, /^\s+match: /m);
+    assert.match(output, /^\s+graph: /m);
     assert.ok(output.length <= wikiGraph.wikiAnswerCharCap + 1, `query output ${output.length} chars exceeds the answer cap`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("query output reports the strongest section-aware table row match", () => {
+  const root = makeTmpDir("wg-query-block-");
+  try {
+    runCli(root);
+    writePage(root, "wiki/canonical/retrieval-blocks.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-15",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: retrieval block query changes",
+      "---",
+      "",
+      "# Retrieval Blocks",
+      "",
+      "## TL;DR",
+      "",
+      "- Retrieval query block fixture.",
+      "",
+      "## Evidence Table",
+      "",
+      "| Metric | Meaning |",
+      "| --- | --- |",
+      "| SourceHitMetric | confirms the expected evidence source appears in the ranked set |",
+      "",
+      "```md",
+      "## SourceHitMetric fenced heading should not become a heading block",
+      "```",
+      "",
+    ].join("\n"));
+
+    const output = runCli(root, ["--query", "SourceHitMetric"]);
+    assert.match(output.split(/\r?\n/)[0], /^Project wiki query "SourceHitMetric": best match wiki\/canonical\/retrieval-blocks\.md/);
+    assert.match(output, /match: table_row@L\d+: Retrieval Blocks > Evidence Table: SourceHitMetric \| confirms the expected evidence source/);
+    assert.doesNotMatch(output, /fenced heading should not become a heading block/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("query output includes capped one-hop graph evidence without self-link cycles", () => {
+  const root = makeTmpDir("wg-query-graph-");
+  try {
+    runCli(root);
+    fs.appendFileSync(path.join(root, "wiki", "index.md"), "\n- [[canonical/graph-target]]\n");
+    writePage(root, "wiki/canonical/graph-target.md", [
+      "---",
+      "status: active",
+      "decision_ref: wiki/decisions/graph-choice.md",
+      "---",
+      "",
+      "# Graph Target",
+      "",
+      "## TL;DR",
+      "",
+      "- Graph evidence fixture.",
+      "",
+      "GraphTerm appears on the target page.",
+      "",
+      "- [[sources/graph-source]]",
+      "- [[canonical/graph-target]]",
+      "",
+    ].join("\n"));
+    writePage(root, "wiki/sources/graph-source.md", "# Graph Source\n\nSource evidence.\n");
+    writePage(root, "wiki/decisions/graph-choice.md", "# Graph Choice\n\nDecision evidence.\n");
+    writePage(root, "wiki/canonical/graph-citer.md", [
+      "---",
+      "status: active",
+      "decision_ref: wiki/canonical/graph-target.md",
+      "---",
+      "",
+      "# Graph Citer",
+      "",
+      "- [[canonical/graph-target]]",
+      "",
+    ].join("\n"));
+
+    const output = runCli(root, ["--query", "GraphTerm"]);
+    assert.match(output.split(/\r?\n/)[0], /^Project wiki query "GraphTerm": best match wiki\/canonical\/graph-target\.md/);
+    assert.match(output, /graph: .*router depth 2/);
+    assert.match(output, /graph: .*links-out 1: wiki\/sources\/graph-source\.md/);
+    assert.match(output, /graph: .*decision_ref-> wiki\/decisions\/graph-choice\.md/);
+    assert.match(output, /graph: .*linked-by 2: wiki\/canonical\/graph-citer\.md, wiki\/index\.md/);
+    assert.match(output, /graph: .*decision_ref-by 1: wiki\/canonical\/graph-citer\.md/);
+    assert.doesNotMatch(output, /links-out [^;\n]*wiki\/canonical\/graph-target\.md/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

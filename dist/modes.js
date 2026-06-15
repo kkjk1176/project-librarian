@@ -170,35 +170,89 @@ This block is managed by \`--refresh-index\`. Move useful rows into a hand-writt
 | --- | --- | --- | --- |
 ${rows}<!-- PROJECT-WIKI-AUTO-INDEX:END -->`;
 }
+function termOccurrences(text, terms) {
+    const lowered = text.toLowerCase();
+    return terms.reduce((sum, term) => sum + (lowered.split(term).length - 1), 0);
+}
+function blockKindBoost(block) {
+    if (block.kind === "heading")
+        return 4;
+    if (block.kind === "table_row")
+        return 3;
+    if (block.kind === "list_item")
+        return 2;
+    return 1;
+}
+function scoreQueryBlock(block, terms) {
+    const occurrences = termOccurrences(`${block.headingPath.join(" ")}\n${block.text}`, terms);
+    return occurrences > 0 ? occurrences + blockKindBoost(block) : 0;
+}
 // Answer-shaped query output (2026-06-12 method-transfer decision): first line is
-// the answer, each result carries the page's TL;DR first bullet so the agent can
-// pick a page without opening it, and the whole body sits under the shared hard
-// cap with an explicit truncation notice.
+// the answer, each result carries the page's TL;DR first bullet and the strongest
+// matching block so the agent can pick a page without opening it, and the whole
+// body sits under the shared hard cap with an explicit truncation notice.
 function runQueryMode() {
     if (!args_1.queryTerm.trim()) {
         console.error("missing query: use --query \"search terms\"");
         process.exit(1);
     }
     const terms = args_1.queryTerm.toLowerCase().split(/\s+/).filter(Boolean);
-    const matches = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => {
-        const text = (0, workspace_1.read)(file);
+    const pages = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => ({ file, text: (0, workspace_1.read)(file) }));
+    const graph = (0, wiki_graph_1.buildWikiGraph)(pages);
+    const routerDepths = (0, wiki_graph_1.wikiRouterDepths)(graph);
+    const matches = pages.map(({ file, text }) => {
         const body = (0, workspace_1.stripMetadataHeader)(text);
         const title = (0, wiki_files_1.wikiTitleForFile)(file, text);
         const meta = (0, wiki_files_1.metadataSummary)(file, text);
-        const weighted = `${file}\n${title}\n${meta.scope}\n${(0, workspace_1.metadataValue)(text, "tags")}\n${body}`.toLowerCase();
-        const score = terms.reduce((sum, term) => sum + (weighted.split(term).length - 1) + (file.toLowerCase().includes(term) ? 3 : 0) + (title.toLowerCase().includes(term) ? 5 : 0), 0);
-        return { file, title, score, tldr: (0, wiki_files_1.firstTldrBullet)(text), ...meta };
+        const metadataScore = termOccurrences(`${file}\n${title}\n${meta.scope}\n${(0, workspace_1.metadataValue)(text, "tags")}`, terms)
+            + terms.reduce((sum, term) => sum + (file.toLowerCase().includes(term) ? 3 : 0) + (title.toLowerCase().includes(term) ? 5 : 0), 0);
+        const blocks = (0, wiki_files_1.extractMarkdownBlocks)(body)
+            .map((block) => ({ block, score: scoreQueryBlock(block, terms) }))
+            .filter((item) => item.score > 0)
+            .sort((left, right) => right.score - left.score || left.block.line - right.block.line || left.block.id.localeCompare(right.block.id));
+        const topBlock = blocks[0]?.block;
+        const blockScore = blocks.slice(0, 5).reduce((sum, item) => sum + item.score, 0);
+        const score = metadataScore + blockScore;
+        return {
+            blockKind: topBlock?.kind ?? "",
+            blockLine: topBlock?.line ?? 0,
+            blockSnippet: topBlock ? (0, wiki_files_1.markdownBlockSnippet)(topBlock) : "",
+            file,
+            graphEvidence: (0, wiki_graph_1.wikiQueryGraphEvidence)(graph, file, routerDepths),
+            title,
+            score,
+            tldr: (0, wiki_files_1.firstTldrBullet)(text),
+            ...meta,
+        };
     }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
-    const results = matches.slice(0, 10);
-    const best = results[0];
-    const lines = [best
-            ? `Project wiki query "${args_1.queryTerm}": best match ${best.file} — ${best.title} (${matches.length} matching page${matches.length === 1 ? "" : "s"}, top ${results.length} shown).`
-            : `Project wiki query "${args_1.queryTerm}": no matches.`];
-    for (const item of results) {
-        lines.push(`${item.score.toString().padStart(3)}  ${item.file}  [${item.scope}|${item.status}|${item.budget}]  ${item.title}`);
+    const resultBlocks = matches.slice(0, 10).map((item) => {
+        const lines = [`${item.score.toString().padStart(3)}  ${item.file}  [${item.scope}|${item.status}|${item.budget}]  ${item.title}`];
         if (item.tldr)
             lines.push(`     tldr: ${item.tldr}`);
+        if (item.blockSnippet)
+            lines.push(`     match: ${item.blockKind}@L${item.blockLine}: ${item.blockSnippet}`);
+        if (item.graphEvidence)
+            lines.push(`     graph: ${item.graphEvidence}`);
+        return lines;
+    });
+    const selectedBlocks = [];
+    const answerBudget = wiki_graph_1.wikiAnswerCharCap - wiki_graph_1.wikiAnswerTruncationNotice.length - 1;
+    const headlineFor = (shown) => matches[0]
+        ? `Project wiki query "${args_1.queryTerm}": best match ${matches[0].file} — ${matches[0].title} (${matches.length} matching page${matches.length === 1 ? "" : "s"}, top ${shown} shown).`
+        : `Project wiki query "${args_1.queryTerm}": no matches.`;
+    for (const block of resultBlocks) {
+        const candidateBlocks = [...selectedBlocks, block];
+        const candidate = [headlineFor(candidateBlocks.length), ...candidateBlocks.flat()].join("\n");
+        if (candidate.length > answerBudget && selectedBlocks.length > 0)
+            break;
+        selectedBlocks.push(block);
     }
+    const best = matches[0];
+    const lines = [best
+            ? headlineFor(selectedBlocks.length)
+            : `Project wiki query "${args_1.queryTerm}": no matches.`];
+    for (const block of selectedBlocks)
+        lines.push(...block);
     console.log((0, wiki_graph_1.finalizeWikiAnswer)(lines.join("\n")));
 }
 // Wiki impact mode: backlink/decision_ref/routing evidence for a page so wiki

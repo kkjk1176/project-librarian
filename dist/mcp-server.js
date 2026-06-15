@@ -11,10 +11,11 @@
 // frame on \n and parse each non-empty line as one JSON-RPC message.
 //
 // Methods implemented exactly: initialize, notifications/initialized (no-op),
-// ping, tools/list, tools/call. Unknown method -> JSON-RPC -32601. Parse error ->
-// JSON-RPC -32700 with id null. These protocol error responses are MCP/JSON-RPC
-// spec compliance, NOT fallback coding: a malformed frame or unknown method has a
-// single spec-defined reply.
+// ping, resources/list, resources/read, prompts/list, prompts/get, tools/list,
+// tools/call. Unknown method -> JSON-RPC -32601. Parse error -> JSON-RPC -32700
+// with id null. These protocol error responses are MCP/JSON-RPC spec compliance,
+// NOT fallback coding: a malformed frame or unknown method has a single
+// spec-defined reply.
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -49,7 +50,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TRUST_SENTENCE = exports.TRUNCATION_NOTICE = exports.MAX_RESPONSE_CHARS = exports.SUPPORTED_PROTOCOL_VERSION = void 0;
+exports.PROMPT_TRUNCATION_NOTICE = exports.MAX_PROMPT_CHARS = exports.RESOURCE_TRUNCATION_NOTICE = exports.MAX_RESOURCE_CHARS = exports.TRUST_SENTENCE = exports.TRUNCATION_NOTICE = exports.MAX_RESPONSE_CHARS = exports.SUPPORTED_PROTOCOL_VERSION = void 0;
 exports.scaleGuidanceLines = scaleGuidanceLines;
 exports.runMcpServerMode = runMcpServerMode;
 exports.handleLine = handleLine;
@@ -66,6 +67,7 @@ exports.SUPPORTED_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSION;
 const JSONRPC_PARSE_ERROR = -32700;
 const JSONRPC_METHOD_NOT_FOUND = -32601;
 const JSONRPC_INVALID_PARAMS = -32602;
+const JSONRPC_RESOURCE_NOT_FOUND = -32002;
 // Hard cap on a single tool-result text payload. The benchmark finding is that
 // answer-shaped, bounded responses are the hypothesis under test; an unbounded
 // dump would reintroduce the tool-output cost the boundary measured. When a body
@@ -74,6 +76,14 @@ const MAX_RESPONSE_CHARS = 4000;
 exports.MAX_RESPONSE_CHARS = MAX_RESPONSE_CHARS;
 const TRUNCATION_NOTICE = "[truncated — refine the query]";
 exports.TRUNCATION_NOTICE = TRUNCATION_NOTICE;
+const MAX_RESOURCE_CHARS = 6000;
+exports.MAX_RESOURCE_CHARS = MAX_RESOURCE_CHARS;
+const RESOURCE_TRUNCATION_NOTICE = "[truncated - read the backing file directly or narrow the request]";
+exports.RESOURCE_TRUNCATION_NOTICE = RESOURCE_TRUNCATION_NOTICE;
+const MAX_PROMPT_CHARS = 6000;
+exports.MAX_PROMPT_CHARS = MAX_PROMPT_CHARS;
+const PROMPT_TRUNCATION_NOTICE = "[truncated - shorten the prompt arguments]";
+exports.PROMPT_TRUNCATION_NOTICE = PROMPT_TRUNCATION_NOTICE;
 // The trust sentence appended to every tool description (B4 analogue). It tells
 // the agent the index is authoritative for structure questions so it does not
 // re-run repo-wide greps, gated on the staleness signal that code_status reports.
@@ -96,6 +106,205 @@ function serverInfo() {
     }
 }
 // ---------------------------------------------------------------------------
+// Resources and prompts (fixed registry; no arbitrary file reads)
+// ---------------------------------------------------------------------------
+function finalizeResourceText(text) {
+    if (text.length <= MAX_RESOURCE_CHARS)
+        return text;
+    const budget = MAX_RESOURCE_CHARS - RESOURCE_TRUNCATION_NOTICE.length - 1;
+    return `${text.slice(0, budget > 0 ? budget : 0).trimEnd()}\n${RESOURCE_TRUNCATION_NOTICE}`;
+}
+function finalizePromptText(text) {
+    if (text.length <= MAX_PROMPT_CHARS)
+        return text;
+    const budget = MAX_PROMPT_CHARS - PROMPT_TRUNCATION_NOTICE.length - 1;
+    return `${text.slice(0, budget > 0 ? budget : 0).trimEnd()}\n${PROMPT_TRUNCATION_NOTICE}`;
+}
+function readProjectMarkdown(relativePath) {
+    const absolutePath = path.join(workspace_1.root, relativePath);
+    if (!fs.existsSync(absolutePath)) {
+        return `Resource unavailable: ${relativePath} is missing. Run \`project-librarian\` to bootstrap or refresh the project wiki.`;
+    }
+    return finalizeResourceText(fs.readFileSync(absolutePath, "utf8"));
+}
+function codeStatusResourceText() {
+    let opened;
+    try {
+        opened = (0, code_index_1.openCodeEvidenceDatabaseForServing)();
+    }
+    catch (error) {
+        if (error instanceof code_index_1.CodeEvidenceIndexUnavailableError) {
+            return `Code status unavailable: ${error.message}`;
+        }
+        throw error;
+    }
+    try {
+        const staleness = (0, code_index_1.codeIndexStaleness)(opened.database);
+        return finalizeResourceText(statusAnswer(opened.database, opened.relativePath, staleness));
+    }
+    finally {
+        opened.database.close();
+    }
+}
+const RESOURCES = [
+    {
+        uri: "project-librarian://wiki/startup",
+        name: "wiki-startup",
+        title: "Project Wiki Startup",
+        description: "Compact session-start project context from wiki/startup.md.",
+        mimeType: "text/markdown",
+        read: () => readProjectMarkdown("wiki/startup.md"),
+    },
+    {
+        uri: "project-librarian://wiki/index",
+        name: "wiki-index",
+        title: "Project Wiki Index",
+        description: "Project wiki router from wiki/index.md.",
+        mimeType: "text/markdown",
+        read: () => readProjectMarkdown("wiki/index.md"),
+    },
+    {
+        uri: "project-librarian://code/status",
+        name: "code-status",
+        title: "Code Evidence Status",
+        description: "Current code-evidence freshness, coverage, and scale guidance.",
+        mimeType: "text/plain",
+        read: codeStatusResourceText,
+    },
+];
+const RESOURCES_BY_URI = new Map(RESOURCES.map((resource) => [resource.uri, resource]));
+function resourceDescriptor(resource) {
+    return {
+        uri: resource.uri,
+        name: resource.name,
+        title: resource.title,
+        description: resource.description,
+        mimeType: resource.mimeType,
+        annotations: { audience: ["assistant"], priority: resource.uri === "project-librarian://code/status" ? 0.7 : 0.9 },
+    };
+}
+function readResource(uri) {
+    if (typeof uri !== "string" || uri.trim() === "") {
+        throw new ToolArgumentError("missing required string argument: uri");
+    }
+    const resource = RESOURCES_BY_URI.get(uri.trim());
+    if (!resource) {
+        throw new ResourceNotFoundError(`Resource not found: ${uri}`);
+    }
+    return {
+        contents: [{
+                uri: resource.uri,
+                mimeType: resource.mimeType,
+                text: resource.read(),
+            }],
+    };
+}
+function optionalPromptArg(args, key, placeholder) {
+    const value = args[key];
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : placeholder;
+}
+function requiredPromptArg(args, key) {
+    const value = args[key];
+    if (typeof value !== "string" || value.trim() === "") {
+        throw new ToolArgumentError(`missing required string argument: ${key}`);
+    }
+    return value.trim();
+}
+const PROMPTS = [
+    {
+        name: "wiki_taxonomy_update",
+        title: "Wiki Taxonomy Update",
+        description: "Classify and apply project-planning content through the wiki taxonomy before editing.",
+        arguments: [
+            { name: "content", description: "Project-planning content to classify and apply.", required: true },
+            { name: "target", description: "Optional intended wiki area or page." },
+        ],
+        get: (args) => {
+            const content = requiredPromptArg(args, "content");
+            const target = optionalPromptArg(args, "target", "choose the canonical, decision, source, or meta target from wiki/meta/document-taxonomy.md");
+            return [
+                "Use the Project Librarian wiki contract for this planning update.",
+                "1. Read project-librarian://wiki/startup and project-librarian://wiki/index first.",
+                "2. Classify the content with wiki/meta/document-taxonomy.md before editing.",
+                "3. Update the wiki in the same turn, then refresh the index and run wiki lint.",
+                `Target hint: ${target}`,
+                "Planning content:",
+                content,
+            ].join("\n");
+        },
+    },
+    {
+        name: "code_impact_trace",
+        title: "Code Impact Trace",
+        description: "Trace a path, symbol, route, or module through code evidence before planning a change.",
+        arguments: [
+            { name: "term", description: "Path, symbol, route, module, or concept to trace.", required: true },
+            { name: "question", description: "Optional user question or change intent." },
+        ],
+        get: (args) => {
+            const term = requiredPromptArg(args, "term");
+            const question = optionalPromptArg(args, "question", "identify impacted files, owners, imports, routes, and tests before editing");
+            return [
+                `Build a code impact trace for "${term}".`,
+                "1. Read project-librarian://code/status and stop to rebuild the index if it is stale.",
+                "2. Call code_context_pack first for bounded first-pass context.",
+                "3. Call code_impact only when deeper incoming/outgoing edge detail is needed.",
+                "4. Report paths, symbols, route handlers, import aliases, owners, and missing test coverage before editing.",
+                `Question: ${question}`,
+            ].join("\n");
+        },
+    },
+    {
+        name: "retrieval_quality_review",
+        title: "Retrieval Quality Review",
+        description: "Review whether wiki/code retrieval evidence is precise, complete, bounded, and stale-aware.",
+        arguments: [
+            { name: "query", description: "The retrieval query or task being evaluated.", required: true },
+            { name: "expected_evidence", description: "Optional expected files, blocks, symbols, or answer terms." },
+        ],
+        get: (args) => {
+            const query = requiredPromptArg(args, "query");
+            const expected = optionalPromptArg(args, "expected_evidence", "state the expected files, wiki blocks, symbols, answer terms, or say unknown");
+            return [
+                `Review retrieval quality for query "${query}".`,
+                "Use project-librarian://wiki/startup, project-librarian://wiki/index, and project-librarian://code/status as the first context sources.",
+                "Evaluate source hit rate, evidence precision, block integrity, graph hop usefulness, scan/output byte discipline, stale-state handling, and answer correctness.",
+                "Flag broad pages, hub expansion noise, source-snippet leakage, missing edge cases, and any unsupported quality claim.",
+                `Expected evidence: ${expected}`,
+            ].join("\n");
+        },
+    },
+];
+const PROMPTS_BY_NAME = new Map(PROMPTS.map((prompt) => [prompt.name, prompt]));
+function promptDescriptor(prompt) {
+    return {
+        name: prompt.name,
+        title: prompt.title,
+        description: prompt.description,
+        arguments: prompt.arguments,
+    };
+}
+function getPrompt(name, rawArgs) {
+    if (typeof name !== "string" || name.trim() === "") {
+        throw new ToolArgumentError("missing required string argument: name");
+    }
+    const prompt = PROMPTS_BY_NAME.get(name.trim());
+    if (!prompt) {
+        throw new ResourceNotFoundError(`Prompt not found: ${name}`);
+    }
+    const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs : {};
+    return {
+        description: prompt.description,
+        messages: [{
+                role: "user",
+                content: {
+                    type: "text",
+                    text: finalizePromptText(prompt.get(args)),
+                },
+            }],
+    };
+}
+// ---------------------------------------------------------------------------
 // Answer-shape helpers
 // ---------------------------------------------------------------------------
 function requireStringArg(args, key) {
@@ -107,6 +316,9 @@ function requireStringArg(args, key) {
 }
 // Thrown for bad tool arguments; surfaces as a JSON-RPC -32602 invalid params.
 class ToolArgumentError extends Error {
+}
+// Thrown for unknown fixed resources/prompts; surfaces as JSON-RPC -32002.
+class ResourceNotFoundError extends Error {
 }
 // Prepend a single staleness warning line when the index is stale, then enforce
 // the hard char cap with an explicit truncation notice. The warning is counted
@@ -264,6 +476,16 @@ function statusAnswer(database, relativePath, staleness) {
 }
 const TOOLS = [
     {
+        name: "code_context_pack",
+        description: `Budgeted first-pass context for a path, symbol, route, or module term: matching files, symbols, routes, imports, edges, owners, freshness, and scale guidance without source snippets. ${TRUST_SENTENCE}`,
+        inputSchema: {
+            type: "object",
+            properties: { term: { type: "string", description: "Path, symbol, route, module, or concept to build a compact code context pack for." } },
+            required: ["term"],
+        },
+        run: (database, args) => (0, code_index_1.codeContextPack)(database, requireStringArg(args, "term")),
+    },
+    {
         name: "code_impact",
         description: `Impact of a file, symbol, route, or module term across the indexed code: matching symbols/signatures, routes, imports, dependent edges, and impacted owners. ${TRUST_SENTENCE}`,
         inputSchema: {
@@ -380,11 +602,49 @@ function handleRequest(request) {
         case "initialize":
             return successResponse(id, {
                 protocolVersion: negotiatedProtocolVersion(request.params),
-                capabilities: { tools: {} },
+                capabilities: { tools: {}, resources: {}, prompts: {} },
                 serverInfo: serverInfo(),
             });
         case "ping":
             return successResponse(id, {});
+        case "resources/list":
+            return successResponse(id, {
+                resources: RESOURCES.map(resourceDescriptor),
+            });
+        case "resources/read": {
+            const params = request.params && typeof request.params === "object" ? request.params : {};
+            try {
+                return successResponse(id, readResource(params.uri));
+            }
+            catch (error) {
+                if (error instanceof ToolArgumentError) {
+                    return errorResponse(id, { code: JSONRPC_INVALID_PARAMS, message: error.message });
+                }
+                if (error instanceof ResourceNotFoundError) {
+                    return errorResponse(id, { code: JSONRPC_RESOURCE_NOT_FOUND, message: error.message });
+                }
+                throw error;
+            }
+        }
+        case "prompts/list":
+            return successResponse(id, {
+                prompts: PROMPTS.map(promptDescriptor),
+            });
+        case "prompts/get": {
+            const params = request.params && typeof request.params === "object" ? request.params : {};
+            try {
+                return successResponse(id, getPrompt(params.name, params.arguments));
+            }
+            catch (error) {
+                if (error instanceof ToolArgumentError) {
+                    return errorResponse(id, { code: JSONRPC_INVALID_PARAMS, message: error.message });
+                }
+                if (error instanceof ResourceNotFoundError) {
+                    return errorResponse(id, { code: JSONRPC_RESOURCE_NOT_FOUND, message: error.message });
+                }
+                throw error;
+            }
+        }
         case "tools/list":
             return successResponse(id, {
                 tools: TOOLS.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),

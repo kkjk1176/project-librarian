@@ -38,6 +38,12 @@ test("parseArgs handles code evidence aliases and comma scopes", () => {
   assert.deepEqual(parsed.codeIndexScopes, ["src", "tests", "benchmarks"]);
 });
 
+test("parseArgs handles code context pack aliases", () => {
+  const parsed = parseArgs(["--code-evidence-context-pack", "healthHandler"]);
+  assert.equal(parsed.codeContextPackMode, true);
+  assert.equal(parsed.codeContextPackTarget, "healthHandler");
+});
+
 test("parseArgs handles migration diagnostic modes", () => {
   const parsed = parseArgs(["--migration-lint", "--migration-quality-check", "--migration-doctor"]);
   assert.equal(parsed.migrationLintMode, true);

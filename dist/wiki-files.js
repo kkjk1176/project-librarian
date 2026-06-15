@@ -37,6 +37,8 @@ exports.ignoredDirs = exports.standardWikiFiles = void 0;
 exports.walkMarkdownFiles = walkMarkdownFiles;
 exports.firstHeading = firstHeading;
 exports.compactSummary = compactSummary;
+exports.markdownBlockSnippet = markdownBlockSnippet;
+exports.extractMarkdownBlocks = extractMarkdownBlocks;
 exports.splitMarkdownRow = splitMarkdownRow;
 exports.parseMarkdownTableRows = parseMarkdownTableRows;
 exports.wikiMarkdownFiles = wikiMarkdownFiles;
@@ -133,6 +135,109 @@ function compactSummary(text) {
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 180);
+}
+function slugForBlockId(value) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "block";
+}
+function isMarkdownHeading(line) {
+    return line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+}
+function isMarkdownTableSeparator(cells) {
+    return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+}
+function normalizeBlockText(text) {
+    return text.replace(/\s+/g, " ").trim();
+}
+function blockId(kind, line, text) {
+    return `${kind}:${line}:${slugForBlockId(text)}`;
+}
+function markdownBlockSnippet(block, maxLength = 180) {
+    const prefix = block.headingPath.length > 0 && block.kind !== "heading" ? `${block.headingPath.join(" > ")}: ` : "";
+    return `${prefix}${normalizeBlockText(block.text)}`.slice(0, maxLength);
+}
+function extractMarkdownBlocks(text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const lines = body.split(/\r?\n/);
+    const blocks = [];
+    const headingPath = [];
+    let paragraph = null;
+    let fence = null;
+    function addBlock(kind, line, blockText) {
+        const normalized = normalizeBlockText(blockText);
+        if (!normalized)
+            return;
+        blocks.push({
+            headingPath: [...headingPath],
+            id: blockId(kind, line, normalized),
+            kind,
+            line,
+            text: normalized,
+        });
+    }
+    function flushParagraph() {
+        if (!paragraph)
+            return;
+        addBlock("paragraph", paragraph.line, paragraph.lines.join(" "));
+        paragraph = null;
+    }
+    lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        const trimmed = line.trim();
+        const fenceMatch = trimmed.match(/^(```+|~~~+)\s*(.*)$/);
+        if (fence) {
+            const closingFence = fenceMatch?.[1] ?? "";
+            if (closingFence.startsWith(fence.fence.slice(0, 3)) && closingFence.length >= fence.fence.length) {
+                const sample = fence.lines.map((item) => item.trim()).filter(Boolean).slice(0, 3).join(" ");
+                addBlock("code_fence", fence.line, `code fence${fence.lang ? ` ${fence.lang}` : ""}: ${sample}`);
+                fence = null;
+            }
+            else {
+                fence.lines.push(line);
+            }
+            return;
+        }
+        if (fenceMatch) {
+            flushParagraph();
+            fence = { fence: fenceMatch[1] ?? "```", lang: (fenceMatch[2] ?? "").trim(), line: lineNumber, lines: [] };
+            return;
+        }
+        if (!trimmed) {
+            flushParagraph();
+            return;
+        }
+        const heading = isMarkdownHeading(line);
+        if (heading?.[1] && heading[2]) {
+            flushParagraph();
+            const level = heading[1].length;
+            const title = heading[2].trim();
+            headingPath.splice(level - 1);
+            headingPath[level - 1] = title;
+            addBlock("heading", lineNumber, title);
+            return;
+        }
+        if (/^\s{0,3}([-*+]|\d+\.)\s+\S/.test(line)) {
+            flushParagraph();
+            addBlock("list_item", lineNumber, trimmed);
+            return;
+        }
+        if (/^\|.+\|$/.test(trimmed)) {
+            flushParagraph();
+            const cells = splitMarkdownRow(line);
+            if (!isMarkdownTableSeparator(cells))
+                addBlock("table_row", lineNumber, cells.join(" | "));
+            return;
+        }
+        if (!paragraph)
+            paragraph = { line: lineNumber, lines: [] };
+        paragraph.lines.push(trimmed);
+    });
+    const unclosedFence = fence;
+    if (unclosedFence) {
+        const sample = unclosedFence.lines.map((item) => item.trim()).filter(Boolean).slice(0, 3).join(" ");
+        addBlock("code_fence", unclosedFence.line, `code fence${unclosedFence.lang ? ` ${unclosedFence.lang}` : ""}: ${sample}`);
+    }
+    flushParagraph();
+    return blocks;
 }
 function splitMarkdownRow(line) {
     const trimmed = line.trim();

@@ -60,6 +60,7 @@ grep -q -- "--incremental" help.log
 grep -q -- "--acknowledge-small-repo" help.log
 grep -q -- "--code-index-full" help.log
 grep -q -- "--code-impact" help.log
+grep -q -- "--code-context-pack" help.log
 grep -q -- "--code-parser" help.log
 grep -q -- "--code-report-section" help.log
 grep -q "project-librarian mcp" help.log
@@ -86,6 +87,11 @@ if node "$CLI" --code-impact > missing-code-impact.log 2>&1; then
   exit 1
 fi
 grep -q "missing value for option: --code-impact" missing-code-impact.log
+if node "$CLI" --code-context-pack > missing-code-context-pack.log 2>&1; then
+  echo "expected missing --code-context-pack value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-context-pack" missing-code-context-pack.log
 if node "$CLI" --code-parser > missing-code-parser.log 2>&1; then
   echo "expected missing --code-parser value to fail" >&2
   exit 1
@@ -248,12 +254,15 @@ node "$CLI" --no-git-config > mcp-rerun.log
 grep -q "exists  .mcp.json" mcp-rerun.log
 grep -q "exists  .cursor/mcp.json" mcp-rerun.log
 grep -q "exists  .gemini/settings.json mcpServers" mcp-rerun.log
-# One stdio MCP handshake against the built server: initialize + tools/list.
+# One stdio MCP handshake against the built server: initialize + tools/list +
+# resources/list + prompts/list.
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  '{"jsonrpc":"2.0","id":3,"method":"resources/list"}' \
+  '{"jsonrpc":"2.0","id":4,"method":"prompts/list"}' \
   | node "$CLI" mcp 2>/dev/null > mcp-handshake.ndjson
-node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-handshake.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const init=lines.find((m)=>m.id===1); if (!init||init.result.protocolVersion!=="2025-06-18"||!init.result.capabilities.tools) process.exit(1); if (init.result.serverInfo.name!=="project-librarian") process.exit(1); const list=lines.find((m)=>m.id===2); const names=list.result.tools.map((t)=>t.name).sort().join(","); if (names!=="code_impact,code_ownership,code_search,code_status,code_workspace_graph") process.exit(1); for (const t of list.result.tools) if (!t.description.includes("do not re-verify with repo-wide greps unless `code_status` reports staleness")) process.exit(1)'
+node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-handshake.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const init=lines.find((m)=>m.id===1); if (!init||init.result.protocolVersion!=="2025-06-18"||!init.result.capabilities.tools||!init.result.capabilities.resources||!init.result.capabilities.prompts) process.exit(1); if (init.result.serverInfo.name!=="project-librarian") process.exit(1); const list=lines.find((m)=>m.id===2); const names=list.result.tools.map((t)=>t.name).sort().join(","); if (names!=="code_context_pack,code_impact,code_ownership,code_search,code_status,code_workspace_graph") process.exit(1); for (const t of list.result.tools) if (!t.description.includes("do not re-verify with repo-wide greps unless `code_status` reports staleness")) process.exit(1); const resources=lines.find((m)=>m.id===3).result.resources.map((r)=>r.uri).sort().join(","); if (resources!=="project-librarian://code/status,project-librarian://wiki/index,project-librarian://wiki/startup") process.exit(1); const prompts=lines.find((m)=>m.id===4).result.prompts.map((p)=>p.name).sort().join(","); if (prompts!=="code_impact_trace,retrieval_quality_review,wiki_taxonomy_update") process.exit(1)'
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md
@@ -1212,6 +1221,14 @@ node "$CLI" --code-impact healthHandler > code-impact-health.json
 node -e 'const r=require("./code-impact-health.json"); if (r.target !== "healthHandler") process.exit(1); if (!r.matches.symbols.some((row) => row.name === "healthHandler")) process.exit(1); if (!r.matches.routes.some((row) => row.route === "/health")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "route_to_handler" && row.target === "healthHandler")) process.exit(1); if (!r.impacted_owners.some((row) => row.owner === "src" && row.codeowners.includes("@platform-team"))) process.exit(1)'
 node "$CLI" --code-impact express > code-impact-express.json
 node -e 'const r=require("./code-impact-express.json"); if (r.target !== "express") process.exit(1); if (!r.matches.imports.some((row) => row.to_ref === "express")) process.exit(1); if (!r.edges.incoming.some((row) => row.kind === "import" && row.target === "express")) process.exit(1)'
+node "$CLI" --code-context-pack healthHandler > code-context-pack-health.txt
+grep -q '^Code context pack "healthHandler":' code-context-pack-health.txt
+grep -q "Evidence is structural only" code-context-pack-health.txt
+grep -q "symbol-match src/app.js" code-context-pack-health.txt
+grep -q "route-match GET /health -> healthHandler" code-context-pack-health.txt
+grep -q "edge-in route_to_handler" code-context-pack-health.txt
+grep -q "owner src" code-context-pack-health.txt
+! grep -q "res.json" code-context-pack-health.txt
 # MCP server over the built index: one code_ownership call returns the
 # answer-shaped response (first-line answer + grouped CODEOWNERS evidence).
 printf '%s\n' \
