@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = void 0;
+exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -47,7 +47,9 @@ const flagsWithoutValues = new Set([
 const flagsWithValues = new Set([
     "--agents",
     "--category",
+    "--code-evidence-context-pack",
     "--code-evidence-impact",
+    "--code-context-pack",
     "--code-evidence-out",
     "--code-evidence-parser",
     "--code-evidence-query",
@@ -130,6 +132,7 @@ function parseArgs(argv) {
     const argValue = (name) => argValueFrom(commandArgs, name);
     const argValues = (name) => argValuesFrom(commandArgs, name);
     const codeImpactTarget = argValue("--code-impact") || argValue("--code-evidence-impact");
+    const codeContextPackTarget = argValue("--code-context-pack") || argValue("--code-evidence-context-pack");
     const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
     const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
     return {
@@ -139,6 +142,8 @@ function parseArgs(argv) {
         captureContent: argValue("--content"),
         captureInboxMode: args.has("--capture-inbox"),
         captureTitle: argValue("--title"),
+        codeContextPackMode: hasFlag("--code-context-pack") || hasFlag("--code-evidence-context-pack"),
+        codeContextPackTarget,
         codeFilesMode: args.has("--code-files") || args.has("--code-evidence-files"),
         codeImpactMode: hasFlag("--code-impact") || hasFlag("--code-evidence-impact"),
         codeImpactTarget,
@@ -226,6 +231,7 @@ exports.codeIndexFullMode = exports.parsedArgs.codeIndexFullMode;
 exports.codeReportMode = exports.parsedArgs.codeReportMode;
 exports.codeStatusMode = exports.parsedArgs.codeStatusMode;
 exports.codeFilesMode = exports.parsedArgs.codeFilesMode;
+exports.codeContextPackMode = exports.parsedArgs.codeContextPackMode;
 exports.codeParserMode = exports.parsedArgs.codeParserMode;
 exports.codeImpactMode = exports.parsedArgs.codeImpactMode;
 exports.codeQueryMode = exports.parsedArgs.codeQueryMode;
@@ -239,6 +245,7 @@ function argValues(name) {
 exports.queryTerm = exports.parsedArgs.queryTerm;
 exports.wikiImpactMode = exports.parsedArgs.wikiImpactMode;
 exports.wikiImpactTarget = exports.parsedArgs.wikiImpactTarget;
+exports.codeContextPackTarget = exports.parsedArgs.codeContextPackTarget;
 exports.codeImpactTarget = exports.parsedArgs.codeImpactTarget;
 exports.codeQuerySql = exports.parsedArgs.codeQuerySql;
 exports.codeReportSection = exports.parsedArgs.codeReportSection;

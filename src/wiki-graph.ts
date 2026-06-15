@@ -118,6 +118,27 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
+export function wikiQueryGraphEvidence(graph: WikiGraph, file: string, depths: Map<string, number> = wikiRouterDepths(graph), listCap = 3): string {
+  const outgoing = uniqueSorted((graph.outgoingLinks.get(file) ?? [])
+    .map((link) => link.normalizedTarget)
+    .filter((target) => target !== file && graph.files.has(target)));
+  const incoming = uniqueSorted((graph.incomingLinks.get(file) ?? [])
+    .map((link) => link.file)
+    .filter((source) => source !== file && graph.files.has(source)));
+  const incomingRefs = uniqueSorted((graph.incomingDecisionRefs.get(file) ?? [])
+    .filter((source) => source !== file && graph.files.has(source)));
+  const outgoingRef = graph.outgoingDecisionRef.get(file);
+  const depth = depths.get(file);
+  const parts = [
+    depth === undefined ? `router unreachable from ${wikiRouterRoot}` : `router depth ${depth}`,
+  ];
+  if (outgoing.length > 0) parts.push(`links-out ${outgoing.length}: ${sampled(outgoing, listCap)}`);
+  if (outgoingRef && outgoingRef !== file && graph.files.has(outgoingRef)) parts.push(`decision_ref-> ${outgoingRef}`);
+  if (incoming.length > 0) parts.push(`linked-by ${incoming.length}: ${sampled(incoming, listCap)}`);
+  if (incomingRefs.length > 0) parts.push(`decision_ref-by ${incomingRefs.length}: ${sampled(incomingRefs, listCap)}`);
+  return parts.join("; ");
+}
+
 export function wikiImpactAnswer(pages: WikiPageInput[], term: string): string {
   const graph = buildWikiGraph(pages);
   const depths = wikiRouterDepths(graph);

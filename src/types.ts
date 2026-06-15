@@ -193,10 +193,24 @@ export interface MigrationInboxEntry {
 export type StatusCounts = Partial<Record<MigrationInboxStatus, number>>;
 
 export interface QueryResult extends MetadataSummary {
+  blockKind: string;
+  blockLine: number;
+  blockSnippet: string;
   file: string;
+  graphEvidence: string;
   title: string;
   score: number;
   tldr: string;
+}
+
+export type WikiMarkdownBlockKind = "code_fence" | "heading" | "list_item" | "paragraph" | "table_row";
+
+export interface WikiMarkdownBlock {
+  headingPath: string[];
+  id: string;
+  kind: WikiMarkdownBlockKind;
+  line: number;
+  text: string;
 }
 
 export interface PruneCandidate {

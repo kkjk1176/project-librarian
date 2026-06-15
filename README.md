@@ -188,6 +188,7 @@ Code evidence:
 | Print architecture and ownership report | "Show the Project Librarian code report." | `--code-report` |
 | Print one report section | "Show the routes section of the Project Librarian code report." | `--code-report --code-report-section routes` |
 | Inspect impact evidence | "Show Project Librarian impact evidence for `healthHandler`." | `--code-impact healthHandler` |
+| Build a context pack | "Build a Project Librarian context pack for `healthHandler`." | `--code-context-pack healthHandler` |
 | Search indexed symbols | "Search Project Librarian code evidence for symbol `Auth`." | `--code-search-symbol Auth` |
 | Run conservative read-only SQL | "Run a read-only Project Librarian code evidence query for file paths." | `--code-query "select path from files order by path"` |
 
@@ -248,7 +249,9 @@ Disposable code evidence cache:
 
 ## Code Evidence MCP Server
 
-`project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no extra runtime dependencies) that serves the existing `.project-wiki` code-evidence index read-only. It exposes answer-shaped tools — `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
+`project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no extra runtime dependencies) that serves the existing `.project-wiki` code-evidence index read-only. It exposes answer-shaped tools — `code_context_pack`, `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
+
+The server also exposes fixed resources — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, and `project-librarian://code/status` — plus prompt templates for wiki taxonomy updates, code impact traces, and retrieval quality reviews. Resource reads come from a fixed URI registry rather than arbitrary filesystem paths.
 
 Bootstrap registers the server for Claude Code (`.mcp.json`), Cursor (`.cursor/mcp.json`), and Gemini CLI (`mcpServers` in `.gemini/settings.json`), preserving any existing servers and keys and reporting `exists` on a re-run. When the repository contains a local runner the registration uses `node <runner> mcp`; otherwise it uses the installed `project-librarian mcp` binary.
 
@@ -267,7 +270,7 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 5. New project-planning content is classified through `wiki/meta/document-taxonomy.md` before it is written or consolidated, keeping upstream/downstream document relationships visible.
 6. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
 7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
-8. `--code-report`, `--code-impact`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
+8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
 9. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
 Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:
@@ -339,6 +342,7 @@ Important options:
 | `--code-report` | Print architecture and ownership summaries from the evidence index. |
 | `--code-report-section <section>` | Print one section: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, or `edges`. |
 | `--code-impact <term>` | Show file, symbol, route, import, edge, and owner impact evidence. |
+| `--code-context-pack <term>` | Print a budgeted first-pass context pack with structural file, symbol, route, import, edge, and ownership evidence. |
 | `--code-search-symbol <term>` | Search indexed symbols. |
 | `--code-query <sql>` | Run conservative read-only SQL over the evidence index. |
 

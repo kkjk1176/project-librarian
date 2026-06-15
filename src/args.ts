@@ -6,6 +6,8 @@ export interface ParsedArgs {
   captureInboxMode: boolean;
   captureTitle: string;
   codeFilesMode: boolean;
+  codeContextPackMode: boolean;
+  codeContextPackTarget: string;
   codeImpactMode: boolean;
   codeImpactTarget: string;
   codeIndexFullMode: boolean;
@@ -96,7 +98,9 @@ const flagsWithoutValues: Set<string> = new Set([
 const flagsWithValues: Set<string> = new Set([
   "--agents",
   "--category",
+  "--code-evidence-context-pack",
   "--code-evidence-impact",
+  "--code-context-pack",
   "--code-evidence-out",
   "--code-evidence-parser",
   "--code-evidence-query",
@@ -179,6 +183,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const argValue = (name: string): string => argValueFrom(commandArgs, name);
   const argValues = (name: string): string[] => argValuesFrom(commandArgs, name);
   const codeImpactTarget = argValue("--code-impact") || argValue("--code-evidence-impact");
+  const codeContextPackTarget = argValue("--code-context-pack") || argValue("--code-evidence-context-pack");
   const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
   const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
   return {
@@ -188,6 +193,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     captureContent: argValue("--content"),
     captureInboxMode: args.has("--capture-inbox"),
     captureTitle: argValue("--title"),
+    codeContextPackMode: hasFlag("--code-context-pack") || hasFlag("--code-evidence-context-pack"),
+    codeContextPackTarget,
     codeFilesMode: args.has("--code-files") || args.has("--code-evidence-files"),
     codeImpactMode: hasFlag("--code-impact") || hasFlag("--code-evidence-impact"),
     codeImpactTarget,
@@ -276,6 +283,7 @@ export const codeIndexFullMode = parsedArgs.codeIndexFullMode;
 export const codeReportMode = parsedArgs.codeReportMode;
 export const codeStatusMode = parsedArgs.codeStatusMode;
 export const codeFilesMode = parsedArgs.codeFilesMode;
+export const codeContextPackMode = parsedArgs.codeContextPackMode;
 export const codeParserMode = parsedArgs.codeParserMode;
 export const codeImpactMode = parsedArgs.codeImpactMode;
 export const codeQueryMode = parsedArgs.codeQueryMode;
@@ -292,6 +300,7 @@ export function argValues(name: string): string[] {
 export const queryTerm = parsedArgs.queryTerm;
 export const wikiImpactMode = parsedArgs.wikiImpactMode;
 export const wikiImpactTarget = parsedArgs.wikiImpactTarget;
+export const codeContextPackTarget = parsedArgs.codeContextPackTarget;
 export const codeImpactTarget = parsedArgs.codeImpactTarget;
 export const codeQuerySql = parsedArgs.codeQuerySql;
 export const codeReportSection = parsedArgs.codeReportSection;

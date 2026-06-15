@@ -19,6 +19,10 @@ const test = require("node:test");
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
 const {
   MAX_RESPONSE_CHARS,
+  MAX_RESOURCE_CHARS,
+  MAX_PROMPT_CHARS,
+  PROMPT_TRUNCATION_NOTICE,
+  RESOURCE_TRUNCATION_NOTICE,
   SUPPORTED_PROTOCOL_VERSION,
   TRUNCATION_NOTICE,
   TRUST_SENTENCE,
@@ -120,7 +124,7 @@ function toolResultText(response) {
 // Protocol handshake / list / error paths
 // ---------------------------------------------------------------------------
 
-test("initialize negotiates the pinned protocol version and advertises tools capability", () => {
+test("initialize negotiates the pinned protocol version and advertises MCP capabilities", () => {
   const cwd = makeTmpDir("mcp-init-");
   try {
     const [init] = mcpExchange(cwd, [
@@ -128,7 +132,7 @@ test("initialize negotiates the pinned protocol version and advertises tools cap
     ]);
     assert.equal(init.id, 1);
     assert.equal(init.result.protocolVersion, SUPPORTED_PROTOCOL_VERSION);
-    assert.deepEqual(init.result.capabilities, { tools: {} });
+    assert.deepEqual(init.result.capabilities, { tools: {}, resources: {}, prompts: {} });
     assert.equal(init.result.serverInfo.name, "project-librarian");
     assert.equal(typeof init.result.serverInfo.version, "string");
   } finally {
@@ -164,12 +168,114 @@ test("ping returns an empty result and notifications/initialized produces no res
   }
 });
 
-test("tools/list returns all five answer-shaped tools each carrying the trust sentence", () => {
+test("resources/list exposes fixed resources and read surfaces missing backing state", () => {
+  const cwd = makeTmpDir("mcp-resources-missing-");
+  try {
+    const responses = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "resources/list" },
+      { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "project-librarian://wiki/startup" } },
+      { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "project-librarian://code/status" } },
+      { jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "project-librarian://wiki/../../secret" } },
+    ]);
+    const resources = responses[0].result.resources;
+    assert.deepEqual(resources.map((resource) => resource.uri).sort(), [
+      "project-librarian://code/status",
+      "project-librarian://wiki/index",
+      "project-librarian://wiki/startup",
+    ]);
+    assert.match(responses[1].result.contents[0].text, /Resource unavailable: wiki\/startup\.md is missing/);
+    assert.match(responses[2].result.contents[0].text, /Code status unavailable: missing code evidence index/);
+    assert.equal(responses[3].error.code, -32002);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("resources/read returns current wiki and code status resources with hard caps", () => {
+  const cwd = makeTmpDir("mcp-resources-read-");
+  try {
+    runCli(cwd, ["--no-git-config"]);
+    buildFixtureIndex(cwd);
+    const hugeStartup = [
+      "---",
+      "status: active",
+      "updated: 2026-06-15",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: resource cap test",
+      "---",
+      "",
+      "# Huge Startup",
+      "",
+      "## TL;DR",
+      "",
+      `- ${"large context ".repeat(800)}`,
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(cwd, "wiki", "startup.md"), hugeStartup);
+    const responses = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "resources/read", params: { uri: "project-librarian://wiki/startup" } },
+      { jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "project-librarian://wiki/index" } },
+      { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "project-librarian://code/status" } },
+    ]);
+    const startup = responses[0].result.contents[0].text;
+    assert.ok(startup.length <= MAX_RESOURCE_CHARS, `resource ${startup.length} exceeds cap ${MAX_RESOURCE_CHARS}`);
+    assert.ok(startup.endsWith(RESOURCE_TRUNCATION_NOTICE));
+    assert.match(responses[1].result.contents[0].text, /Language Policy/);
+    assert.match(responses[2].result.contents[0].text, /^Index \.project-wiki\/code-evidence\.sqlite is fresh/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prompts/list and prompts/get expose bounded workflow templates", () => {
+  const cwd = makeTmpDir("mcp-prompts-");
+  try {
+    const responses = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "prompts/list" },
+      { jsonrpc: "2.0", id: 2, method: "prompts/get", params: { name: "code_impact_trace", arguments: { term: "healthHandler" } } },
+      { jsonrpc: "2.0", id: 3, method: "prompts/get", params: { name: "retrieval_quality_review", arguments: {} } },
+      { jsonrpc: "2.0", id: 4, method: "prompts/get", params: { name: "not_real", arguments: {} } },
+    ]);
+    assert.deepEqual(responses[0].result.prompts.map((prompt) => prompt.name).sort(), [
+      "code_impact_trace",
+      "retrieval_quality_review",
+      "wiki_taxonomy_update",
+    ]);
+    const impactPrompt = responses[1].result.messages[0].content.text;
+    assert.match(impactPrompt, /Build a code impact trace for "healthHandler"/);
+    assert.match(impactPrompt, /Call code_context_pack first/);
+    assert.equal(responses[2].error.code, -32602);
+    assert.match(responses[2].error.message, /missing required string argument: query/);
+    assert.equal(responses[3].error.code, -32002);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("prompts/get hard-caps oversized prompt arguments with an explicit notice", () => {
+  const cwd = makeTmpDir("mcp-prompt-cap-");
+  try {
+    const hugeContent = "planning evidence ".repeat(800);
+    const [response] = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "prompts/get", params: { name: "wiki_taxonomy_update", arguments: { content: hugeContent } } },
+    ]);
+    const text = response.result.messages[0].content.text;
+    assert.ok(text.length <= MAX_PROMPT_CHARS, `prompt ${text.length} exceeds cap ${MAX_PROMPT_CHARS}`);
+    assert.ok(text.endsWith(PROMPT_TRUNCATION_NOTICE));
+    assert.match(text.split("\n")[0], /^Use the Project Librarian wiki contract/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("tools/list returns all six answer-shaped tools each carrying the trust sentence", () => {
   const cwd = makeTmpDir("mcp-list-");
   try {
     const [list] = mcpExchange(cwd, [{ jsonrpc: "2.0", id: 2, method: "tools/list" }]);
     const names = list.result.tools.map((tool) => tool.name).sort();
-    assert.deepEqual(names, ["code_impact", "code_ownership", "code_search", "code_status", "code_workspace_graph"]);
+    assert.deepEqual(names, ["code_context_pack", "code_impact", "code_ownership", "code_search", "code_status", "code_workspace_graph"]);
     for (const tool of list.result.tools) {
       assert.ok(tool.description.includes(TRUST_SENTENCE), `${tool.name} description must end with the trust sentence`);
       assert.equal(tool.inputSchema.type, "object");
@@ -189,7 +295,7 @@ test("tools/list works even without an index (only tools/call reports the missin
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
       { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "code_status", arguments: {} } },
     ]);
-    assert.equal(responses[0].result.tools.length, 5);
+    assert.equal(responses[0].result.tools.length, 6);
     assert.equal(responses[1].result.isError, true);
     assert.match(toolResultText(responses[1]), /run `project-librarian --code-index`/);
   } finally {
@@ -280,6 +386,26 @@ test("code_impact answers with a mechanism summary plus grouped symbol/route/edg
     assert.match(text, /Symbols:/);
     assert.match(text, /src\/app\.js:\d+ function healthHandler/);
     assert.match(text, /GET \/health -> healthHandler/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code_context_pack answers with budgeted structural context and no source snippets", () => {
+  const cwd = makeTmpDir("mcp-context-");
+  try {
+    buildFixtureIndex(cwd);
+    const [response] = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "code_context_pack", arguments: { term: "healthHandler" } } },
+    ]);
+    const text = toolResultText(response);
+    assert.match(text.split("\n")[0], /^Code context pack "healthHandler": /);
+    assert.match(text, /Symbols:/);
+    assert.match(text, /symbol-match src\/app\.js:\d+ function healthHandler/);
+    assert.match(text, /route-match GET \/health -> healthHandler/);
+    assert.match(text, /Evidence is structural only/);
+    assert.doesNotMatch(text, /res\.json\(\{ ok: true \}\)/);
+    assert.ok(text.length <= MAX_RESPONSE_CHARS, `response ${text.length} exceeds cap ${MAX_RESPONSE_CHARS}`);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

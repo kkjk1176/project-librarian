@@ -188,6 +188,7 @@ npx project-librarian install-skill --scope project --agents all
 | 아키텍처/소유권 보고서 출력 | "Project Librarian 코드 보고서를 보여줘." | `--code-report` |
 | 보고서 섹션 하나만 출력 | "Project Librarian 코드 보고서의 routes 섹션을 보여줘." | `--code-report --code-report-section routes` |
 | 영향 근거 확인 | "`healthHandler`에 대한 Project Librarian 영향 근거를 보여줘." | `--code-impact healthHandler` |
+| 컨텍스트 팩 생성 | "`healthHandler`에 대한 Project Librarian 컨텍스트 팩을 만들어줘." | `--code-context-pack healthHandler` |
 | 인덱싱된 심볼 검색 | "Project Librarian 코드 근거에서 `Auth` 심볼을 찾아줘." | `--code-search-symbol Auth` |
 | 보수적인 읽기 전용 SQL 실행 | "파일 경로를 확인하는 읽기 전용 Project Librarian 코드 근거 쿼리를 실행해줘." | `--code-query "select path from files order by path"` |
 
@@ -248,7 +249,9 @@ MCP 서버 등록 (`mcpServers`에 기존 항목 보존하며 병합):
 
 ## 코드 근거 MCP 서버
 
-`project-librarian mcp`는 직접 구현한 stdio MCP 서버(줄바꿈 구분 JSON 위의 JSON-RPC 2.0, 추가 런타임 의존성 없음)를 실행해 기존 `.project-wiki` 코드 근거 인덱스를 읽기 전용으로 제공합니다. 답변 형태 도구 — `code_impact`, `code_ownership`(CODEOWNERS 마지막 일치 우선순위), `code_workspace_graph`, `code_search`, `code_status` — 를 노출하며, 각 응답은 한 줄 답변으로 시작해 간결한 경로/심볼/시그니처 근거가 뒤따르고, 응답마다 길이를 제한하며, `code_status`가 인덱스가 오래되었다고 보고하면 경고를 앞에 붙입니다.
+`project-librarian mcp`는 직접 구현한 stdio MCP 서버(줄바꿈 구분 JSON 위의 JSON-RPC 2.0, 추가 런타임 의존성 없음)를 실행해 기존 `.project-wiki` 코드 근거 인덱스를 읽기 전용으로 제공합니다. 답변 형태 도구 — `code_context_pack`, `code_impact`, `code_ownership`(CODEOWNERS 마지막 일치 우선순위), `code_workspace_graph`, `code_search`, `code_status` — 를 노출하며, 각 응답은 한 줄 답변으로 시작해 간결한 경로/심볼/시그니처 근거가 뒤따르고, 응답마다 길이를 제한하며, `code_status`가 인덱스가 오래되었다고 보고하면 경고를 앞에 붙입니다.
+
+서버는 고정 리소스 — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, `project-librarian://code/status` — 와 위키 분류 갱신, 코드 영향 추적, 검색 품질 검토용 프롬프트 템플릿도 제공합니다. 리소스 읽기는 임의 파일 경로가 아니라 고정 URI 레지스트리에서만 처리합니다.
 
 부트스트랩은 Claude Code(`.mcp.json`), Cursor(`.cursor/mcp.json`), Gemini CLI(`.gemini/settings.json`의 `mcpServers`)에 서버를 등록하며, 기존 서버와 키를 보존하고 다시 실행하면 `exists`를 보고합니다. 저장소에 로컬 실행 경로가 있으면 `node <runner> mcp`로, 없으면 설치된 `project-librarian mcp` 바이너리로 등록합니다.
 
@@ -267,7 +270,7 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 5. 새 프로젝트 계획 내용은 작성하거나 취합하기 전에 `wiki/meta/document-taxonomy.md`로 분류해 상위/하위 문서 관계가 보이도록 유지합니다.
 6. `--refresh-index`는 새로 발견한 위키 페이지를 라우팅하며, route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 분리합니다.
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
-8. `--code-report`, `--code-impact`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
+8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
 9. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
 
 마이그레이션은 검토를 우선합니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 legacy 파일은 제외한 뒤, 여러 성격의 내용이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 문서 분류 체계에 따라 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.
@@ -339,6 +342,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--
 | `--code-report` | 근거 인덱스에서 아키텍처/소유권 요약을 출력합니다. |
 | `--code-report-section <section>` | 한 섹션만 출력: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, `edges`. |
 | `--code-impact <term>` | 파일, 심볼, route, import, edge, 소유자 영향 근거를 보여줍니다. |
+| `--code-context-pack <term>` | 구조적 파일, 심볼, route, import, edge, 소유권 근거를 담은 예산 제한 1차 컨텍스트 팩을 출력합니다. |
 | `--code-search-symbol <term>` | 인덱싱된 심볼을 검색합니다. |
 | `--code-query <sql>` | 근거 인덱스에 대해 보수적인 읽기 전용 SQL을 실행합니다. |
 

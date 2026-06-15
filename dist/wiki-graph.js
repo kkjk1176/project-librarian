@@ -4,6 +4,7 @@ exports.wikiAnswerTruncationNotice = exports.wikiAnswerCharCap = exports.wikiRou
 exports.finalizeWikiAnswer = finalizeWikiAnswer;
 exports.buildWikiGraph = buildWikiGraph;
 exports.wikiRouterDepths = wikiRouterDepths;
+exports.wikiQueryGraphEvidence = wikiQueryGraphEvidence;
 exports.wikiImpactAnswer = wikiImpactAnswer;
 const wiki_files_1 = require("./wiki-files");
 const workspace_1 = require("./workspace");
@@ -98,6 +99,30 @@ function uniqueSorted(values) {
 }
 function plural(count, noun) {
     return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+function wikiQueryGraphEvidence(graph, file, depths = wikiRouterDepths(graph), listCap = 3) {
+    const outgoing = uniqueSorted((graph.outgoingLinks.get(file) ?? [])
+        .map((link) => link.normalizedTarget)
+        .filter((target) => target !== file && graph.files.has(target)));
+    const incoming = uniqueSorted((graph.incomingLinks.get(file) ?? [])
+        .map((link) => link.file)
+        .filter((source) => source !== file && graph.files.has(source)));
+    const incomingRefs = uniqueSorted((graph.incomingDecisionRefs.get(file) ?? [])
+        .filter((source) => source !== file && graph.files.has(source)));
+    const outgoingRef = graph.outgoingDecisionRef.get(file);
+    const depth = depths.get(file);
+    const parts = [
+        depth === undefined ? `router unreachable from ${exports.wikiRouterRoot}` : `router depth ${depth}`,
+    ];
+    if (outgoing.length > 0)
+        parts.push(`links-out ${outgoing.length}: ${sampled(outgoing, listCap)}`);
+    if (outgoingRef && outgoingRef !== file && graph.files.has(outgoingRef))
+        parts.push(`decision_ref-> ${outgoingRef}`);
+    if (incoming.length > 0)
+        parts.push(`linked-by ${incoming.length}: ${sampled(incoming, listCap)}`);
+    if (incomingRefs.length > 0)
+        parts.push(`decision_ref-by ${incomingRefs.length}: ${sampled(incomingRefs, listCap)}`);
+    return parts.join("; ");
 }
 function wikiImpactAnswer(pages, term) {
     const graph = buildWikiGraph(pages);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { acknowledgeSmallRepoMode, captureInboxMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode } from "./args";
+import { acknowledgeSmallRepoMode, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode } from "./args";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
@@ -53,10 +53,11 @@ Options:
   --code-report                    Print architecture and ownership summaries from the code evidence index.
   --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
   --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
+  --code-context-pack <term>       Print a budgeted first-pass code context pack for a path, symbol, route, or module term.
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
-  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
+  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
 }
@@ -154,9 +155,9 @@ if (command === "mcp") {
 }
 
 function runInitCommand(): void {
-const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
+const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeContextPackMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
 if (activeCodeModes > 1) {
-  console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
+  console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
   process.exit(1);
 }
 
@@ -182,6 +183,11 @@ if (codeFilesMode) {
 }
 if (codeImpactMode) {
   codeIndex().runCodeImpactMode();
+  exitAfterStdoutDrain(0);
+  return;
+}
+if (codeContextPackMode) {
+  codeIndex().runCodeContextPackMode();
   exitAfterStdoutDrain(0);
   return;
 }

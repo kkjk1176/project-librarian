@@ -2,9 +2,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
-import { acknowledgeSmallRepoMode, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase, type SqliteStatement, type SqliteValue } from "./code-index-db";
-import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, isJavaScriptLike, maxIndexedBytes, smallRepoCodeIndexGate } from "./code-index-file-policy";
+import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, isJavaScriptLike, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
 import { abs, mkdirp, normalizePath, root } from "./workspace";
 
@@ -100,6 +100,7 @@ type ExtractionStrength = "structural" | "light" | "config" | "inventory";
 type TreeSitterGenericLanguage = "c" | "cpp" | "csharp" | "java" | "kotlin" | "php" | "rust" | "swift";
 
 interface CodeEvidenceModeFlags {
+  codeContextPackTarget: string;
   codeFilesMode: boolean;
   codeImpactMode: boolean;
   codeIndexMode: boolean;
@@ -108,6 +109,14 @@ interface CodeEvidenceModeFlags {
   codeSearchSymbol: string;
   codeStatusMode: boolean;
 }
+
+interface RankedRow {
+  row: Record<string, unknown>;
+  score: number;
+}
+
+export const codeContextPackCharCap = 4000;
+export const codeContextPackTruncationNotice = "[truncated - refine the query]";
 
 interface TreeSitterPoint {
   column: number;
@@ -1634,14 +1643,148 @@ function codeReportForRequestedSection(database: SqliteDatabase): Record<string,
   };
 }
 
+function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function containsLikePattern(term: string): string {
+  return `%${escapeLikeTerm(term)}%`;
+}
+
+function prefixLikePattern(term: string): string {
+  return `${escapeLikeTerm(term)}%`;
+}
+
+function ftsPrefixQuery(term: string): string {
+  const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+  return tokens.slice(0, 8).map((token) => `"${token.replace(/"/g, "\"\"")}"*`).join(" AND ");
+}
+
+function stringValue(row: Record<string, unknown>, key: string): string {
+  const value = row[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function addRankedRow(rowsByKey: Map<string, RankedRow>, row: Record<string, unknown>, key: string, score: number): void {
+  const current = rowsByKey.get(key);
+  if (!current || score > current.score) rowsByKey.set(key, { row, score });
+}
+
+function rankedRows(rowsByKey: Map<string, RankedRow>, limit: number, stableKeys: string[]): Record<string, unknown>[] {
+  return Array.from(rowsByKey.values())
+    .sort((left, right) => {
+      const scoreDelta = right.score - left.score;
+      if (scoreDelta !== 0) return scoreDelta;
+      for (const key of stableKeys) {
+        const compared = stringValue(left.row, key).localeCompare(stringValue(right.row, key));
+        if (compared !== 0) return compared;
+      }
+      return 0;
+    })
+    .slice(0, limit)
+    .map((ranked) => ranked.row);
+}
+
+function searchFiles(database: SqliteDatabase, term: string, limit = 25): Record<string, unknown>[] {
+  const normalized = term.trim();
+  if (!normalized) return [];
+  const contains = containsLikePattern(normalized);
+  const prefix = prefixLikePattern(normalized);
+  const rowsByKey = new Map<string, RankedRow>();
+  const exactRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path = ? ORDER BY path LIMIT ?").all(normalized, limit);
+  exactRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 900));
+  const prefixRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(prefix, limit);
+  prefixRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 750));
+
+  const ftsQuery = ftsPrefixQuery(normalized);
+  if (ftsQuery) {
+    const ftsRows = database.prepare(`
+      SELECT files.path, files.language, files.profile, files.lines, files.bytes
+      FROM files_fts
+      JOIN files ON files.path = files_fts.path
+      WHERE files_fts MATCH ?
+      ORDER BY bm25(files_fts, 8.0, 1.0, 1.0, 0.25), files.path
+      LIMIT ?
+    `).all(ftsQuery, limit);
+    ftsRows.forEach((row, index) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 650 - index));
+  }
+
+  const containsRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(contains, limit);
+  containsRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 500));
+  return rankedRows(rowsByKey, limit, ["path"]);
+}
+
+function symbolKey(row: Record<string, unknown>): string {
+  return [
+    stringValue(row, "file_path"),
+    stringValue(row, "line"),
+    stringValue(row, "kind"),
+    stringValue(row, "name"),
+    stringValue(row, "signature"),
+  ].join("\u0000");
+}
+
+export function searchSymbols(database: SqliteDatabase, term: string, limit = 50): Record<string, unknown>[] {
+  const normalized = term.trim();
+  if (!normalized) return [];
+  const contains = containsLikePattern(normalized);
+  const prefix = prefixLikePattern(normalized);
+  const rowsByKey = new Map<string, RankedRow>();
+  const exactRows = database.prepare(`
+    SELECT name, kind, file_path, line, signature
+    FROM symbols
+    WHERE name = ? OR signature = ?
+    ORDER BY file_path, line
+    LIMIT ?
+  `).all(normalized, normalized, limit);
+  exactRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 1000));
+
+  const prefixRows = database.prepare(`
+    SELECT name, kind, file_path, line, signature
+    FROM symbols
+    WHERE name LIKE ? ESCAPE '\\' OR signature LIKE ? ESCAPE '\\'
+    ORDER BY file_path, line
+    LIMIT ?
+  `).all(prefix, prefix, limit);
+  prefixRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 850));
+
+  const ftsQuery = ftsPrefixQuery(normalized);
+  if (ftsQuery) {
+    const ftsRows = database.prepare(`
+      SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature
+      FROM symbols_fts
+      JOIN symbols
+        ON symbols.name = symbols_fts.name
+       AND symbols.kind = symbols_fts.kind
+       AND symbols.file_path = symbols_fts.file_path
+       AND symbols.signature = symbols_fts.signature
+      WHERE symbols_fts MATCH ?
+      ORDER BY bm25(symbols_fts, 8.0, 1.0, 4.0, 2.0), symbols.file_path, symbols.line
+      LIMIT ?
+    `).all(ftsQuery, limit);
+    ftsRows.forEach((row, index) => addRankedRow(rowsByKey, row, symbolKey(row), 700 - index));
+  }
+
+  const containsRows = database.prepare(`
+    SELECT name, kind, file_path, line, signature
+    FROM symbols
+    WHERE name LIKE ? ESCAPE '\\' OR signature LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\'
+    ORDER BY file_path, line
+    LIMIT ?
+  `).all(contains, contains, contains, limit);
+  containsRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 500));
+  return rankedRows(rowsByKey, limit, ["file_path", "line", "kind", "name", "signature"]);
+}
+
 export function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
-  const like = `%${target}%`;
-  const fileMatches = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ORDER BY path LIMIT 25").all(like);
-  const symbolMatches = database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
-  const routeMatches = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? OR handler LIKE ? OR file_path LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like, like);
-  const importMatches = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? OR to_ref LIKE ? OR imported LIKE ? ORDER BY from_file, line LIMIT 75").all(like, like, like);
-  const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? OR source LIKE ? ORDER BY file_path, line LIMIT 100").all(like, like);
-  const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ORDER BY file_path, line LIMIT 100").all(like);
+  const normalized = target.trim();
+  const like = containsLikePattern(normalized);
+  const fileMatches = searchFiles(database, normalized, 25);
+  const symbolMatches = searchSymbols(database, normalized, 50);
+  const routeMatches = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 50").all(like, like, like);
+  const importMatches = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 75").all(like, like, like);
+  const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like, like);
+  const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like);
   const routeTargets = routeMatches.map((row) => `${String(row.method)} ${String(row.route)}`);
   const routeEdges = routeTargets.length === 0 ? [] : database.prepare(`SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE source IN (${routeTargets.map(() => "?").join(", ")}) ORDER BY file_path, line LIMIT 100`).all(...routeTargets);
   const relatedFilePaths = Array.from(new Set([
@@ -1695,11 +1838,131 @@ export function codeImpact(database: SqliteDatabase, target: string): Record<str
   };
 }
 
-// Symbol search reusing the exact SELECT behind --code-search-symbol so the MCP
-// code_search tool returns identical rows without duplicating the query string.
-export function searchSymbols(database: SqliteDatabase, term: string): Record<string, unknown>[] {
-  const like = `%${term}%`;
-  return database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like);
+function sampleLines<T>(items: T[], limit: number, render: (item: T) => string): string[] {
+  const lines = items.slice(0, limit).map(render);
+  if (items.length > limit) lines.push(`  ...+${items.length - limit} more`);
+  return lines;
+}
+
+function pushBudgetedLine(lines: string[], line: string): boolean {
+  const candidate = [...lines, line].join("\n");
+  if (candidate.length > codeContextPackCharCap) return false;
+  lines.push(line);
+  return true;
+}
+
+function pushBudgetedSection<T>(lines: string[], title: string, items: T[], limit: number, render: (item: T) => string): void {
+  if (items.length === 0) return;
+  if (!pushBudgetedLine(lines, title)) return;
+  for (const line of sampleLines(items, limit, render)) {
+    if (!pushBudgetedLine(lines, line)) {
+      pushBudgetedLine(lines, "  ...more omitted; refine the query");
+      return;
+    }
+  }
+}
+
+function finalizeCodeContextPack(body: string): string {
+  if (body.length <= codeContextPackCharCap) return body;
+  const budget = codeContextPackCharCap - codeContextPackTruncationNotice.length - 1;
+  return `${body.slice(0, budget > 0 ? budget : 0).trimEnd()}\n${codeContextPackTruncationNotice}`;
+}
+
+function codeContextScaleLine(fileCount: number): string {
+  return fileCount < SMALL_REPO_FILE_THRESHOLD
+    ? `scale small (${fileCount} indexed files < ${SMALL_REPO_FILE_THRESHOLD}); direct reads are usually cheaper for simple lookups`
+    : `scale large (${fileCount} indexed files >= ${SMALL_REPO_FILE_THRESHOLD}); indexed traversal is useful for impact-style context`;
+}
+
+function structuralSignature(value: unknown): string {
+  const signature = oneLine(String(value ?? ""));
+  const bodyStart = signature.indexOf("{");
+  return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
+}
+
+function sortedUnique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean))).sort();
+}
+
+export function codeContextPack(database: SqliteDatabase, query: string): string {
+  const normalized = query.trim();
+  if (!normalized) return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
+  const like = containsLikePattern(normalized);
+  const files = searchFiles(database, normalized, 12);
+  const symbols = searchSymbols(database, normalized, 20);
+  const routes = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 20").all(like, like, like);
+  const imports = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 30").all(like, like, like);
+  const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 30").all(like, like, like);
+  const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 30").all(like, like);
+  const relatedFilePaths = sortedUnique([
+    ...files.map((row) => String(row.path ?? "")),
+    ...symbols.map((row) => String(row.file_path ?? "")),
+    ...routes.map((row) => String(row.file_path ?? "")),
+    ...imports.map((row) => String(row.from_file ?? "")),
+    ...outgoingEdges.map((row) => String(row.file_path ?? "")),
+    ...incomingEdges.map((row) => String(row.file_path ?? "")),
+  ]);
+  const ownership = ownershipContext();
+  const ownerRows = new Map<string, { files: number; owner: string; owner_source: string; sample_files: string[] }>();
+  for (const filePath of relatedFilePaths) {
+    const info = ownershipInfo(filePath, ownership);
+    const current = ownerRows.get(info.owner) ?? { files: 0, owner: info.owner, owner_source: info.owner_source, sample_files: [] };
+    current.files += 1;
+    if (current.sample_files.length < 4) current.sample_files.push(filePath);
+    ownerRows.set(info.owner, current);
+  }
+  const owners = Array.from(ownerRows.values()).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner));
+  const staleness = codeIndexStaleness(database);
+  const coverage = evidenceCoverage(database);
+  const staleLabel = staleness.stale
+    ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`
+    : "fresh";
+
+  const lines = [
+    `Code context pack "${normalized}": ${files.length} file matches, ${symbols.length} symbols, ${routes.length} routes, ${imports.length} imports, ${incomingEdges.length} incoming / ${outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
+    "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
+  ];
+  pushBudgetedSection(lines, "Files:", files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
+  pushBudgetedSection(lines, "Symbols:", symbols, 12, (row) => `  symbol-match ${String(row.file_path)}:${String(row.line)} ${String(row.kind)} ${String(row.name)} - ${structuralSignature(row.signature)}`);
+  pushBudgetedSection(lines, "Routes:", routes, 8, (row) => `  route-match ${String(row.method)} ${String(row.route)} -> ${String(row.handler)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Imports:", imports, 8, (row) => `  import-match ${String(row.from_file)}:${String(row.line)} -> ${String(row.to_ref)}${row.imported ? ` (${String(row.imported)})` : ""}`);
+  pushBudgetedSection(lines, "Incoming edges:", incomingEdges, 8, (row) => `  edge-in ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Outgoing edges:", outgoingEdges, 8, (row) => `  edge-out ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Owners:", owners, 6, (row) => `  owner ${row.owner} (${row.owner_source}, ${row.files} files): ${row.sample_files.join(", ")}`);
+  return finalizeCodeContextPack(lines.join("\n"));
+}
+
+export type CodeIndexSnapshotRow = Record<string, SqliteValue>;
+
+export interface CodeIndexSnapshot {
+  configs: CodeIndexSnapshotRow[];
+  edges: CodeIndexSnapshotRow[];
+  files: CodeIndexSnapshotRow[];
+  imports: CodeIndexSnapshotRow[];
+  routes: CodeIndexSnapshotRow[];
+  symbols: CodeIndexSnapshotRow[];
+}
+
+function snapshotRows(database: SqliteDatabase, sql: string): CodeIndexSnapshotRow[] {
+  return database.prepare(sql).all().map((row) => {
+    const normalized: CodeIndexSnapshotRow = {};
+    for (const key of Object.keys(row).sort()) {
+      const value = row[key];
+      normalized[key] = typeof value === "string" || typeof value === "number" || value === null ? value : String(value);
+    }
+    return normalized;
+  });
+}
+
+export function codeIndexSnapshot(database: SqliteDatabase): CodeIndexSnapshot {
+  return {
+    configs: snapshotRows(database, "SELECT file_path, line, key, value FROM configs ORDER BY file_path, line, key, value"),
+    edges: snapshotRows(database, "SELECT file_path, line, kind, source_kind, source, target_kind, target, evidence FROM edges ORDER BY file_path, line, kind, source, target, evidence"),
+    files: snapshotRows(database, "SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path"),
+    imports: snapshotRows(database, "SELECT from_file, line, to_ref, imported, raw FROM imports ORDER BY from_file, line, to_ref, imported, raw"),
+    routes: snapshotRows(database, "SELECT file_path, line, method, route, handler FROM routes ORDER BY file_path, line, method, route, handler"),
+    symbols: snapshotRows(database, "SELECT file_path, line, kind, name, signature FROM symbols ORDER BY file_path, line, kind, name, signature"),
+  };
 }
 
 // Error thrown when the code-evidence index is missing or schema-incompatible.
@@ -1899,6 +2162,21 @@ export function runCodeImpactMode(): void {
   }
 }
 
+export function runCodeContextPackMode(): void {
+  if (!codeContextPackTarget.trim()) {
+    console.error("missing context pack query: use --code-context-pack \"path-or-symbol-or-route\"");
+    process.exit(1);
+  }
+  requireExistingIndex();
+  const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
+  try {
+    warnIfCodeIndexStale(database);
+    console.log(codeContextPack(database, codeContextPackTarget.trim()));
+  } finally {
+    database.close();
+  }
+}
+
 export function runCodeSearchSymbolMode(): void {
   if (!codeSearchSymbol.trim()) {
     console.error("missing symbol search term: use --code-search-symbol \"term\"");
@@ -1908,19 +2186,19 @@ export function runCodeSearchSymbolMode(): void {
   const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
   try {
     warnIfCodeIndexStale(database);
-    const like = `%${codeSearchSymbol}%`;
-    printRows(database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like));
+    printRows(searchSymbols(database, codeSearchSymbol.trim()));
   } finally {
     database.close();
   }
 }
 
 export function isCodeEvidenceMode(): boolean {
-  return isCodeEvidenceModeFor({ codeFilesMode, codeImpactMode, codeIndexMode, codeQuerySql, codeReportMode, codeSearchSymbol, codeStatusMode });
+  return isCodeEvidenceModeFor({ codeContextPackTarget, codeFilesMode, codeImpactMode, codeIndexMode, codeQuerySql, codeReportMode, codeSearchSymbol, codeStatusMode });
 }
 
 export function isCodeEvidenceModeFor(flags: CodeEvidenceModeFlags): boolean {
-  return flags.codeIndexMode
+  return Boolean(flags.codeContextPackTarget)
+    || flags.codeIndexMode
     || Boolean(flags.codeQuerySql)
     || flags.codeReportMode
     || flags.codeStatusMode

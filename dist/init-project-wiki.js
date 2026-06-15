@@ -49,10 +49,11 @@ Options:
   --code-report                    Print architecture and ownership summaries from the code evidence index.
   --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
   --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
+  --code-context-pack <term>       Print a budgeted first-pass code context pack for a path, symbol, route, or module term.
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
-  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
+  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
 }
@@ -134,9 +135,9 @@ else {
     runInitCommand();
 }
 function runInitCommand() {
-    const activeCodeModes = [args_1.codeQueryMode, args_1.codeReportMode, args_1.codeStatusMode, args_1.codeFilesMode, args_1.codeImpactMode, args_1.codeSearchSymbolMode, args_1.codeIndexMode].filter(Boolean).length;
+    const activeCodeModes = [args_1.codeQueryMode, args_1.codeReportMode, args_1.codeStatusMode, args_1.codeFilesMode, args_1.codeImpactMode, args_1.codeContextPackMode, args_1.codeSearchSymbolMode, args_1.codeIndexMode].filter(Boolean).length;
     if (activeCodeModes > 1) {
-        console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, or --code-search-symbol.");
+        console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
         process.exit(1);
     }
     if (args_1.codeQueryMode) {
@@ -161,6 +162,11 @@ function runInitCommand() {
     }
     if (args_1.codeImpactMode) {
         codeIndex().runCodeImpactMode();
+        exitAfterStdoutDrain(0);
+        return;
+    }
+    if (args_1.codeContextPackMode) {
+        codeIndex().runCodeContextPackMode();
         exitAfterStdoutDrain(0);
         return;
     }
