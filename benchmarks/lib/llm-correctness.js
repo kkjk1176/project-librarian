@@ -40,14 +40,14 @@ const expectations = {
     forbidden_terms: ["I cannot access"],
   },
   code_impact: {
-    required_terms: ["benchmark", "schema"],
-    any_terms: [["report", "runner", "tests"]],
+    required_terms: ["benchmark"],
+    any_terms: [["schema", "shape", "format", "field", "JSONL", "codex-jsonl"], ["report", "runner", "tests"]],
     evidence_by_condition: {
-      with_project_librarian: [["wiki/canonical/code-impact.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+      with_project_librarian: [["wiki/canonical/code-impact.md"], ["benchmarks/lib/codex-jsonl.js", "benchmarks/lib/llm-correctness.js"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
       without_project_librarian: {
-        curated: [["docs/code-impact.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
-        organic: [["docs/architecture/modules.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
-        bare: [["docs/NOTES.md"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+        curated: [["docs/code-impact.md"], ["benchmarks/lib/codex-jsonl.js", "benchmarks/lib/llm-correctness.js"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+        organic: [["docs/architecture/modules.md"], ["benchmarks/lib/codex-jsonl.js", "benchmarks/lib/llm-correctness.js"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
+        bare: [["docs/NOTES.md"], ["benchmarks/lib/codex-jsonl.js", "benchmarks/lib/llm-correctness.js"], ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js"], ["tests/validators/codex-llm-benchmark-smoke.js"]],
       },
     },
     forbidden_terms: ["I cannot access"],
