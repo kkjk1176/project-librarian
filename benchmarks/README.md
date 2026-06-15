@@ -6,10 +6,10 @@ Project Librarian benchmark evidence is based on actual Codex JSONL usage and lo
 
 The benchmark measures two product tracks and reports them separately (no merged cross-track headline):
 
-- **Wiki track** (`benchmark_track: wiki`) measures wiki canonical routing. Families: `onboarding`, `decision_lookup`, `code_impact`, `release_policy`, `change_location`, plus the A3 families `multi_session` and `aggregation` (see below). The first five answers are planted as doc-lookup sentences in both the with-Project-Librarian wiki and the control `docs/`, so they measure document routing. `code_impact` and `change_location` keep their names and prompts for comparability with the 2026-06-10 report even though they are wiki-track doc lookups.
-- **Code-graph track** (`benchmark_track: code_graph`) measures the code-evidence index. Families (A7 traversal questions): `impact_trace` (the transitive importer set of a named module along the intra-workspace import chain), `ownership_lookup` (the CODEOWNERS last-match-precedence owner of a multi-rule path plus the full set of files that owner owns), `workspace_graph` (the transitive `package.json` dependency set of the deepest workspace along the dependency spine). Their answers are derivable only from code-derived evidence (import edges, CODEOWNERS rules, the workspace dependency graph) and require following multi-hop edges, never reading a planted doc sentence or one tiny file.
+- **Wiki track** (`benchmark_track: wiki`) measures wiki canonical routing. Synthetic families: `onboarding`, `decision_lookup`, `code_impact`, `release_policy`, `change_location`, plus the A3 families `multi_session` and `aggregation` (see below). The first five answers are planted as doc-lookup sentences in both the with-Project-Librarian wiki and the control `docs/`, so they measure document routing. `code_impact` and `change_location` keep their names and prompts for comparability with the 2026-06-10 report even though they are wiki-track doc lookups.
+- **Code-graph track** (`benchmark_track: code_graph`) measures the code-evidence index in the real-repository corpus (`--corpus real`). The current synthetic matrix no longer includes synthetic code-graph families; those historical fixtures were removed when the real-corpus harness became the code-graph owner.
 
-The full matrix is 10 task families (5 scenarios per family across 3 scales × 2 conditions = 60 scenarios) once the A3 families are included.
+The current synthetic full matrix is 7 task families across 3 scales × 2 conditions = 42 scenarios.
 
 Both conditions share the same base repo, so the control can still answer code-graph questions by grepping `packages/` and `CODEOWNERS` — that is the intended comparison.
 
@@ -17,9 +17,9 @@ Code-graph correctness is computed deterministically at fixture-generation time 
 
 A **docs-only answerability gate** runs at fixture build time: for each code-graph scenario, the distinctive expected-answer key terms must appear in no `*.md` file under either condition root (including pages the product itself generates). A violation throws an error naming the file and term; there is no warn-and-continue.
 
-### A7 structural bounds (code-graph fixture depth)
+### Historical A7 structural bounds (pre-real-corpus synthetic code graph)
 
-The code-graph fixtures encode scale-proportional structural realism so the three questions require genuine traversal, not a single tiny read — fixtures encode bounds, never a desired delta. Each scale carries explicit minimums that the generators meet and a build-time `assertCodeStructureBounds` enforces (hard fail, no fallback, error names the violated bound):
+This section documents the historical synthetic code-graph fixture design used before code-graph measurement moved to the real-repository corpus. The current synthetic matrix is wiki-only; use `--corpus real` for current code-graph measurements. The old code-graph fixtures encoded scale-proportional structural realism so the three questions required genuine traversal, not a single tiny read — fixtures encoded bounds, never a desired delta. Each scale carried explicit minimums that the generators met and a build-time `assertCodeStructureBounds` enforced (hard fail, no fallback, error names the violated bound):
 
 - **CODEOWNERS rule count** scales with size (small ~20, medium ~80, large ~250+). The rules overlap by design — a catch-all `*`, interleaved extension rules (`*.go`, `*.ts`, …), per-workspace directory rules, per-workspace `src/` overrides, and a `/packages/workspace-0/src/service/` override — so the `ownership_lookup` answer requires evaluating **last-matching-rule-wins precedence**. The named path `packages/workspace-0/src/service/handler.go` is matched by five rules; the winning owner (`@benchmark-service-team`) is the last match, not the `*.go` extension owner a grep would report. A generation-time resolver computes the expected owner and the assert reconfirms it.
 - **Cross-workspace dependency spine**: workspace `K` depends on workspace `K-1` through both a TypeScript bridge import edge and a matching `package.json` dependency (the two agree), forming a chain `workspace-0 <- workspace-1 <- … <- workspace-(W-1)`. The `workspace_graph` answer is the **transitive** dependency set of the deepest workspace, so it cannot be derived without traversing every hop (chain depth ≥2 at medium, ≥3 at large). Every scale — including small (now 4 workspaces) — is non-degenerate.
@@ -64,7 +64,7 @@ The cache discount is configurable with `--cache-discount <0..1>` (default `0.1`
 # default discount 0.1
 npm run benchmark:llm:dry-run
 # override the cached-resend weight (e.g. measure at full weight)
-npm run benchmark:llm -- --allow-codex-run --cache-discount 1 --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0 --model gpt-5.5
+npm run benchmark:llm -- --allow-codex-run --sanitized-pack --cache-discount 1 --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0 --model gpt-5.5
 ```
 
 ## Maintained-wiki with-condition fixture (A1)
@@ -115,6 +115,16 @@ Create the small/medium/large with-vs-without fixture manifest without launching
 npm run benchmark:llm:dry-run
 ```
 
+Preview the measured-run disclosure surface before launching Codex:
+
+```sh
+npm run benchmark:release:preview
+```
+
+`--payload-preview <path>` builds the selected fixture matrix and writes a local audit JSON without launching Codex or requiring `--allow-codex-run`. The preview includes every selected prompt, prompt hash, scenario cwd, expected Codex exec count, fixture fingerprint, MCP injection flag, and the sanitized-pack provenance when enabled. It is intentionally a stop point: inspect the JSON first, then run the measured command separately.
+
+Use `--sanitized-pack` for measured runs that may leave the local machine. The runner copies only the benchmark harness (`benchmarks/codex-llm-metrics.js`, `benchmarks/lib/`, `dist/`, `package.json`, `benchmarks/real-keys/` when present, and the installed `typescript` runtime dependency) into a fresh temporary pack, then re-executes from that pack. Synthetic fixtures are built under the pack's `scratch/` directory, so Codex scenario cwd paths stay inside the minimized pack rather than the live source checkout. Raw JSONL and measured reports still write under `benchmarks/reports/llm/` so report validators can re-read them after the pack run. The pack writes `SANITIZED_BENCHMARK_PACK.json` listing copied entries and excluded workspace roots. This does not remove the need for human approval: a measured run still sends the listed prompts and any files Codex reads from each scenario cwd to the external service.
+
 Validate the JSONL parser and report-shape checks against checked-in sample artifacts:
 
 ```sh
@@ -125,19 +135,19 @@ node tests/validators/codex-llm-benchmark-smoke.js benchmarks/llm/samples/codex-
 Measured Codex execution is intentionally gated behind `--allow-codex-run` and uses `codex exec --json --ephemeral --sandbox read-only --skip-git-repo-check` because scenarios run from generated fixture directories. By default it runs one with/without pair to preserve comparison validity while limiting subscription quota use; use `--full-matrix` when the selected scales/tasks should all run. Full runs use deterministic alternating pair order so the treatment condition is not always executed before the control condition. Pass `--max-scenarios`, `--runs`, and `--warmup-runs` deliberately when expanding coverage. Pass `--control-profile bare|organic|curated` (default `organic`) to choose the control fixture profile; the chosen profile is recorded on the manifest, report, and every scenario. Pass `--model <model>` when Codex JSONL does not expose a model field; the report records `model_source` as `jsonl` or `requested` rather than guessing. Pass `--markdown` to write the default Markdown summary or `--markdown <path>` for an explicit path. Use `--require-clean` for public-claim candidates so source-control provenance starts from a clean checkout. Use `--require-claimable` so partial, failed, or unclaimable scenarios are written to disk but exit non-zero. Use `--min-runs-for-claim <n>` with `--require-claimable` when a public claim requires repeated runs. Report `median` values are computed only from claimable runs: execution must complete, correctness must pass, usage/model/final-text fields must be present, token counts and wall time must be positive, and the run must resolve to exactly one model. `median_all_runs` is retained for audit when a run fails, needs review, or lacks claimable measurement fields. Raw event counts and normalized invocation counts are reported separately so start/completed JSONL pairs do not inflate tool-call claims. Reports also include prompt/command provenance, source-control metadata, fixture fingerprints, selected-matrix fingerprints, full-manifest fingerprints, timing dispersion, plan-event counts, and first-response latency when Codex JSONL exposes timestamps; otherwise first-response latency is marked unavailable. The validator reparses raw JSONL and recomputes metrics, correctness, medians, dispersion, claim gate, selected matrix fingerprints, and selected manifest fingerprints before accepting a measured report.
 
 ```sh
-npm run benchmark:llm -- --allow-codex-run --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0 --model gpt-5.5
+npm run benchmark:llm -- --allow-codex-run --sanitized-pack --scales small --tasks decision_lookup --max-scenarios 2 --runs 1 --warmup-runs 0 --model gpt-5.5
 ```
 
 Run the small/medium/large decision-lookup matrix and produce a README-ready Markdown summary:
 
 ```sh
-npm run benchmark:llm -- --allow-codex-run --scales small,medium,large --tasks decision_lookup --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
+npm run benchmark:llm -- --allow-codex-run --sanitized-pack --scales small,medium,large --tasks decision_lookup --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
 ```
 
 Run every scale and every current task family only when the expected subscription quota use is acceptable:
 
 ```sh
-npm run benchmark:llm -- --allow-codex-run --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
+npm run benchmark:llm -- --allow-codex-run --sanitized-pack --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md
 ```
 
 Subscription-authenticated runs fail if `CODEX_API_KEY` or `OPENAI_API_KEY` is present. Pass `--auth-mode api-key` only when intentionally running an API-key-priced benchmark. The report records declared auth mode plus non-secret auth-environment audit flags, but public claims still need human review when local Codex config could route through a profile not visible in environment variables. Reports under `benchmarks/reports/llm/` are ignored by default; commit only deliberate release evidence.
