@@ -250,6 +250,35 @@ test("multi_session correctness evaluates the measured-session text via the stat
   assert.equal(organic.status, "passed", organic.reason);
 });
 
+test("code_impact correctness accepts schema-equivalent wording with exact impact evidence", () => {
+  const pass = evaluateCorrectness({
+    taskFamily: "code_impact",
+    condition: "without_project_librarian",
+    benchmarkTrack: "wiki",
+    controlProfile: "organic",
+    finalText: [
+      "Benchmark report output shape changes affect docs/architecture/modules.md.",
+      "Impacted files: benchmarks/codex-llm-metrics.js, benchmarks/lib/codex-jsonl.js, benchmarks/lib/llm-report.js, benchmarks/lib/llm-correctness.js, and tests/validators/codex-llm-benchmark-smoke.js.",
+    ].join(" "),
+    fileChangeCount: 0,
+  });
+  assert.equal(pass.status, "passed", pass.reason);
+
+  const missingSchemaSpecificFile = evaluateCorrectness({
+    taskFamily: "code_impact",
+    condition: "without_project_librarian",
+    benchmarkTrack: "wiki",
+    controlProfile: "organic",
+    finalText: [
+      "Benchmark report changes affect docs/architecture/modules.md.",
+      "Impacted files: benchmarks/codex-llm-metrics.js, benchmarks/lib/llm-report.js, and tests/validators/codex-llm-benchmark-smoke.js.",
+    ].join(" "),
+    fileChangeCount: 0,
+  });
+  assert.equal(missingSchemaSpecificFile.status, "failed");
+  assert(missingSchemaSpecificFile.checks.some((check) => check.name === "expected evidence: benchmarks/lib/codex-jsonl.js | benchmarks/lib/llm-correctness.js" && !check.passed));
+});
+
 // --- session-2 metric extraction (crafted dual-session data) ------------------
 
 // Reproduce the runner's session split from the runner's perspective without
