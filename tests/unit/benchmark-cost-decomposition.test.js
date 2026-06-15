@@ -228,6 +228,43 @@ test("--payload-preview writes a local audit file without requiring --allow-code
   }
 });
 
+test("--require-claimable fails before measurement when no --model is provided", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-claimable-model-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--require-claimable",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.notEqual(result.status, 0, "missing --model must fail before any claimable run is started");
+  assert.match(result.stderr, /--require-claimable requires --model <model>/);
+  assert(!fs.existsSync(previewPath), "failed preflight must not write a claimable preview");
+});
+
+test("--payload-preview records the requested model for claimable release preflight", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-claimable-preview-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--require-claimable",
+    "--model", "gpt-test",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
+  assert.equal(preview.configuration.requested_model, "gpt-test");
+  assert(preview.scenarios.every((scenario) => scenario.command_prefix.includes("--model")), "preview command prefix must expose the requested model flag");
+  assert(preview.scenarios.every((scenario) => scenario.command_prefix.includes("gpt-test")), "preview command prefix must expose the requested model value");
+});
+
 test("--sanitized-pack re-executes dry-run from a minimized pack boundary", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-sanitized-pack-test-"));
   const packRoot = path.join(tmp, "pack");
