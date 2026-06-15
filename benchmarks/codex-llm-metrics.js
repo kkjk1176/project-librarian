@@ -700,6 +700,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       min_runs_for_claim: minRunsForClaim,
       require_claimable: requireClaimable,
       require_clean: requireClean,
+      requested_model: manifest.requested_model,
       cache_discount: cacheDiscount,
       selected_scales: selectedScales,
       selected_tasks: selectedTasks,
@@ -1220,6 +1221,9 @@ function main() {
   // (unchanged behaviour).
   const maxScenariosExplicit = hasArg("--max-scenarios");
   const requestedModel = optionalStringArgValue("--model");
+  if (requireClaimable && !requestedModel) {
+    fail("--require-claimable requires --model <model> so claimable reports can record a single requested model when Codex JSONL omits model metadata");
+  }
   const corpus = argValue("--corpus", "synthetic");
   if (!["synthetic", "real"].includes(corpus)) fail(`invalid --corpus value: ${corpus} (expected synthetic or real)`);
   const syntheticDefaultMax = fullMatrix ? fullMatrixScenarioCount : conditions.length;
