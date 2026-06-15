@@ -791,32 +791,40 @@ function runDoctorMode(fix) {
     if (!linkOk || !qualityOk || !routerTruthOk)
         process.exit(1);
 }
+const commonLintRequiredFiles = [
+    "AGENTS.md",
+    "wiki/AGENTS.md",
+    "wiki/startup.md",
+    "wiki/index.md",
+    "wiki/decisions/log.md",
+    "wiki/decisions/recent.md",
+    "wiki/meta/operating-model.md",
+    "wiki/meta/decision-policy.md",
+    "wiki/meta/wiki-ops-v1-decisions.md",
+    ".githooks/prepare-commit-msg",
+    ".githooks/wiki-commit-trailers.js",
+];
+const agentLintRequiredFiles = {
+    codex: [".codex/hooks/wiki-session-start.js", ".codex/hooks.json"],
+    claude: ["CLAUDE.md", ".claude/hooks/wiki-session-start.js", ".claude/settings.json"],
+    cursor: [".cursor/rules/project-librarian.mdc", ".cursor/hooks/wiki-session-start.js", ".cursor/hooks.json"],
+    gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
+};
+function activeLintAgentSurfaces() {
+    const active = new Set();
+    for (const [agent, files] of Object.entries(agentLintRequiredFiles)) {
+        if (files.some((file) => (0, workspace_1.exists)(file)))
+            active.add(agent);
+    }
+    return active;
+}
 function runLintMode() {
     const errors = [];
     const warnings = [];
+    const activeAgents = activeLintAgentSurfaces();
     const requiredFiles = [
-        "AGENTS.md",
-        "CLAUDE.md",
-        "GEMINI.md",
-        "wiki/AGENTS.md",
-        "wiki/startup.md",
-        "wiki/index.md",
-        "wiki/decisions/log.md",
-        "wiki/decisions/recent.md",
-        "wiki/meta/operating-model.md",
-        "wiki/meta/decision-policy.md",
-        "wiki/meta/wiki-ops-v1-decisions.md",
-        ".githooks/prepare-commit-msg",
-        ".githooks/wiki-commit-trailers.js",
-        ".codex/hooks/wiki-session-start.js",
-        ".codex/hooks.json",
-        ".claude/hooks/wiki-session-start.js",
-        ".claude/settings.json",
-        ".cursor/rules/project-librarian.mdc",
-        ".cursor/hooks/wiki-session-start.js",
-        ".cursor/hooks.json",
-        ".gemini/hooks/wiki-session-start.js",
-        ".gemini/settings.json",
+        ...commonLintRequiredFiles,
+        ...Array.from(activeAgents).flatMap((agent) => agentLintRequiredFiles[agent]),
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))

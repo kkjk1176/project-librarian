@@ -730,13 +730,10 @@ export function runDoctorMode(fix: boolean): void {
   if (!linkOk || !qualityOk || !routerTruthOk) process.exit(1);
 }
 
-export function runLintMode(): void {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const requiredFiles = [
+type AgentSurface = "codex" | "claude" | "cursor" | "gemini";
+
+const commonLintRequiredFiles = [
     "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
     "wiki/AGENTS.md",
     "wiki/startup.md",
     "wiki/index.md",
@@ -747,15 +744,30 @@ export function runLintMode(): void {
     "wiki/meta/wiki-ops-v1-decisions.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
-    ".codex/hooks/wiki-session-start.js",
-    ".codex/hooks.json",
-    ".claude/hooks/wiki-session-start.js",
-    ".claude/settings.json",
-    ".cursor/rules/project-librarian.mdc",
-    ".cursor/hooks/wiki-session-start.js",
-    ".cursor/hooks.json",
-    ".gemini/hooks/wiki-session-start.js",
-    ".gemini/settings.json",
+] as const;
+
+const agentLintRequiredFiles: Record<AgentSurface, readonly string[]> = {
+  codex: [".codex/hooks/wiki-session-start.js", ".codex/hooks.json"],
+  claude: ["CLAUDE.md", ".claude/hooks/wiki-session-start.js", ".claude/settings.json"],
+  cursor: [".cursor/rules/project-librarian.mdc", ".cursor/hooks/wiki-session-start.js", ".cursor/hooks.json"],
+  gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
+};
+
+function activeLintAgentSurfaces(): Set<AgentSurface> {
+  const active = new Set<AgentSurface>();
+  for (const [agent, files] of Object.entries(agentLintRequiredFiles) as Array<[AgentSurface, readonly string[]]>) {
+    if (files.some((file) => exists(file))) active.add(agent);
+  }
+  return active;
+}
+
+export function runLintMode(): void {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const activeAgents = activeLintAgentSurfaces();
+  const requiredFiles = [
+    ...commonLintRequiredFiles,
+    ...Array.from(activeAgents).flatMap((agent) => agentLintRequiredFiles[agent]),
   ];
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);

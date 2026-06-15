@@ -149,6 +149,23 @@ grep -q "exists  wiki/AGENTS.md" rerun.log
 
 node "$CLI" --lint
 node "$CLI" init --lint
+
+mkdir "$TMPDIR/agent-aware-lint"
+cd "$TMPDIR/agent-aware-lint"
+node "$CLI" --no-git-config > agent-aware-init.log
+rm -rf GEMINI.md .cursor .gemini
+node "$CLI" --lint > codex-claude-only-lint.log
+grep -q "passed:" codex-claude-only-lint.log
+mkdir -p .cursor
+printf '{"version":1,"hooks":{}}\n' > .cursor/hooks.json
+if node "$CLI" --lint > partial-cursor-lint.log 2>&1; then
+  echo "expected partial Cursor surface to fail lint" >&2
+  exit 1
+fi
+grep -q "missing required file: .cursor/rules/project-librarian.mdc" partial-cursor-lint.log
+grep -q "missing required file: .cursor/hooks/wiki-session-start.js" partial-cursor-lint.log
+cd "$TMPDIR"
+
 node .codex/hooks/wiki-session-start.js > hook.json
 node .claude/hooks/wiki-session-start.js > claude-hook.json
 node .cursor/hooks/wiki-session-start.js > cursor-hook.json

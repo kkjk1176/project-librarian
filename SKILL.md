@@ -277,7 +277,7 @@ It appends these trailers when they are missing:
 
 Do not hand-write wiki trailers unless the hook is unavailable or the generated value needs correction.
 
-`--lint` verifies the Codex, Claude, Cursor, and Gemini hook files/settings, Cursor and Gemini instruction files, git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
+`--lint` verifies common wiki files plus the agent surfaces that are present in the project. If any file for a surface exists, lint requires the rest of that surface's files and settings; uninstalled Cursor or Gemini surfaces are not hard requirements. It also checks git hook files, executable bits, trailer phrases, and `core.hooksPath` when the project is a git repository. If `--no-git-config` was used, an unset or different `core.hooksPath` is expected until the project owner configures it manually.
 
 ## Glossary Mode
 
