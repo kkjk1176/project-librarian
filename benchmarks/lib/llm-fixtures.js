@@ -37,7 +37,9 @@ const benchmarkTracks = ["wiki", "code_graph"];
 // conditions, so they measure document routing, not code evidence. code_impact
 // and change_location keep their names and prompts unchanged for comparability
 // with the 2026-06-10 report even though they are wiki-track doc lookups. The
-// code_graph track lives entirely in the real-repository corpus
+// change_location prompt explicitly asks for file citations because the evaluator
+// requires evidence from the implementation map. The code_graph track lives
+// entirely in the real-repository corpus
 // (benchmarks/lib/real-corpus.js); the synthetic matrix is wiki-only.
 const taskFamilyDefinitions = {
   onboarding: {
@@ -58,7 +60,7 @@ const taskFamilyDefinitions = {
   },
   change_location: {
     benchmark_track: "wiki",
-    prompt: "Where should an agent edit to implement a Codex LLM benchmark runner? Do not modify files.",
+    prompt: "Where should an agent edit to implement a Codex LLM benchmark runner? Cite the source files. Do not modify files.",
   },
   // A3 (Phase 3 remainder). Both stay on the wiki track because they exercise the
   // product thesis (compact maintained-wiki routing) rather than code evidence.

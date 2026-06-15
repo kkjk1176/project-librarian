@@ -68,6 +68,15 @@ test("multi_session definition carries a familiarization prompt distinct from th
   assert.notEqual(def.multi_session.familiarization_prompt, def.prompt, "familiarization and measured prompts must differ");
 });
 
+test("synthetic wiki prompts ask for citations when correctness requires evidence paths", () => {
+  for (const [family, definition] of Object.entries(taskFamilyDefinitions)) {
+    assert.match(definition.prompt, /cite|evidence/i, `${family} prompt must ask for citations/evidence`);
+    if (definition.multi_session) {
+      assert.match(definition.multi_session.familiarization_prompt, /cite|evidence/i, `${family} familiarization prompt must ask for citations/evidence`);
+    }
+  }
+});
+
 // --- aggregation ground truth -------------------------------------------------
 
 test("aggregation ground truth is deterministic and chronologically ordered", () => {
