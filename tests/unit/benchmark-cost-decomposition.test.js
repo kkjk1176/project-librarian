@@ -172,6 +172,15 @@ function runDryRun(args) {
   });
 }
 
+function runMetrics(args) {
+  return childProcess.spawnSync(process.execPath, [metricsCli, ...args], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 50 * 1024 * 1024,
+  });
+}
+
 test("--cache-discount validates: rejects negative, > 1, and non-numeric values", () => {
   for (const bad of ["-0.1", "1.5", "abc", "0.1.2"]) {
     const result = runDryRun(["--cache-discount", bad, "--scales", "small", "--tasks", "decision_lookup"]);
@@ -187,6 +196,68 @@ test("--cache-discount accepts the 0..1 boundary values", () => {
     // unbuilt, which is unrelated to the flag). Assert the flag itself was accepted.
     assert(!/cache-discount/.test(result.stderr || ""), `--cache-discount ${good} should be accepted`);
   }
+});
+
+test("--payload-preview writes a local audit file without requiring --allow-codex-run", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-payload-preview-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.mode, "payload-preview");
+  assert.equal(stdout.scenario_count, 2);
+  assert.equal(stdout.expected_codex_exec_count, 2);
+  const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
+  assert.equal(preview.benchmark_kind, "codex-actual-llm-payload-preview");
+  assert.equal(preview.disclosure_boundary.codex_network_run, false);
+  assert.equal(preview.configuration.expected_codex_exec_count, 2);
+  assert.equal(preview.scenarios.length, 2);
+  for (const scenario of preview.scenarios) {
+    assert(scenario.prompt.includes("Benchmark scenario:"));
+    assert.equal(typeof scenario.prompt_sha256, "string");
+    assert.equal(scenario.prompt_sha256.length, 64);
+    assert(path.isAbsolute(scenario.cwd));
+    assert(!scenario.cwd.startsWith(root), "preview fixture cwd must not be the source checkout");
+  }
+});
+
+test("--sanitized-pack re-executes dry-run from a minimized pack boundary", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-sanitized-pack-test-"));
+  const packRoot = path.join(tmp, "pack");
+  const manifestPath = path.join(tmp, "manifest.json");
+  const result = runMetrics([
+    "--dry-run",
+    "--sanitized-pack",
+    "--sanitized-pack-dir", packRoot,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--out", manifestPath,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.mode, "dry-run");
+  assert.equal(stdout.sanitized_pack, packRoot);
+  const packManifestPath = path.join(packRoot, "SANITIZED_BENCHMARK_PACK.json");
+  assert(fs.existsSync(packManifestPath), "sanitized pack must write provenance");
+  const packManifest = JSON.parse(fs.readFileSync(packManifestPath, "utf8"));
+  assert.equal(packManifest.kind, "project-librarian-sanitized-benchmark-pack");
+  assert(packManifest.copied_entries.includes("dist/"));
+  assert(packManifest.copied_entries.includes("benchmarks/lib/"));
+  assert(packManifest.copied_entries.includes("node_modules/typescript/"));
+  for (const excluded of ["src", "tests", "wiki", ".git", "README.md", "README.ko.md"]) {
+    assert(!fs.existsSync(path.join(packRoot, excluded)), `sanitized pack must not copy ${excluded}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  assert.equal(manifest.scenarios.length, 2);
+  assert(manifest.scenarios.every((scenario) => scenario.cwd.startsWith(packRoot)), "scenario cwd must stay inside the sanitized pack");
 });
 
 // --- Per-track report assembly: cost-weighted headline, merged total secondary ---

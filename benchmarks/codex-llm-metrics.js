@@ -145,6 +145,14 @@ function defaultMeasuredMarkdownPath() {
   return path.join(root, "benchmarks", "reports", "llm", "current.md");
 }
 
+function defaultPayloadPreviewPath(baseRoot = root) {
+  return path.join(baseRoot, "benchmarks", "reports", "llm", "payload-preview.json");
+}
+
+function defaultSanitizedPackRoot() {
+  return path.join(os.tmpdir(), `project-librarian-sanitized-benchmark-pack-${Date.now()}`);
+}
+
 function environmentFingerprint() {
   const cpus = os.cpus();
   return {
@@ -158,12 +166,12 @@ function environmentFingerprint() {
   };
 }
 
-function sourceControlFingerprint() {
+function sourceControlFingerprint(cwd = root) {
   try {
-    const commit = commandOutput("git", ["rev-parse", "HEAD"]);
-    const shortCommit = commandOutput("git", ["rev-parse", "--short", "HEAD"]);
-    const branch = commandOutput("git", ["branch", "--show-current"]);
-    const status = commandOutput("git", ["status", "--short"]);
+    const commit = commandOutput("git", ["rev-parse", "HEAD"], cwd);
+    const shortCommit = commandOutput("git", ["rev-parse", "--short", "HEAD"], cwd);
+    const branch = commandOutput("git", ["branch", "--show-current"], cwd);
+    const status = commandOutput("git", ["status", "--short"], cwd);
     return {
       available: true,
       commit,
@@ -180,9 +188,9 @@ function sourceControlFingerprint() {
   }
 }
 
-function commandOutput(command, args) {
+function commandOutput(command, args, cwd = root) {
   return childProcess.execFileSync(command, args, {
-    cwd: root,
+    cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
@@ -438,6 +446,280 @@ function summarizeScenarios(scenarioList) {
   };
 }
 
+function copyRequiredFile(from, to) {
+  if (!fs.existsSync(from) || !fs.statSync(from).isFile()) {
+    throw new Error(`sanitized benchmark pack requires file: ${from}`);
+  }
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+}
+
+function copyRequiredDirectory(from, to) {
+  if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) {
+    throw new Error(`sanitized benchmark pack requires directory: ${from}`);
+  }
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.cpSync(from, to, { recursive: true });
+}
+
+function copyTypescriptDependency(packRoot) {
+  let typescriptPackageJson;
+  try {
+    typescriptPackageJson = require.resolve("typescript/package.json", { paths: [root] });
+  } catch (error) {
+    throw new Error(`sanitized benchmark pack requires the installed typescript dependency: ${error.message}`);
+  }
+  const source = path.dirname(typescriptPackageJson);
+  const target = path.join(packRoot, "node_modules", "typescript");
+  copyRequiredDirectory(source, target);
+  return path.relative(packRoot, target).split(path.sep).join("/");
+}
+
+function writeSanitizedPackManifest(packRoot, copiedEntries) {
+  const manifest = {
+    schema_version: 1,
+    kind: "project-librarian-sanitized-benchmark-pack",
+    generated_at: new Date().toISOString(),
+    original_root: root,
+    pack_root: packRoot,
+    copied_entries: copiedEntries,
+    excluded_workspace_roots: ["src", "tests", "wiki", "wiki_legacy", ".git", ".codex", ".claude", "README.md", "README.ko.md"],
+    purpose: "Run Codex LLM benchmark scenarios from a minimized temporary harness instead of the live development checkout.",
+  };
+  const manifestPath = path.join(packRoot, "SANITIZED_BENCHMARK_PACK.json");
+  writeJson(manifestPath, manifest);
+  return { manifest, manifest_path: manifestPath };
+}
+
+function createSanitizedPack(packRoot) {
+  if (!packRoot || typeof packRoot !== "string") {
+    throw new Error("createSanitizedPack requires a packRoot path");
+  }
+  if (fs.existsSync(packRoot)) {
+    throw new Error(`sanitized benchmark pack destination already exists: ${packRoot}`);
+  }
+  fs.mkdirSync(packRoot, { recursive: true });
+  const copiedEntries = [];
+  function copyFileEntry(relative) {
+    copyRequiredFile(path.join(root, relative), path.join(packRoot, relative));
+    copiedEntries.push(relative);
+  }
+  function copyDirectoryEntry(relative) {
+    copyRequiredDirectory(path.join(root, relative), path.join(packRoot, relative));
+    copiedEntries.push(`${relative}/`);
+  }
+
+  copyFileEntry("package.json");
+  copyFileEntry(path.join("benchmarks", "codex-llm-metrics.js"));
+  copyDirectoryEntry("dist");
+  copyDirectoryEntry(path.join("benchmarks", "lib"));
+  const realKeysDir = path.join(root, "benchmarks", "real-keys");
+  if (fs.existsSync(realKeysDir)) copyDirectoryEntry(path.join("benchmarks", "real-keys"));
+  copiedEntries.push(`${copyTypescriptDependency(packRoot)}/`);
+
+  return writeSanitizedPackManifest(packRoot, copiedEntries);
+}
+
+function optionalPathFlagDefault(flag, originalRoot) {
+  if (flag === "--markdown") return path.join(originalRoot, "benchmarks", "reports", "llm", "current.md");
+  if (flag === "--payload-preview" || flag === "--preview-payload") return defaultPayloadPreviewPath(originalRoot);
+  throw new Error(`internal error: no default for optional path flag ${flag}`);
+}
+
+function absolutizeAgainstOriginalRoot(value, originalRoot) {
+  return path.isAbsolute(value) ? value : path.resolve(originalRoot, value);
+}
+
+function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
+  const normalized = [];
+  const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir"]);
+  const optionalPathValueFlags = new Set(["--markdown", "--payload-preview", "--preview-payload"]);
+  let sawOut = false;
+  let dryRun = args.includes("--dry-run");
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--sanitized-pack") continue;
+    if (arg === "--sanitized-pack-dir") {
+      index += 1;
+      continue;
+    }
+    if (["--sanitized-pack-active", "--sanitized-original-root", "--sanitized-pack-root"].includes(arg)) {
+      if (arg !== "--sanitized-pack-active") index += 1;
+      continue;
+    }
+    if (pathValueFlags.has(arg)) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) fail(`missing value for ${arg}`);
+      normalized.push(arg, absolutizeAgainstOriginalRoot(value, originalRoot));
+      if (arg === "--out") sawOut = true;
+      index += 1;
+      continue;
+    }
+    if (optionalPathValueFlags.has(arg)) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        normalized.push(arg, optionalPathFlagDefault(arg, originalRoot));
+      } else {
+        normalized.push(arg, absolutizeAgainstOriginalRoot(value, originalRoot));
+        index += 1;
+      }
+      continue;
+    }
+    normalized.push(arg);
+  }
+  if (!sawOut) {
+    normalized.push("--out", dryRun ? defaultOutPath() : defaultMeasuredOutPath());
+  }
+  normalized.push("--sanitized-pack-active", "--sanitized-original-root", originalRoot, "--sanitized-pack-root", packRoot);
+  return normalized;
+}
+
+function reexecFromSanitizedPack(packRoot) {
+  const created = createSanitizedPack(packRoot);
+  const activeRunner = path.join(packRoot, "benchmarks", "codex-llm-metrics.js");
+  const activeArgs = normalizeArgsForSanitizedPack(process.argv.slice(2), { originalRoot: root, packRoot });
+  const result = childProcess.spawnSync(process.execPath, [activeRunner, ...activeArgs], {
+    cwd: packRoot,
+    env: process.env,
+    encoding: "utf8",
+    maxBuffer: 100 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) {
+    fail(`sanitized benchmark pack execution failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    process.exit(result.status);
+  }
+  if (!result.stdout) {
+    console.log(JSON.stringify({
+      status: "ok",
+      mode: "sanitized-pack",
+      pack_root: packRoot,
+      pack_manifest: created.manifest_path,
+    }, null, 2));
+  }
+}
+
+function readSanitizedPackProvenance(packRoot) {
+  if (!packRoot || typeof packRoot !== "string") {
+    fail("--sanitized-pack-active requires --sanitized-pack-root <path>");
+  }
+  const manifestPath = path.join(packRoot, "SANITIZED_BENCHMARK_PACK.json");
+  if (!fs.existsSync(manifestPath)) {
+    fail(`sanitized benchmark pack manifest missing: ${manifestPath}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  return {
+    enabled: true,
+    pack_root: packRoot,
+    manifest_path: manifestPath,
+    original_root: manifest.original_root,
+    copied_entries: manifest.copied_entries,
+    excluded_workspace_roots: manifest.excluded_workspace_roots,
+  };
+}
+
+function promptDigest(prompt) {
+  return {
+    sha256: sha256(prompt),
+    char_count: prompt.length,
+  };
+}
+
+function scenarioCodexExecCount(scenario, runs, warmupRuns) {
+  const sessionCount = Array.isArray(scenario.sessions) && scenario.sessions.length > 0 ? scenario.sessions.length : 1;
+  return (runs + warmupRuns) * sessionCount;
+}
+
+function scenarioPayloadPreview(scenario, runs, warmupRuns) {
+  const promptInfo = promptDigest(scenario.prompt);
+  const commandPrefix = Array.isArray(scenario.command) && scenario.command.length > 0
+    ? scenario.command.slice(0, Math.max(0, scenario.command.length - 1))
+    : [];
+  const preview = {
+    prompt_id: scenario.prompt_id,
+    scale: scenario.scale,
+    condition: scenario.condition,
+    corpus: scenario.corpus || "synthetic",
+    repo: scenario.repo || null,
+    question_id: scenario.question_id || null,
+    benchmark_track: scenario.benchmark_track,
+    task_family: scenario.task_family,
+    cwd: scenario.cwd,
+    prompt: scenario.prompt,
+    prompt_sha256: promptInfo.sha256,
+    prompt_char_count: promptInfo.char_count,
+    command_prefix: commandPrefix,
+    fixture_fingerprint: scenario.fixture_fingerprint,
+    expected_codex_exec_count: scenarioCodexExecCount(scenario, runs, warmupRuns),
+    mcp_injected: Boolean(scenario.mcp),
+    mcp_runner_path: scenario.mcp_runner_path || null,
+  };
+  if (Array.isArray(scenario.sessions) && scenario.sessions.length > 0) {
+    preview.sessions = scenario.sessions.map((session) => ({
+      session_index: session.session_index,
+      role: session.role,
+      prompt: session.prompt,
+      prompt_sha256: promptDigest(session.prompt).sha256,
+      prompt_char_count: session.prompt.length,
+      command_prefix: Array.isArray(session.command) ? session.command.slice(0, Math.max(0, session.command.length - 1)) : [],
+    }));
+  }
+  return preview;
+}
+
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios }) {
+  const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
+  const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
+  return {
+    schema_version: 1,
+    benchmark_kind: "codex-actual-llm-payload-preview",
+    generated_at: new Date().toISOString(),
+    mode: dryRun ? "dry-run-preview" : "measured-preview",
+    corpus: manifest.corpus || "synthetic",
+    control_profile: manifest.control_profile,
+    source_control: sourceControlFingerprint(sourceRoot),
+    sanitized_pack: sanitizedPack || { enabled: false },
+    disclosure_boundary: {
+      codex_network_run: false,
+      measured_run_requires_allow_codex_run: true,
+      prompt_payload_included: true,
+      codex_readable_roots: readableRoots,
+      source_workspace_root: sourceRoot,
+      source_workspace_is_codex_cwd: readableRoots.includes(sourceRoot),
+      note: "This preview is local-only. A measured run sends each listed prompt to Codex and Codex may read files only from the scenario cwd under its read-only sandbox.",
+    },
+    configuration: {
+      runs,
+      warmup_runs: warmupRuns,
+      max_scenarios: maxScenarios,
+      full_matrix: fullMatrix,
+      min_runs_for_claim: minRunsForClaim,
+      require_claimable: requireClaimable,
+      require_clean: requireClean,
+      cache_discount: cacheDiscount,
+      selected_scales: selectedScales,
+      selected_tasks: selectedTasks,
+      selected_scenarios: selectedScenarios.length,
+      total_manifest_scenarios: manifest.scenarios.length,
+      expected_codex_exec_count: codexExecCount,
+      dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((scenario) => scenario.prompt_id) : [],
+      manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
+        scale: scenario.scale,
+        condition: scenario.condition,
+        task_family: scenario.task_family,
+        prompt: scenario.prompt,
+        fixture_fingerprint: scenario.fixture_fingerprint,
+        requested_model: scenario.requested_model,
+      })))),
+    },
+    scenarios: selectedScenarios.map((scenario) => scenarioPayloadPreview(scenario, runs, warmupRuns)),
+  };
+}
+
 // Expected task families per track within the selected matrix; used to gate each
 // track against its own expected coverage.
 function expectedTasksByTrack(selectedTasks) {
@@ -450,9 +732,10 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, droppedScenarios = [] }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [] }) {
   requireMeasuredAuth(authMode);
-  const rawRoot = path.join(root, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
+  const rawReportRoot = sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root;
+  const rawRoot = path.join(rawReportRoot, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
   if (maxScenarios < conditions.length) {
     fail(`measured Codex benchmark requires at least ${conditions.length} scenarios to compare conditions`);
   }
@@ -626,13 +909,14 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     auth: authAudit(),
     generated_at: new Date().toISOString(),
     environment: environmentFingerprint(),
-    source_control: sourceControlFingerprint(),
+    source_control: sourceControlFingerprint(sourceRoot),
     control_profile: manifest.control_profile,
     // Top-level corpus label: the manifest the measured run consumed. Synthetic
     // fixtures report "synthetic"; the real-repository track reports "real".
     // Scenario-level corpus fields carry the per-scenario corpus regardless.
     corpus: manifest.corpus || "synthetic",
     cache_discount: cacheDiscount,
+    sanitized_pack: sanitizedPack || { enabled: false },
     hermetic,
     codex: {
       version: commandOutput("codex", ["--version"]),
@@ -647,6 +931,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       require_clean: requireClean,
       control_profile: manifest.control_profile,
       cache_discount: cacheDiscount,
+      sanitized_pack: Boolean(sanitizedPack && sanitizedPack.enabled),
       scenario_order: "deterministic-alternating-pairs",
       requested_model: manifest.requested_model,
       selected_scales: selectedScales,
@@ -890,8 +1175,27 @@ function main() {
     return;
   }
 
+  if (hasFlag("--sanitized-pack") && !hasFlag("--sanitized-pack-active")) {
+    const packDir = optionalStringArgValue("--sanitized-pack-dir") || defaultSanitizedPackRoot();
+    reexecFromSanitizedPack(path.resolve(packDir));
+    return;
+  }
+
   const dryRun = hasFlag("--dry-run");
   const allowCodexRun = hasFlag("--allow-codex-run");
+  const sanitizedPackActive = hasFlag("--sanitized-pack-active");
+  const sanitizedOriginalRootArg = optionalStringArgValue("--sanitized-original-root");
+  const sanitizedPackRootArg = optionalStringArgValue("--sanitized-pack-root");
+  const sourceRoot = sanitizedOriginalRootArg ? path.resolve(sanitizedOriginalRootArg) : root;
+  const sanitizedPack = sanitizedPackActive ? readSanitizedPackProvenance(path.resolve(sanitizedPackRootArg)) : null;
+  const payloadPreviewArg = optionalArgValue("--payload-preview");
+  const legacyPayloadPreviewArg = optionalArgValue("--preview-payload");
+  if (payloadPreviewArg !== null && legacyPayloadPreviewArg !== null) {
+    fail("use only one of --payload-preview or --preview-payload");
+  }
+  const payloadPreviewPath = payloadPreviewArg !== null
+    ? path.resolve(root, payloadPreviewArg || defaultPayloadPreviewPath(root))
+    : (legacyPayloadPreviewArg !== null ? path.resolve(root, legacyPayloadPreviewArg || defaultPayloadPreviewPath(root)) : "");
   const fullMatrix = hasFlag("--full-matrix");
   const requireClaimable = hasFlag("--require-claimable");
   const requireClean = hasFlag("--require-clean");
@@ -925,7 +1229,8 @@ function main() {
     ? positiveIntegerArgValue("--max-scenarios", Number.MAX_SAFE_INTEGER)
     : positiveIntegerArgValue("--max-scenarios", syntheticDefaultMax);
   const corpusDir = optionalStringArgValue("--corpus-dir");
-  const fixtureRoot = path.resolve(os.tmpdir(), `project-librarian-codex-llm-${Date.now()}`);
+  const scratchRoot = sanitizedPack ? path.join(sanitizedPack.pack_root, "scratch") : os.tmpdir();
+  const fixtureRoot = path.resolve(scratchRoot, `project-librarian-codex-llm-${Date.now()}`);
 
   if (fullMatrix && hasArg("--max-scenarios") && maxScenarios !== fullMatrixScenarioCount) {
     fail(`--full-matrix requires --max-scenarios ${fullMatrixScenarioCount} for selected scales/tasks`);
@@ -937,11 +1242,11 @@ function main() {
     fail("--full-matrix applies to the synthetic scale×task matrix; the real corpus uses its own repo/question coverage");
   }
 
-  if (!dryRun && !allowCodexRun) {
+  if (!dryRun && !payloadPreviewPath && !allowCodexRun) {
     fail("measured Codex benchmark requires --allow-codex-run; use --dry-run to create a fixture manifest without consuming subscription quota");
   }
   if (!dryRun && requireClean) {
-    const sourceControl = sourceControlFingerprint();
+    const sourceControl = sourceControlFingerprint(sourceRoot);
     if (!sourceControl.available || sourceControl.dirty) {
       fail("measured Codex benchmark requires a clean git checkout when --require-clean is set");
     }
@@ -993,8 +1298,42 @@ function main() {
     }
   }
 
+  const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
+  if (payloadPreviewPath) {
+    if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
+    const preview = buildPayloadPreview({
+      manifest,
+      selectedScenarios,
+      dryRun,
+      runs,
+      warmupRuns,
+      maxScenarios,
+      fullMatrix,
+      minRunsForClaim,
+      requireClaimable,
+      requireClean,
+      selectedScales,
+      selectedTasks,
+      cacheDiscount,
+      sourceRoot,
+      sanitizedPack,
+      droppedScenarios,
+    });
+    writeJson(payloadPreviewPath, preview);
+    console.log(JSON.stringify({
+      status: "ok",
+      mode: "payload-preview",
+      out: payloadPreviewPath,
+      fixture_root: fixtureRoot,
+      sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
+      scenario_count: selectedScenarios.length,
+      expected_codex_exec_count: preview.configuration.expected_codex_exec_count,
+    }, null, 2));
+    return;
+  }
+
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, droppedScenarios });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
@@ -1011,6 +1350,7 @@ function main() {
       control_profile: manifest.control_profile,
       isolated_codex_home: report.hermetic.isolated_codex_home,
       allowlisted_env_key_count: report.hermetic.allowlisted_env_key_count,
+      sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
       scenario_count: report.scenarios.length,
       claim_gate: report.claim_gate.status,
     }, null, 2));
@@ -1023,6 +1363,7 @@ function main() {
     mode: "dry-run",
     out,
     fixture_root: fixtureRoot,
+    sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
     control_profile: manifest.control_profile,
     scenario_count: manifest.scenarios.length,
   }, null, 2));
