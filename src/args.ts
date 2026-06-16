@@ -53,6 +53,8 @@ export interface ParsedArgs {
   unknownOptions: string[];
   wikiImpactMode: boolean;
   wikiImpactTarget: string;
+  wikiVisualizeMode: boolean;
+  wikiVisualizeOutput: string;
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
@@ -94,6 +96,8 @@ const flagsWithoutValues: Set<string> = new Set([
   "--refresh-index",
   "--review-migration",
   "--semantic-migrate",
+  "--wiki-graph-html",
+  "--wiki-visualize",
 ]);
 const flagsWithValues: Set<string> = new Set([
   "--agents",
@@ -121,6 +125,7 @@ const flagsWithValues: Set<string> = new Set([
   "--scope",
   "--title",
   "--wiki-impact",
+  "--wiki-visualize-out",
 ]);
 const knownFlags: Set<string> = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
 
@@ -247,6 +252,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       .filter((arg) => !knownFlags.has(arg)))),
     wikiImpactMode: hasFlag("--wiki-impact"),
     wikiImpactTarget: argValue("--wiki-impact"),
+    wikiVisualizeMode: hasFlag("--wiki-visualize") || hasFlag("--wiki-graph-html"),
+    wikiVisualizeOutput: argValue("--wiki-visualize-out"),
   };
 }
 
@@ -300,6 +307,8 @@ export function argValues(name: string): string[] {
 export const queryTerm = parsedArgs.queryTerm;
 export const wikiImpactMode = parsedArgs.wikiImpactMode;
 export const wikiImpactTarget = parsedArgs.wikiImpactTarget;
+export const wikiVisualizeMode = parsedArgs.wikiVisualizeMode;
+export const wikiVisualizeOutput = parsedArgs.wikiVisualizeOutput;
 export const codeContextPackTarget = parsedArgs.codeContextPackTarget;
 export const codeImpactTarget = parsedArgs.codeImpactTarget;
 export const codeQuerySql = parsedArgs.codeQuerySql;

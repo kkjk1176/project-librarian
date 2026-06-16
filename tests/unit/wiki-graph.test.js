@@ -14,7 +14,9 @@ const path = require("node:path");
 const test = require("node:test");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
+const wikiConcepts = require("../../dist/wiki-concepts.js");
 const wikiGraph = require("../../dist/wiki-graph.js");
+const wikiVisualizer = require("../../dist/wiki-visualizer.js");
 const wikiFiles = require("../../dist/wiki-files.js");
 
 function makeTmpDir(prefix) {
@@ -181,6 +183,85 @@ test("extractMarkdownBlocks requires matching fence length before leaving code",
 });
 
 // ---------------------------------------------------------------------------
+// Wiki concept read model and visualizer payload
+// ---------------------------------------------------------------------------
+
+test("wikiConceptType derives stable user-facing types from scope and path", () => {
+  assert.equal(wikiConcepts.wikiConceptType("wiki/startup.md", "startup-router"), "Startup Router");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/index.md", "wiki-router"), "Wiki Router");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/canonical/project-brief.md", "project-canonical"), "Project Canonical Concept");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/decisions/log.md", "project-decisions"), "Project Decision");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/sources/source.md", "source-summary"), "Source Summary");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/meta/operating-model.md", "wiki-meta"), "Wiki Operations Concept");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/migration/coverage.md", "migration-ledger"), "Migration Ledger");
+  assert.equal(wikiConcepts.wikiConceptType("wiki/custom/page.md", "custom-scope"), "Wiki Concept");
+});
+
+test("conceptFromPage preserves metadata and uses the TL;DR bullet as description", () => {
+  const concept = wikiConcepts.conceptFromPage("wiki/canonical/topic.md", [
+    "---",
+    "status: active",
+    "updated: 2026-06-16",
+    "scope: project-canonical",
+    "read_budget: medium",
+    "review_trigger: topic contract changes",
+    "---",
+    "",
+    "# Topic Contract",
+    "",
+    "## TL;DR",
+    "",
+    "- First useful summary.",
+    "",
+    "Body detail.",
+  ].join("\n"));
+  assert.equal(concept.conceptId, "canonical/topic");
+  assert.equal(concept.title, "Topic Contract");
+  assert.equal(concept.type, "Project Canonical Concept");
+  assert.equal(concept.description, "First useful summary.");
+  assert.equal(concept.timestamp, "2026-06-16");
+  assert.equal(concept.reviewTrigger, "topic contract changes");
+});
+
+test("buildWikiVisualizerPayload exposes concept nodes, link edges, and decision_ref edges", () => {
+  const payload = wikiVisualizer.buildWikiVisualizerPayload([
+    { file: "wiki/startup.md", text: "---\nscope: startup-router\n---\n\n# Startup\n\n- [[index]]\n" },
+    { file: "wiki/index.md", text: "---\nscope: wiki-router\n---\n\n# Index\n\n- [[canonical/topic]]\n" },
+    { file: "wiki/canonical/topic.md", text: "---\nscope: project-canonical\ndecision_ref: wiki/decisions/topic.md\n---\n\n# Topic\n\n## TL;DR\n\n- Topic summary.\n" },
+    { file: "wiki/decisions/topic.md", text: "---\nscope: project-decisions\n---\n\n# Topic Decision\n" },
+  ], "2026-06-16T00:00:00.000Z");
+  assert.equal(payload.summary.nodeCount, 4);
+  assert.equal(payload.summary.edgeCount, 3);
+  assert.ok(payload.nodes.some((node) => node.file === "wiki/canonical/topic.md" && node.type === "Project Canonical Concept" && node.routerDepth === 2));
+  assert.ok(payload.edges.some((edge) => edge.kind === "link" && edge.source === "wiki/index.md" && edge.target === "wiki/canonical/topic.md"));
+  assert.ok(payload.edges.some((edge) => edge.kind === "decision_ref" && edge.source === "wiki/canonical/topic.md" && edge.target === "wiki/decisions/topic.md"));
+});
+
+test("buildWikiVisualizerPayload surfaces broken links and orphan/broken summary counts", () => {
+  const payload = wikiVisualizer.buildWikiVisualizerPayload([
+    { file: "wiki/startup.md", text: "---\nscope: startup-router\n---\n\n# Startup\n\n- [[canonical/topic]]\n" },
+    { file: "wiki/canonical/topic.md", text: "---\nscope: project-canonical\n---\n\n# Topic\n\n- [[canonical/missing]]\n" },
+    { file: "wiki/canonical/lonely.md", text: "---\nscope: project-canonical\n---\n\n# Lonely\n\nNo links here.\n" },
+  ], "2026-06-16T00:00:00.000Z");
+  const topic = payload.nodes.find((node) => node.file === "wiki/canonical/topic.md");
+  assert.equal(topic.brokenLinks.length, 1);
+  assert.match(topic.brokenLinks[0], /missing/);
+  assert.equal(payload.summary.brokenCount, 1);
+  assert.equal(payload.summary.orphanCount, 1);
+});
+
+test("buildWikiVisualizerPayload is deterministic for a fixed generatedAt", () => {
+  const pages = [
+    { file: "wiki/startup.md", text: "---\nscope: startup-router\n---\n\n# Startup\n\n- [[index]]\n" },
+    { file: "wiki/index.md", text: "---\nscope: wiki-router\n---\n\n# Index\n\n- [[canonical/topic]]\n" },
+    { file: "wiki/canonical/topic.md", text: "---\nscope: project-canonical\n---\n\n# Topic\n" },
+  ];
+  const a = wikiVisualizer.buildWikiVisualizerPayload(pages, "2026-06-16T00:00:00.000Z");
+  const b = wikiVisualizer.buildWikiVisualizerPayload(pages, "2026-06-16T00:00:00.000Z");
+  assert.deepEqual(a, b);
+});
+
+// ---------------------------------------------------------------------------
 // --link-check router reachability diagnostics (A1 promoted to the real wiki)
 // ---------------------------------------------------------------------------
 
@@ -313,6 +394,58 @@ test("wiki-impact without a value fails before writing anything", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing value for option: --wiki-impact/);
     assert.equal(fs.existsSync(path.join(root, "wiki")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// --wiki-visualize static artifact
+// ---------------------------------------------------------------------------
+
+test("wiki-visualize writes a static HTML graph artifact under .project-wiki", () => {
+  const root = makeTmpDir("wg-visualize-");
+  try {
+    runCli(root);
+    fs.appendFileSync(path.join(root, "wiki", "index.md"), "\n- [[canonical/visual-topic]]\n");
+    writePage(root, "wiki/canonical/visual-topic.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-16",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: visualizer fixture changes",
+      "---",
+      "",
+      "# Visual Topic",
+      "",
+      "## TL;DR",
+      "",
+      "- Visualizer fixture summary.",
+      "",
+    ].join("\n"));
+    const output = runCli(root, ["--wiki-visualize"]);
+    const artifact = path.join(root, ".project-wiki", "wiki-graph.html");
+    assert.match(output, /Project wiki visualizer written: \.project-wiki\/wiki-graph\.html/);
+    assert.equal(fs.existsSync(artifact), true);
+    const html = fs.readFileSync(artifact, "utf8");
+    assert.match(html, /Project Librarian Wiki Graph/);
+    assert.match(html, /"file":"wiki\/canonical\/visual-topic\.md"/);
+    assert.match(html, /"type":"Project Canonical Concept"/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("wiki-visualize-out rejects paths outside .project-wiki", () => {
+  const root = makeTmpDir("wg-visualize-out-");
+  try {
+    runCli(root);
+    const result = runCliResult(root, ["--wiki-visualize", "--wiki-visualize-out", "wiki/viz.html"]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /--wiki-visualize-out must stay under \.project-wiki\//);
+    assert.equal(fs.existsSync(path.join(root, "wiki", "viz.html")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
