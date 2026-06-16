@@ -69,7 +69,8 @@ These numbers are maintainer release evidence, not a blanket promise. Every valu
 In the tables below, **"less" / "more"** compares cost-weighted tokens against that control, and **"faster" / "slower"** compares wall-clock time. (Cost-weighted = uncached input + 0.1 × cached input + output + reasoning output; cached resends are discounted, and raw merged totals would unfairly penalize any tool that adds a turn.) The wiki-routing track and the code-graph track are measured and reported separately — a win on one never backs a claim about the other. Generated benchmark reports under `benchmarks/reports/llm/` are ignored by default; maintainers should commit deliberate release baselines only when they are meant to support a public claim. Reproduce a release candidate with:
 
 ```bash
-npm run benchmark:release
+npm run benchmark:release:preview
+npm run benchmark:release -- --allow-codex-run
 ```
 
 ### Wiki track (planning-doc routing)
@@ -78,11 +79,11 @@ Cost-weighted tokens, Project Librarian vs control:
 
 | Scale | decision_lookup | aggregation | multi_session (2nd session) |
 | --- | --- | --- | --- |
-| Small | 7.9% less | 7.0% more | 30.4% less |
-| Medium | 69.5% less | 8.8% more | 56.6% less |
-| Large (gate-passed retry) | 62.6% less | 45.0% less* | 70.7% less |
+| Small | 43.8% less | 144.5% more | 5.4% more |
+| Medium | 53.4% less | 4.4% less | 68.5% less |
+| Large | 71.6% less* | 12.8% less | 66.0% less |
 
-The claim-grade cells (claim gate passed, every run correct) are the two large wins: `decision_lookup` (62.6% fewer cost-weighted tokens, 41.5% faster) and `multi_session` (70.7% fewer tokens, 33.9% faster). Published boundaries, not hidden: `aggregation` costs 7–9% *more* tokens at small/medium, aggregation is *slower* with the wiki at every scale even when tokens drop, and *the large aggregation figure (45.0% less) comes from a Stage 1 run whose gate failed on control-side correctness flakes, so it stays investigation evidence rather than a claim.
+Latest synthetic wiki-track release candidate: 2026-06-16, `gpt-5.5`, 42 scenarios, 3 measured runs plus 1 warmup each. The overall claim gate **failed**: 41/42 scenarios passed correctness, but `decision_lookup` at large scale on the no-Project-Librarian control had only 2/3 correct measured runs. The failed control run selected `2026-05-04` from a dated history file instead of the expected latest benchmark-evidence decision `2026-06-10` from the decision log. Treat this table as diagnostic evidence, not a public release claim, until a clean release run passes the claim gate. Published boundaries remain visible: small `aggregation` is much more expensive with the wiki, small `multi_session` is slightly more expensive, and `aggregation` stays slower at every scale even when token cost drops.
 
 ### Code-graph track (code evidence index, real repositories)
 
