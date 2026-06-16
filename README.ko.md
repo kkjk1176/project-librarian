@@ -277,8 +277,9 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
 9. 읽기 전용 위키 소비자는 공통 concept read model을 사용해 canonical 위키 스키마를 다시 쓰지 않고 경로와 frontmatter에서 사용자용 페이지 유형을 파생합니다.
-10. `--wiki-visualize`는 데이터베이스나 서버를 추가하지 않고 기존 위키 그래프와 concept read model을 재사용해 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
-11. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
+10. 위키 생산자는 기존 markdown/YAML 정본 스키마를 계속 작성하고, 진단·MCP·시각화 같은 읽기 전용 소비자는 원본 문서를 바꾸지 않는 파생 보기를 사용합니다.
+11. `--wiki-visualize`는 데이터베이스나 서버를 추가하지 않고 기존 위키 그래프와 concept read model을 재사용해 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
+12. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
 
 마이그레이션은 검토를 우선합니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 legacy 파일은 제외한 뒤, 여러 성격의 내용이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 문서 분류 체계에 따라 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.
 
