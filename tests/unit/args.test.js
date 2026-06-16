@@ -17,6 +17,26 @@ test("parseArgs separates install-skill command options", () => {
   assert.equal(parsed.missingValueOptions.length, 0);
 });
 
+test("parseArgs treats update as an explicit init/update command", () => {
+  const parsed = parseArgs(["update", "--no-git-config"]);
+  assert.equal(parsed.command, "update");
+  assert.deepEqual(parsed.commandArgs, ["--no-git-config"]);
+  assert.equal(parsed.noGitConfigMode, true);
+  assert.equal(parsed.unknownCommand, "");
+});
+
+test("parseArgs preserves update migration conflicts for command validation", () => {
+  const migrate = parseArgs(["update", "--migrate"]);
+  assert.equal(migrate.command, "update");
+  assert.equal(migrate.migrateMode, true);
+  assert.deepEqual(migrate.commandArgs, ["--migrate"]);
+
+  const adopt = parseArgs(["update", "--adopt-existing"]);
+  assert.equal(adopt.command, "update");
+  assert.equal(adopt.migrateMode, true);
+  assert.deepEqual(adopt.commandArgs, ["--adopt-existing"]);
+});
+
 test("parseArgs reports unknown commands and options without editing mode state", () => {
   const parsed = parseArgs(["unknown-command", "--definitely-unknown"]);
   assert.equal(parsed.unknownCommand, "unknown-command");

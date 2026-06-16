@@ -164,6 +164,7 @@ Wiki setup and maintenance:
 | Goal | Ask The Agent | Internal Action |
 | --- | --- | --- |
 | Create or update the wiki | "Use Project Librarian to set up or update this repository's planning wiki." | `[init]` |
+| Update existing setup without migration | "Update this repository's Project Librarian setup without migrating the wiki." | `update` |
 | Migrate existing docs/wiki content | "Use Project Librarian to migrate the existing docs/wiki content." | `--migrate` |
 | Validate generated setup | "Run Project Librarian validation." | `--lint` |
 | Check links and document quality | "Run Project Librarian diagnostics." | `--doctor` |
@@ -311,9 +312,11 @@ Recognized but inventory-only extensions include `.rb`, `.vue`, and `.css`. Conf
 Use the resolved local runner for automation or direct CLI execution:
 
 ```bash
-node .codex/skills/project-librarian/dist/init-project-wiki.js [init] [options]
+node .codex/skills/project-librarian/dist/init-project-wiki.js [init|update] [options]
 node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
 ```
+
+`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed.
 
 Important options:
 

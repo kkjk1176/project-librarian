@@ -13,7 +13,7 @@ function codeIndex() {
 }
 function printUsage() {
     console.log(`Usage:
-  project-librarian [init] [options]
+  project-librarian [init|update] [options]
   project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
   project-librarian mcp
 
@@ -53,6 +53,7 @@ Options:
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
+  update                           Run the idempotent wiki/setup update path; rejects migration flags.
   mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
@@ -86,6 +87,10 @@ if (args_1.unexpectedValueOptions.length > 0) {
 if (args_1.missingValueOptions.length > 0) {
     console.error(`missing value for option${args_1.missingValueOptions.length === 1 ? "" : "s"}: ${args_1.missingValueOptions.join(", ")}`);
     printUsage();
+    process.exit(1);
+}
+if (args_1.command === "update" && args_1.migrateMode) {
+    console.error("update cannot be combined with --migrate or --adopt-existing; use project-librarian --migrate for migration.");
     process.exit(1);
 }
 if (args_1.fixMode && !args_1.doctorMode) {

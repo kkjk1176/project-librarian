@@ -22,6 +22,7 @@ mkdir "$TMPDIR/help-and-errors"
 cd "$TMPDIR/help-and-errors"
 node "$CLI" --help > help.log
 grep -q "Usage:" help.log
+grep -Fq "project-librarian [init|update] [options]" help.log
 test ! -e AGENTS.md
 if node "$CLI" unknown-command > unknown-command.log 2>&1; then
   echo "expected unknown command to fail" >&2
@@ -53,6 +54,22 @@ if node "$CLI" --code-query --code-status > missing-code-query.log 2>&1; then
 fi
 grep -q "missing value for option: --code-query" missing-code-query.log
 test ! -e AGENTS.md
+if node "$CLI" update --migrate > update-migrate.log 2>&1; then
+  echo "expected update --migrate to fail" >&2
+  exit 1
+fi
+grep -q "update cannot be combined with --migrate or --adopt-existing" update-migrate.log
+test ! -e AGENTS.md
+test ! -e wiki
+test ! -e wiki_legacy
+if node "$CLI" update --adopt-existing > update-adopt-existing.log 2>&1; then
+  echo "expected update --adopt-existing to fail" >&2
+  exit 1
+fi
+grep -q "update cannot be combined with --migrate or --adopt-existing" update-adopt-existing.log
+test ! -e AGENTS.md
+test ! -e wiki
+test ! -e wiki_legacy
 grep -q -- "--issue-draft" help.log
 grep -q -- "--issue-create" help.log
 grep -q -- "--issue-body-file" help.log
@@ -152,6 +169,19 @@ grep -q "exists  AGENTS.md" rerun.log
 grep -q "exists  CLAUDE.md" rerun.log
 grep -q "exists  GEMINI.md" rerun.log
 grep -q "exists  wiki/AGENTS.md" rerun.log
+
+node "$CLI" update --no-git-config > update-rerun.log
+grep -q "Project Librarian + no-git-config complete." update-rerun.log
+grep -q "exists  AGENTS.md" update-rerun.log
+grep -q "exists  wiki/AGENTS.md" update-rerun.log
+test ! -e wiki_legacy
+if node "$CLI" update --migrate > update-migrate-existing.log 2>&1; then
+  echo "expected update --migrate in an initialized project to fail" >&2
+  exit 1
+fi
+grep -q "update cannot be combined with --migrate or --adopt-existing" update-migrate-existing.log
+test -d wiki
+test ! -e wiki_legacy
 
 node "$CLI" --lint
 node "$CLI" init --lint
