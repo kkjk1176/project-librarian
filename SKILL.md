@@ -57,6 +57,7 @@ $PROJECT_LIBRARIAN
 Use the command variants as follows:
 
 - New project wiki or normal update: `$PROJECT_LIBRARIAN`.
+- Explicit existing-project update without migration: `$PROJECT_LIBRARIAN update` (rejects `--migrate` and `--adopt-existing`).
 - Existing wiki/docs need migration: `$PROJECT_LIBRARIAN --migrate`.
 - Install hook files without changing git config: `$PROJECT_LIBRARIAN --no-git-config`.
 

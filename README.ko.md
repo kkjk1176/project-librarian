@@ -164,6 +164,7 @@ npx project-librarian install-skill --scope project --agents all
 | 목적 | 에이전트에게 요청할 말 | 내부 액션 |
 | --- | --- | --- |
 | 위키 생성 또는 갱신 | "Project Librarian으로 이 저장소의 계획 위키를 설정하거나 갱신해줘." | `[init]` |
+| 마이그레이션 없이 기존 설정 갱신 | "위키를 마이그레이션하지 말고 이 저장소의 Project Librarian 설정을 갱신해줘." | `update` |
 | 기존 문서/위키 마이그레이션 | "Project Librarian으로 기존 docs/wiki 내용을 마이그레이션해줘." | `--migrate` |
 | 생성된 설정 검증 | "Project Librarian 검증을 실행해줘." | `--lint` |
 | 링크와 문서 품질 점검 | "Project Librarian 진단을 실행해줘." | `--doctor` |
@@ -311,9 +312,11 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 자동화나 직접 CLI 실행에는 확인된 로컬 실행 경로를 사용합니다.
 
 ```bash
-node .codex/skills/project-librarian/dist/init-project-wiki.js [init] [options]
+node .codex/skills/project-librarian/dist/init-project-wiki.js [init|update] [options]
 node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
 ```
+
+`update`는 기존 프로젝트 설정을 명시적으로 갱신하는 명령입니다. `--migrate`와 `--adopt-existing`는 함께 쓸 수 없습니다. 기존 문서나 위키를 `wiki_legacy*`로 보존하고 검토해야 할 때는 최상위 `--migrate`를 사용합니다.
 
 중요 옵션:
 
