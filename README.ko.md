@@ -38,6 +38,7 @@ npx project-librarian install-skill --scope project --agents all
 - **첫 읽기를 작게.** 세션 시작 훅은 `wiki/startup.md`와 `wiki/index.md`만 주입하고, 에이전트는 저장소 전체를 처음부터 훑는 대신 필요할 때 더 깊은 페이지로 이동합니다.
 - **한 번 설정, 네 에이전트.** Codex, Claude Code, Cursor, Gemini CLI가 같은 위키 우선 계약과 훅, 규칙을 공유합니다.
 - **구조적인 위키 작성.** 새 프로젝트 내용은 작성하거나 취합하기 전에 `wiki/meta/document-taxonomy.md`로 분류하므로 PRD, 정책, UX, 데이터, API, QA, 릴리즈, 운영 메모가 하나의 잡다한 페이지로 합쳐지지 않습니다.
+- **검토 가능한 위키 그래프.** `--wiki-visualize`는 `.project-wiki/` 아래에 독립 실행형 HTML 그래프를 작성해, 시작 컨텍스트를 늘리지 않고 페이지 유형·라우터 깊이·역링크·결정 참조를 보여줍니다.
 - **막연한 표현이 아니라 측정값.** 모든 성능 주장은 격리된 Codex 벤치마크에서 나오며, 손해를 본 경우도 이긴 경우 바로 옆에 보여 줍니다.
 - **선택적 코드 근거.** 재생성 가능한 SQLite 인덱스와 답변 형태 MCP 도구가 영향·소유권·워크스페이스 그래프 질문에 답하며, 추가 런타임 의존성이 전혀 없습니다.
 - **다시 실행해도 안전.** 부트스트랩은 멱등하고 기존 내용 보존을 우선하며, 진단은 깨진 경로·도달 불가 페이지·오래된 사실을 에이전트가 오해하기 전에 잡아냅니다.
@@ -56,6 +57,7 @@ Project Librarian은 에이전트에게 두 가지 로컬 정본을 제공합니
 | `.codex/`, `.claude/`, `.cursor/`, `.gemini/` 훅 | 전체 위키를 불러오지 않는 Codex/Claude Code/Cursor/Gemini CLI 시작 컨텍스트. |
 | `GEMINI.md` 및 `.cursor/rules/` | Gemini CLI와 Cursor를 같은 간결한 위키 우선 계약으로 안내하는 지침 파일. |
 | `.project-wiki/code-evidence.sqlite` | 파일, 심볼, import, route, 소유권, 워크스페이스 그래프, 보고서, 영향 확인을 위한 재생성 가능한 코드 근거. |
+| `.project-wiki/wiki-graph.html` | 파생 concept type, 라우터 도달성, 링크, 역링크, 결정 참조를 보여주는 선택적 정적 위키 그래프 시각화. |
 | 진단 및 마이그레이션 모드 | 링크 확인, 품질 확인, 마이그레이션 수신함, 오래된 신호 보고, 작업 흐름에서 문제가 드러날 때의 이슈 초안. |
 
 핵심은 “문서를 더 많이 쓰자”가 아닙니다. 첫 에이전트 읽기량을 작게 유지하고, 더 깊은 프로젝트 정본과 코드 근거로 가는 신뢰 가능한 경로를 제공하는 것입니다.
@@ -172,6 +174,7 @@ npx project-librarian install-skill --scope project --agents all
 | 진단 전에 생성된 라우팅 갱신 | "Project Librarian 라우팅을 갱신한 뒤 진단을 실행해줘." | `--doctor --fix` |
 | 위키 내용 검색 | "Project Librarian 위키에서 authentication decisions를 찾아줘." | `--query "authentication decisions"` |
 | 페이지의 역링크/결정 인용 확인 | "decisions/release-policy의 Project Librarian 위키 영향도를 보여줘." | `--wiki-impact "decisions/release-policy"` |
+| 위키 그래프 시각화 생성 | "Project Librarian 위키 그래프 시각화를 생성해줘." | `--wiki-visualize` |
 | 후보 메모 저장 | "이 내용을 Project Librarian 후보 메모로 저장해줘: <내용>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | 오래되었거나 미해결인 위키 페이지 보고 | "Project Librarian에서 오래되었거나 미해결인 페이지를 확인해줘." | `--prune-check` |
 | git 설정 변경 없이 훅 파일 설치 | "git 설정은 바꾸지 말고 Project Librarian 훅 파일만 설정해줘." | `--no-git-config` |
@@ -273,7 +276,9 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 6. `--refresh-index`는 새로 발견한 위키 페이지를 라우팅하며, route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 분리합니다.
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
-9. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
+9. 읽기 전용 위키 소비자는 공통 concept read model을 사용해 canonical 위키 스키마를 다시 쓰지 않고 경로와 frontmatter에서 사용자용 페이지 유형을 파생합니다.
+10. `--wiki-visualize`는 데이터베이스나 서버를 추가하지 않고 기존 위키 그래프와 concept read model을 재사용해 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
+11. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
 
 마이그레이션은 검토를 우선합니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 legacy 파일은 제외한 뒤, 여러 성격의 내용이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 문서 분류 체계에 따라 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.
 
@@ -334,6 +339,8 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--
 | `--migration-doctor` | migration-lint와 migration-quality-check를 함께 실행합니다. |
 | `--query <terms>` | 위키 경로, 메타데이터, 제목, 본문을 검색합니다. 답변 우선 출력에 페이지별 TL;DR 줄을 붙이고 고정 크기 상한을 적용합니다. |
 | `--wiki-impact <page-or-term>` | 일치하는 페이지의 위키 역링크, `decision_ref` 인용, 나가는 링크, 라우터 깊이를 보여줍니다. |
+| `--wiki-visualize` | `.project-wiki/wiki-graph.html`에 독립 실행형 정적 위키 그래프 시각화를 작성합니다. |
+| `--wiki-visualize-out <path>` | `--wiki-visualize`와 함께 사용해 `.project-wiki/` 아래의 사용자 지정 저장소 상대 경로에 작성합니다. |
 | `--refresh-index` | 생성된 자동 발견 위키 라우팅을 갱신합니다. |
 | `--capture-inbox --title <title> --content <content>` | 위키 수신함에 후보 메모를 추가합니다. |
 | `--issue-draft --issue-title <title>` | 문제 또는 부작용에 대한 읽기 전용 GitHub 이슈 본문 초안을 출력합니다. |

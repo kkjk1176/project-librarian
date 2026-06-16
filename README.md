@@ -38,6 +38,7 @@ npx project-librarian install-skill --scope project --agents all
 - **Small first read.** Session-start hooks inject only `wiki/startup.md` and `wiki/index.md`; agents route to deeper pages on demand instead of grepping the whole repo cold.
 - **One setup, four agents.** Codex, Claude Code, Cursor, and Gemini CLI share the same wiki-first contract, hooks, and rules.
 - **Structured wiki writing.** New project content is classified through `wiki/meta/document-taxonomy.md` before it is written or consolidated, so PRDs, policies, UX, data, APIs, QA, release, and operations notes do not collapse into one catch-all page.
+- **Inspectable wiki graph.** `--wiki-visualize` writes a self-contained HTML graph under `.project-wiki/`, showing page types, router depth, backlinks, and decision references without adding to startup context.
 - **Measured, not hand-wavy.** Every performance claim comes from hermetic Codex benchmarks — and the cases where it costs *more* are shown right next to the wins.
 - **Optional code evidence.** A regenerable SQLite index plus answer-shaped MCP tools answer impact, ownership, and workspace-graph questions, with zero extra runtime dependencies.
 - **Safe to re-run.** Bootstrap is idempotent and preservation-first; diagnostics flag broken routes, unreachable pages, and stale truth before they mislead an agent.
@@ -56,6 +57,7 @@ Project Librarian gives agents two local sources of truth:
 | `.codex/`, `.claude/`, `.cursor/`, and `.gemini/` hooks | Automatic startup context for Codex, Claude Code, Cursor, and Gemini CLI without loading the full wiki. |
 | `GEMINI.md` and `.cursor/rules/` | Gemini CLI and Cursor instruction files that route agents to the same compact wiki-first contract. |
 | `.project-wiki/code-evidence.sqlite` | Regenerable code evidence for files, symbols, imports, routes, ownership, workspace graph, reports, and impact checks. |
+| `.project-wiki/wiki-graph.html` | Optional static wiki graph visualizer with derived concept types, router reachability, links, backlinks, and decision references. |
 | Diagnostics and migration modes | Link checks, quality checks, migration inboxes, stale-signal reports, and issue drafts when the workflow exposes a problem. |
 
 The core idea is not "write more docs." It is "keep the first agent read small, then give it reliable routes to deeper project truth and code evidence."
@@ -172,6 +174,7 @@ Wiki setup and maintenance:
 | Refresh generated routing before diagnostics | "Refresh Project Librarian routing and then run diagnostics." | `--doctor --fix` |
 | Search project wiki content | "Search the Project Librarian wiki for authentication decisions." | `--query "authentication decisions"` |
 | Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for decisions/release-policy." | `--wiki-impact "decisions/release-policy"` |
+| Generate a wiki graph visualizer | "Generate the Project Librarian wiki graph visualizer." | `--wiki-visualize` |
 | Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | Report stale or unresolved wiki pages | "Check Project Librarian for stale or unresolved pages." | `--prune-check` |
 | Install hook files without changing git config | "Set up Project Librarian hook files without changing git config." | `--no-git-config` |
@@ -273,7 +276,9 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 6. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
 7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
-9. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
+9. Read-only wiki consumers share a concept read model that derives user-facing page types from paths and frontmatter without rewriting the canonical wiki schema.
+10. `--wiki-visualize` writes a static graph artifact to `.project-wiki/`, reusing the wiki graph and concept read model instead of introducing a database or server.
+11. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
 Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:
 
@@ -334,6 +339,8 @@ Important options:
 | `--migration-doctor` | Run migration-lint and migration-quality-check together. |
 | `--query <terms>` | Search wiki paths, metadata, titles, and bodies; answer-first output with per-page TL;DR lines under a hard size cap. |
 | `--wiki-impact <page-or-term>` | Show wiki backlinks, `decision_ref` citations, outgoing links, and router depth for matching pages. |
+| `--wiki-visualize` | Write a self-contained static wiki graph visualizer to `.project-wiki/wiki-graph.html`. |
+| `--wiki-visualize-out <path>` | With `--wiki-visualize`, write to a custom repository-relative path under `.project-wiki/`. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
 | `--capture-inbox --title <title> --content <content>` | Append a candidate note to the wiki inbox. |
 | `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |
