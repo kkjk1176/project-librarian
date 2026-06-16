@@ -277,8 +277,9 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
 9. Read-only wiki consumers share a concept read model that derives user-facing page types from paths and frontmatter without rewriting the canonical wiki schema.
-10. `--wiki-visualize` writes a static graph artifact to `.project-wiki/`, reusing the wiki graph and concept read model instead of introducing a database or server.
-11. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
+10. Wiki producers keep writing the canonical markdown/YAML schema, while read-only consumers such as diagnostics, MCP, and the visualizer use derived projections instead of mutating source documents.
+11. `--wiki-visualize` writes a static graph artifact to `.project-wiki/`, reusing the wiki graph and concept read model instead of introducing a database or server.
+12. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
 Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:
 
