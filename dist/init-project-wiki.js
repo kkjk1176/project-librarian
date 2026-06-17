@@ -68,6 +68,19 @@ Commands:
 function exitAfterStdoutDrain(code) {
     process.stdout.write("", () => process.exit(code));
 }
+function activeCodeEvidenceCliModes() {
+    const modes = [
+        { active: args_1.codeQueryMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeQueryMode() },
+        { active: args_1.codeReportMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeReportMode() },
+        { active: args_1.codeStatusMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeStatusMode() },
+        { active: args_1.codeFilesMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeFilesMode() },
+        { active: args_1.codeImpactMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeImpactMode() },
+        { active: args_1.codeContextPackMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeContextPackMode() },
+        { active: args_1.codeSearchSymbolMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeSearchSymbolMode() },
+        { active: args_1.codeIndexMode, drainStdout: false, run: (codeIndexModule) => codeIndexModule.runCodeIndexMode() },
+    ];
+    return modes.filter((mode) => mode.active);
+}
 if (args_1.helpMode) {
     printUsage();
     process.exit(0);
@@ -147,49 +160,19 @@ else {
     runInitCommand();
 }
 function runInitCommand() {
-    const activeCodeModes = [args_1.codeQueryMode, args_1.codeReportMode, args_1.codeStatusMode, args_1.codeFilesMode, args_1.codeImpactMode, args_1.codeContextPackMode, args_1.codeSearchSymbolMode, args_1.codeIndexMode].filter(Boolean).length;
-    if (activeCodeModes > 1) {
+    const activeCodeModes = activeCodeEvidenceCliModes();
+    if (activeCodeModes.length > 1) {
         console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
         process.exit(1);
     }
-    if (args_1.codeQueryMode) {
-        codeIndex().runCodeQueryMode();
-        exitAfterStdoutDrain(0);
+    const activeCodeMode = activeCodeModes[0];
+    if (activeCodeMode) {
+        activeCodeMode.run(codeIndex());
+        if (activeCodeMode.drainStdout)
+            exitAfterStdoutDrain(0);
+        else
+            process.exit(0);
         return;
-    }
-    if (args_1.codeReportMode) {
-        codeIndex().runCodeReportMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeStatusMode) {
-        codeIndex().runCodeStatusMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeFilesMode) {
-        codeIndex().runCodeFilesMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeImpactMode) {
-        codeIndex().runCodeImpactMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeContextPackMode) {
-        codeIndex().runCodeContextPackMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeSearchSymbolMode) {
-        codeIndex().runCodeSearchSymbolMode();
-        exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.codeIndexMode) {
-        codeIndex().runCodeIndexMode();
-        process.exit(0);
     }
     if (args_1.wikiImpactMode) {
         (0, modes_1.runWikiImpactMode)();

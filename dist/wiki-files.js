@@ -54,6 +54,7 @@ exports.firstTldrBullet = firstTldrBullet;
 exports.canonicalBodyForLint = canonicalBodyForLint;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const path_ignore_policy_1 = require("./path-ignore-policy");
 const workspace_1 = require("./workspace");
 exports.standardWikiFiles = new Set([
     "AGENTS.md",
@@ -99,7 +100,7 @@ exports.standardWikiFiles = new Set([
     "tools/project-librarian/agents/openai.yaml",
     "tools/project-librarian/dist/init-project-wiki.js",
 ]);
-exports.ignoredDirs = new Set([".git", ".codex", ".claude", ".cursor", ".gemini", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"]);
+exports.ignoredDirs = (0, path_ignore_policy_1.ignoredDirectorySet)();
 function walkMarkdownFiles(dir = workspace_1.root, acc = [], baseDir = workspace_1.root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name);

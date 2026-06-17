@@ -4,10 +4,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { codeContextPack, codeIndexSnapshot, isCodeEvidenceModeFor, searchSymbols } = require("../../dist/code-index.js");
+const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, searchSymbols } = require("../../dist/code-index.js");
 const { openDatabase } = require("../../dist/code-index-db.js");
-const { fileLanguage, isIgnoredCodePath, shouldIndexFile } = require("../../dist/code-index-file-policy.js");
+const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
+const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
 
@@ -80,6 +81,10 @@ test("code index file policy excludes ignored and sensitive paths", () => {
   assert.equal(shouldIndexFile(".env.local"), false);
   assert.equal(shouldIndexFile("config/service-token.yaml"), false);
   assert.equal(shouldIndexFile("config/service.yaml"), true);
+  assert.equal(ignoredDirectories.has("dist"), true);
+  assert.equal(ignoredDirectories.has(".project-wiki"), true);
+  assert.equal(ignoredDirs.has("dist"), true);
+  assert.equal(ignoredDirs.has(".project-wiki"), false);
   assert.equal(isIgnoredCodePath("dist/init-project-wiki.js"), true);
 });
 
@@ -106,6 +111,32 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
       "}",
       "",
     ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "jobs.py"), [
+      "import json",
+      "from pathlib import Path",
+      "",
+      "class PythonJob:",
+      "    pass",
+      "",
+      "def run_job(payload):",
+      "    return json.dumps({\"path\": str(Path(payload))})",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "worker.go"), [
+      "package main",
+      "",
+      "import (",
+      "  \"net/http\"",
+      "  alias \"strings\"",
+      ")",
+      "",
+      "type GoWorker struct{}",
+      "",
+      "func (worker GoWorker) ServeHTTP(w http.ResponseWriter, r *http.Request) {}",
+      "",
+      "func LaunchWorker() {}",
+      "",
+    ].join("\n"));
     runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "package.json"]);
 
     const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
@@ -116,13 +147,24 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
       const second = codeIndexSnapshot(secondDatabase);
       assert.deepEqual(first, second);
       assert.ok(first.files.some((row) => row.path === "src/app.js" && row.profile === "typescript-ast"));
+      assert.ok(first.files.some((row) => row.path === "src/jobs.py" && row.profile === "python-light"));
+      assert.ok(first.files.some((row) => row.path === "src/worker.go" && row.profile === "go-light"));
       assert.ok(first.symbols.some((row) => row.name === "healthHandler" && row.kind === "function" && row.file_path === "src/app.js"));
+      assert.ok(first.symbols.some((row) => row.name === "PythonJob" && row.kind === "class" && row.file_path === "src/jobs.py"));
+      assert.ok(first.symbols.some((row) => row.name === "run_job" && row.kind === "function" && row.file_path === "src/jobs.py"));
+      assert.ok(first.symbols.some((row) => row.name === "GoWorker" && row.kind === "type" && row.file_path === "src/worker.go"));
+      assert.ok(first.symbols.some((row) => row.name === "LaunchWorker" && row.kind === "function" && row.file_path === "src/worker.go"));
       assert.ok(first.imports.some((row) => row.to_ref === "express" && row.from_file === "src/app.js"));
+      assert.ok(first.imports.some((row) => row.to_ref === "json" && row.from_file === "src/jobs.py"));
+      assert.ok(first.imports.some((row) => row.to_ref === "pathlib" && row.imported === "Path" && row.from_file === "src/jobs.py"));
+      assert.ok(first.imports.some((row) => row.to_ref === "net/http" && row.from_file === "src/worker.go"));
+      assert.ok(first.imports.some((row) => row.to_ref === "strings" && row.imported === "alias" && row.from_file === "src/worker.go"));
       assert.ok(first.routes.some((row) => row.route === "/health" && row.handler === "healthHandler"));
       assert.ok(first.edges.some((row) => row.kind === "route_to_handler" && row.target === "healthHandler"));
 
       const multiToken = searchSymbols(firstDatabase, "Promise UserRecord");
       assert.ok(multiToken.some((row) => row.name === "fetchUser" && row.file_path === "src/service.ts"));
+      assert.ok(searchSymbols(firstDatabase, "LaunchWorker").some((row) => row.name === "LaunchWorker" && row.file_path === "src/worker.go"));
       assert.deepEqual(searchSymbols(firstDatabase, "literal%Token"), []);
       assert.doesNotThrow(() => searchSymbols(firstDatabase, "AND"));
 
@@ -138,6 +180,23 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
       assert.match(cliPack, /^Code context pack "healthHandler": /);
       assert.match(cliPack, /Symbols:/);
       assert.ok(cliPack.length <= 4000, `context pack ${cliPack.length} chars exceeds cap`);
+
+      const impact = codeImpact(firstDatabase, "src/app.js");
+      assert.ok(impact.matches.files.some((row) => row.path === "src/app.js"));
+      assert.ok(impact.matches.symbols.some((row) => row.name === "healthHandler" && row.file_path === "src/app.js"));
+      assert.ok(impact.matches.routes.some((row) => row.route === "/health" && row.handler === "healthHandler"));
+      assert.ok(impact.matches.imports.some((row) => row.from_file === "src/app.js" && row.to_ref === "express"));
+      assert.ok(impact.edges.outgoing.some((row) => row.kind === "route_to_handler" && row.file_path === "src/app.js"));
+      assert.ok(impact.edges.routes.some((row) => row.source === "GET /health" && row.target === "healthHandler"));
+      assert.ok(impact.impacted_owners.some((row) => row.sample_files.includes("src/app.js")));
+
+      const pathPack = codeContextPack(firstDatabase, "src/app.js");
+      assert.match(pathPack, /file-match src\/app\.js/);
+      assert.match(pathPack, /symbol-match src\/app\.js:\d+ function healthHandler/);
+      assert.match(pathPack, /route-match GET \/health -> healthHandler/);
+      assert.match(pathPack, /import-match src\/app\.js:\d+ -> express/);
+      assert.match(pathPack, /edge-out route_to_handler GET \/health -> healthHandler/);
+      assert.match(pathPack, /owner .*src\/app\.js/);
     } finally {
       firstDatabase.close();
       secondDatabase.close();

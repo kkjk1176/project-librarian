@@ -6,7 +6,13 @@ import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, c
 import { openDatabase as openSqliteDatabase, type SqliteDatabase, type SqliteStatement, type SqliteValue } from "./code-index-db";
 import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, isJavaScriptLike, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
+import { collectCodeEvidence } from "./code-index/evidence";
+import { codeownerRules, matchedCodeownerRules, matchingWorkspace, ownershipContext, ownershipInfo, readJsonObject, workspacePackages, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
+import { searchSymbols } from "./code-index/search";
 import { abs, mkdirp, normalizePath, root } from "./workspace";
+
+export { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, searchSymbols };
+export type { MatchedCodeownerRule, OwnershipContext, OwnershipInfo };
 
 interface CodeFile {
   bytes: number;
@@ -59,41 +65,6 @@ interface OwnerSummary {
   symbols: number;
 }
 
-interface CodeownerRule {
-  file_path: string;
-  line: number;
-  owners: string[];
-  pattern: string;
-}
-
-export interface OwnershipContext {
-  codeownerRules: CodeownerRule[];
-  workspaces: WorkspacePackage[];
-}
-
-export interface OwnershipInfo {
-  codeowners: string;
-  owner: string;
-  owner_source: string;
-}
-
-// A single CODEOWNERS rule that matched a path, kept in file order so the MCP
-// server can report last-match-wins precedence (which rule won, how many were
-// overridden) without re-deriving the matching logic.
-export interface MatchedCodeownerRule {
-  file_path: string;
-  line: number;
-  owners: string[];
-  pattern: string;
-}
-
-interface WorkspacePackage {
-  name: string;
-  root: string;
-  source: string;
-  workspace_pattern: string;
-}
-
 type CodeReportSection = "coverage" | "ownership" | "languages" | "parsers" | "workspaces" | "workspace-graph" | "routes" | "hotspots" | "configs" | "edges";
 type CodeParserMode = "default" | "tree-sitter";
 type ExtractionStrength = "structural" | "light" | "config" | "inventory";
@@ -108,11 +79,6 @@ interface CodeEvidenceModeFlags {
   codeReportMode: boolean;
   codeSearchSymbol: string;
   codeStatusMode: boolean;
-}
-
-interface RankedRow {
-  row: Record<string, unknown>;
-  score: number;
 }
 
 export const codeContextPackCharCap = 4000;
@@ -1039,7 +1005,7 @@ function indexPythonLight(file: CodeFile, statements: IndexStatements): void {
   }
   const importPatterns: Array<[RegExp, (match: RegExpExecArray) => [string, string]]> = [
     [/^\s*from\s+([A-Za-z0-9_.$]+)\s+import\s+(.+)$/gm, (match) => [match[1] ?? "", match[2] ?? ""]],
-    [/^\s*import\s+([A-Za-z0-9_.$,\s]+)$/gm, (match) => [match[1] ?? "", ""]],
+    [/^\s*import\s+([A-Za-z0-9_.$, \t]+)$/gm, (match) => [match[1] ?? "", ""]],
   ];
   for (const [regex, fields] of importPatterns) {
     insertMatches(file, regex, (match, line) => {
@@ -1216,142 +1182,6 @@ function warnIfCodeIndexStale(database: SqliteDatabase): void {
   const staleness = codeIndexStaleness(database);
   if (!staleness.stale) return;
   console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
-}
-
-function pathOwnerKey(filePath: string): string {
-  const parts = normalizePath(filePath).split("/").filter(Boolean);
-  if (parts.length === 0) return ".";
-  if (["apps", "libs", "packages", "services"].includes(parts[0] ?? "") && parts[1]) return `${parts[0]}/${parts[1]}`;
-  return parts[0] ?? ".";
-}
-
-function readJsonObject(relativePath: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(abs(relativePath), "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-function workspacePatternsFromRootPackage(): string[] {
-  const rootPackage = readJsonObject("package.json");
-  const workspaces = rootPackage?.workspaces;
-  if (Array.isArray(workspaces)) return workspaces.filter((value): value is string => typeof value === "string");
-  if (workspaces && typeof workspaces === "object" && !Array.isArray(workspaces)) {
-    const packages = (workspaces as { packages?: unknown }).packages;
-    if (Array.isArray(packages)) return packages.filter((value): value is string => typeof value === "string");
-  }
-  return [];
-}
-
-function workspacePatternCandidates(pattern: string): string[] {
-  const normalized = normalizePath(pattern).replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!normalized || normalized.includes("..")) return [];
-  if (!normalized.includes("*")) return [normalized];
-  const starIndex = normalized.indexOf("*");
-  const prefix = normalized.slice(0, starIndex).replace(/\/+$/, "");
-  const suffix = normalized.slice(starIndex + 1).replace(/^\/+/, "");
-  const base = prefix || ".";
-  const basePath = abs(base);
-  if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory()) return [];
-  return fs.readdirSync(basePath, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => normalizePath(path.join(base, entry.name, suffix)))
-    .filter((candidate) => fs.existsSync(abs(candidate)) && fs.statSync(abs(candidate)).isDirectory());
-}
-
-function workspacePackages(): WorkspacePackage[] {
-  const packages = new Map<string, WorkspacePackage>();
-  for (const pattern of workspacePatternsFromRootPackage()) {
-    for (const candidate of workspacePatternCandidates(pattern)) {
-      const packageJsonPath = normalizePath(path.join(candidate, "package.json"));
-      if (!fs.existsSync(abs(packageJsonPath))) continue;
-      const packageJson = readJsonObject(packageJsonPath);
-      const packageName = typeof packageJson?.name === "string" ? packageJson.name : candidate;
-      packages.set(candidate, {
-        name: packageName,
-        root: candidate,
-        source: "package.json workspaces",
-        workspace_pattern: pattern,
-      });
-    }
-  }
-  return Array.from(packages.values()).sort((left, right) => left.root.localeCompare(right.root));
-}
-
-function matchingWorkspace(filePath: string, workspaces: WorkspacePackage[]): WorkspacePackage | null {
-  const normalized = normalizePath(filePath);
-  return workspaces
-    .filter((workspace) => normalized === workspace.root || normalized.startsWith(`${workspace.root}/`))
-    .sort((left, right) => right.root.length - left.root.length)[0] ?? null;
-}
-
-export function codeownerRules(): CodeownerRule[] {
-  const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
-  const rules: CodeownerRule[] = [];
-  for (const filePath of files) {
-    if (!fs.existsSync(abs(filePath))) continue;
-    const lines = fs.readFileSync(abs(filePath), "utf8").split(/\r?\n/);
-    lines.forEach((lineText, index) => {
-      const trimmed = lineText.trim();
-      if (!trimmed || trimmed.startsWith("#")) return;
-      const parts = trimmed.split(/\s+/);
-      const pattern = parts[0] ?? "";
-      const owners = parts.slice(1);
-      if (!pattern || owners.length === 0) return;
-      rules.push({ file_path: filePath, line: index + 1, owners, pattern });
-    });
-  }
-  return rules;
-}
-
-function codeownerPatternRegex(pattern: string): RegExp {
-  const normalized = normalizePath(pattern).replace(/^\/+/, "");
-  const source = normalized
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, ".*")
-    .replace(/\*/g, "[^/]*");
-  if (normalized.endsWith("/")) return new RegExp(`^${source}.*$`);
-  return new RegExp(`^${source}(?:/.*)?$`);
-}
-
-function codeownerPatternMatches(pattern: string, filePath: string): boolean {
-  const normalized = normalizePath(pattern).replace(/^\/+/, "");
-  const target = normalizePath(filePath);
-  if (normalized === "*") return true;
-  if (normalized.startsWith("*.")) return path.basename(target).endsWith(normalized.slice(1));
-  return codeownerPatternRegex(normalized).test(target);
-}
-
-function matchingCodeowners(filePath: string, rules: CodeownerRule[]): string[] {
-  const matches = rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
-  return matches[matches.length - 1]?.owners ?? [];
-}
-
-// Return every CODEOWNERS rule that matches a path, in file order. The last entry
-// is the effective owner under last-match-wins; earlier entries are overridden.
-// Reuses the same matcher as matchingCodeowners so precedence answers stay
-// consistent with --code-report / --code-impact.
-export function matchedCodeownerRules(filePath: string, rules: CodeownerRule[]): MatchedCodeownerRule[] {
-  return rules.filter((rule) => codeownerPatternMatches(rule.pattern, filePath));
-}
-
-export function ownershipContext(): OwnershipContext {
-  return {
-    codeownerRules: codeownerRules(),
-    workspaces: workspacePackages(),
-  };
-}
-
-export function ownershipInfo(filePath: string, context: OwnershipContext): OwnershipInfo {
-  const workspace = matchingWorkspace(filePath, context.workspaces);
-  const owners = matchingCodeowners(filePath, context.codeownerRules);
-  return {
-    codeowners: owners.join(", "),
-    owner: workspace?.root ?? pathOwnerKey(filePath),
-    owner_source: workspace ? "workspace" : "path",
-  };
 }
 
 type OwnerNumericField = "bytes" | "configs" | "file_count" | "imports" | "lines" | "routes" | "symbols";
@@ -1643,198 +1473,35 @@ function codeReportForRequestedSection(database: SqliteDatabase): Record<string,
   };
 }
 
-function escapeLikeTerm(term: string): string {
-  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
-function containsLikePattern(term: string): string {
-  return `%${escapeLikeTerm(term)}%`;
-}
-
-function prefixLikePattern(term: string): string {
-  return `${escapeLikeTerm(term)}%`;
-}
-
-function ftsPrefixQuery(term: string): string {
-  const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
-  return tokens.slice(0, 8).map((token) => `"${token.replace(/"/g, "\"\"")}"*`).join(" AND ");
-}
-
-function stringValue(row: Record<string, unknown>, key: string): string {
-  const value = row[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-function addRankedRow(rowsByKey: Map<string, RankedRow>, row: Record<string, unknown>, key: string, score: number): void {
-  const current = rowsByKey.get(key);
-  if (!current || score > current.score) rowsByKey.set(key, { row, score });
-}
-
-function rankedRows(rowsByKey: Map<string, RankedRow>, limit: number, stableKeys: string[]): Record<string, unknown>[] {
-  return Array.from(rowsByKey.values())
-    .sort((left, right) => {
-      const scoreDelta = right.score - left.score;
-      if (scoreDelta !== 0) return scoreDelta;
-      for (const key of stableKeys) {
-        const compared = stringValue(left.row, key).localeCompare(stringValue(right.row, key));
-        if (compared !== 0) return compared;
-      }
-      return 0;
-    })
-    .slice(0, limit)
-    .map((ranked) => ranked.row);
-}
-
-function searchFiles(database: SqliteDatabase, term: string, limit = 25): Record<string, unknown>[] {
-  const normalized = term.trim();
-  if (!normalized) return [];
-  const contains = containsLikePattern(normalized);
-  const prefix = prefixLikePattern(normalized);
-  const rowsByKey = new Map<string, RankedRow>();
-  const exactRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path = ? ORDER BY path LIMIT ?").all(normalized, limit);
-  exactRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 900));
-  const prefixRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(prefix, limit);
-  prefixRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 750));
-
-  const ftsQuery = ftsPrefixQuery(normalized);
-  if (ftsQuery) {
-    const ftsRows = database.prepare(`
-      SELECT files.path, files.language, files.profile, files.lines, files.bytes
-      FROM files_fts
-      JOIN files ON files.path = files_fts.path
-      WHERE files_fts MATCH ?
-      ORDER BY bm25(files_fts, 8.0, 1.0, 1.0, 0.25), files.path
-      LIMIT ?
-    `).all(ftsQuery, limit);
-    ftsRows.forEach((row, index) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 650 - index));
-  }
-
-  const containsRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(contains, limit);
-  containsRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 500));
-  return rankedRows(rowsByKey, limit, ["path"]);
-}
-
-function symbolKey(row: Record<string, unknown>): string {
-  return [
-    stringValue(row, "file_path"),
-    stringValue(row, "line"),
-    stringValue(row, "kind"),
-    stringValue(row, "name"),
-    stringValue(row, "signature"),
-  ].join("\u0000");
-}
-
-export function searchSymbols(database: SqliteDatabase, term: string, limit = 50): Record<string, unknown>[] {
-  const normalized = term.trim();
-  if (!normalized) return [];
-  const contains = containsLikePattern(normalized);
-  const prefix = prefixLikePattern(normalized);
-  const rowsByKey = new Map<string, RankedRow>();
-  const exactRows = database.prepare(`
-    SELECT name, kind, file_path, line, signature
-    FROM symbols
-    WHERE name = ? OR signature = ?
-    ORDER BY file_path, line
-    LIMIT ?
-  `).all(normalized, normalized, limit);
-  exactRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 1000));
-
-  const prefixRows = database.prepare(`
-    SELECT name, kind, file_path, line, signature
-    FROM symbols
-    WHERE name LIKE ? ESCAPE '\\' OR signature LIKE ? ESCAPE '\\'
-    ORDER BY file_path, line
-    LIMIT ?
-  `).all(prefix, prefix, limit);
-  prefixRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 850));
-
-  const ftsQuery = ftsPrefixQuery(normalized);
-  if (ftsQuery) {
-    const ftsRows = database.prepare(`
-      SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature
-      FROM symbols_fts
-      JOIN symbols
-        ON symbols.name = symbols_fts.name
-       AND symbols.kind = symbols_fts.kind
-       AND symbols.file_path = symbols_fts.file_path
-       AND symbols.signature = symbols_fts.signature
-      WHERE symbols_fts MATCH ?
-      ORDER BY bm25(symbols_fts, 8.0, 1.0, 4.0, 2.0), symbols.file_path, symbols.line
-      LIMIT ?
-    `).all(ftsQuery, limit);
-    ftsRows.forEach((row, index) => addRankedRow(rowsByKey, row, symbolKey(row), 700 - index));
-  }
-
-  const containsRows = database.prepare(`
-    SELECT name, kind, file_path, line, signature
-    FROM symbols
-    WHERE name LIKE ? ESCAPE '\\' OR signature LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\'
-    ORDER BY file_path, line
-    LIMIT ?
-  `).all(contains, contains, contains, limit);
-  containsRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 500));
-  return rankedRows(rowsByKey, limit, ["file_path", "line", "kind", "name", "signature"]);
-}
-
 export function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
   const normalized = target.trim();
-  const like = containsLikePattern(normalized);
-  const fileMatches = searchFiles(database, normalized, 25);
-  const symbolMatches = searchSymbols(database, normalized, 50);
-  const routeMatches = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 50").all(like, like, like);
-  const importMatches = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 75").all(like, like, like);
-  const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like, like);
-  const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like);
-  const routeTargets = routeMatches.map((row) => `${String(row.method)} ${String(row.route)}`);
-  const routeEdges = routeTargets.length === 0 ? [] : database.prepare(`SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE source IN (${routeTargets.map(() => "?").join(", ")}) ORDER BY file_path, line LIMIT 100`).all(...routeTargets);
-  const relatedFilePaths = Array.from(new Set([
-    ...fileMatches.map((row) => String(row.path)),
-    ...symbolMatches.map((row) => String(row.file_path)),
-    ...routeMatches.map((row) => String(row.file_path)),
-    ...importMatches.map((row) => String(row.from_file)),
-    ...outgoingEdges.map((row) => String(row.file_path)),
-    ...incomingEdges.map((row) => String(row.file_path)),
-    ...routeEdges.map((row) => String(row.file_path)),
-  ].filter(Boolean))).sort();
-  const ownership = ownershipContext();
-  const impactedOwners = new Map<string, { codeowners: Set<string>; files: number; owner: string; owner_source: string; sample_files: string[] }>();
-  for (const filePath of relatedFilePaths) {
-    const info = ownershipInfo(filePath, ownership);
-    const current = impactedOwners.get(info.owner) ?? {
-      codeowners: new Set<string>(),
-      files: 0,
-      owner: info.owner,
-      owner_source: info.owner_source,
-      sample_files: [],
-    };
-    current.files += 1;
-    if (current.sample_files.length < 10) current.sample_files.push(filePath);
-    if (info.codeowners) {
-      for (const owner of info.codeowners.split(", ").filter(Boolean)) current.codeowners.add(owner);
-    }
-    impactedOwners.set(info.owner, current);
-  }
+  const evidence = collectCodeEvidence(database, normalized, {
+    edgeLimit: 100,
+    fileLimit: 25,
+    includeEdgeEvidenceMatches: false,
+    includeOwnerCodeowners: true,
+    includeRouteEdges: true,
+    importLimit: 75,
+    ownerSampleLimit: 10,
+    routeEdgeLimit: 100,
+    routeLimit: 50,
+    symbolLimit: 50,
+  });
   return {
     ...codeReportMetadata(database),
     target,
     matches: {
-      files: fileMatches,
-      symbols: symbolMatches,
-      routes: routeMatches,
-      imports: importMatches,
+      files: evidence.files,
+      symbols: evidence.symbols,
+      routes: evidence.routes,
+      imports: evidence.imports,
     },
     edges: {
-      outgoing: outgoingEdges,
-      incoming: incomingEdges,
-      routes: routeEdges,
+      outgoing: evidence.outgoingEdges,
+      incoming: evidence.incomingEdges,
+      routes: evidence.routeEdges,
     },
-    impacted_owners: Array.from(impactedOwners.values()).map((owner) => ({
-      owner: owner.owner,
-      owner_source: owner.owner_source,
-      files: owner.files,
-      codeowners: Array.from(owner.codeowners).sort().join(", "),
-      sample_files: owner.sample_files,
-    })).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner)),
+    impacted_owners: evidence.owners,
   };
 }
 
@@ -1880,38 +1547,21 @@ function structuralSignature(value: unknown): string {
   return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
 }
 
-function sortedUnique(values: string[]): string[] {
-  return Array.from(new Set(values.filter(Boolean))).sort();
-}
-
 export function codeContextPack(database: SqliteDatabase, query: string): string {
   const normalized = query.trim();
   if (!normalized) return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
-  const like = containsLikePattern(normalized);
-  const files = searchFiles(database, normalized, 12);
-  const symbols = searchSymbols(database, normalized, 20);
-  const routes = database.prepare("SELECT method, route, file_path, line, handler FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 20").all(like, like, like);
-  const imports = database.prepare("SELECT from_file, to_ref, imported, line, raw FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 30").all(like, like, like);
-  const outgoingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 30").all(like, like, like);
-  const incomingEdges = database.prepare("SELECT kind, source_kind, source, target_kind, target, file_path, line, evidence FROM edges WHERE target LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 30").all(like, like);
-  const relatedFilePaths = sortedUnique([
-    ...files.map((row) => String(row.path ?? "")),
-    ...symbols.map((row) => String(row.file_path ?? "")),
-    ...routes.map((row) => String(row.file_path ?? "")),
-    ...imports.map((row) => String(row.from_file ?? "")),
-    ...outgoingEdges.map((row) => String(row.file_path ?? "")),
-    ...incomingEdges.map((row) => String(row.file_path ?? "")),
-  ]);
-  const ownership = ownershipContext();
-  const ownerRows = new Map<string, { files: number; owner: string; owner_source: string; sample_files: string[] }>();
-  for (const filePath of relatedFilePaths) {
-    const info = ownershipInfo(filePath, ownership);
-    const current = ownerRows.get(info.owner) ?? { files: 0, owner: info.owner, owner_source: info.owner_source, sample_files: [] };
-    current.files += 1;
-    if (current.sample_files.length < 4) current.sample_files.push(filePath);
-    ownerRows.set(info.owner, current);
-  }
-  const owners = Array.from(ownerRows.values()).sort((left, right) => right.files - left.files || left.owner.localeCompare(right.owner));
+  const evidence = collectCodeEvidence(database, normalized, {
+    edgeLimit: 30,
+    fileLimit: 12,
+    includeEdgeEvidenceMatches: true,
+    includeOwnerCodeowners: false,
+    includeRouteEdges: false,
+    importLimit: 30,
+    ownerSampleLimit: 4,
+    routeEdgeLimit: 0,
+    routeLimit: 20,
+    symbolLimit: 20,
+  });
   const staleness = codeIndexStaleness(database);
   const coverage = evidenceCoverage(database);
   const staleLabel = staleness.stale
@@ -1919,16 +1569,16 @@ export function codeContextPack(database: SqliteDatabase, query: string): string
     : "fresh";
 
   const lines = [
-    `Code context pack "${normalized}": ${files.length} file matches, ${symbols.length} symbols, ${routes.length} routes, ${imports.length} imports, ${incomingEdges.length} incoming / ${outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
+    `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
     "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
   ];
-  pushBudgetedSection(lines, "Files:", files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
-  pushBudgetedSection(lines, "Symbols:", symbols, 12, (row) => `  symbol-match ${String(row.file_path)}:${String(row.line)} ${String(row.kind)} ${String(row.name)} - ${structuralSignature(row.signature)}`);
-  pushBudgetedSection(lines, "Routes:", routes, 8, (row) => `  route-match ${String(row.method)} ${String(row.route)} -> ${String(row.handler)} (${String(row.file_path)}:${String(row.line)})`);
-  pushBudgetedSection(lines, "Imports:", imports, 8, (row) => `  import-match ${String(row.from_file)}:${String(row.line)} -> ${String(row.to_ref)}${row.imported ? ` (${String(row.imported)})` : ""}`);
-  pushBudgetedSection(lines, "Incoming edges:", incomingEdges, 8, (row) => `  edge-in ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
-  pushBudgetedSection(lines, "Outgoing edges:", outgoingEdges, 8, (row) => `  edge-out ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
-  pushBudgetedSection(lines, "Owners:", owners, 6, (row) => `  owner ${row.owner} (${row.owner_source}, ${row.files} files): ${row.sample_files.join(", ")}`);
+  pushBudgetedSection(lines, "Files:", evidence.files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
+  pushBudgetedSection(lines, "Symbols:", evidence.symbols, 12, (row) => `  symbol-match ${String(row.file_path)}:${String(row.line)} ${String(row.kind)} ${String(row.name)} - ${structuralSignature(row.signature)}`);
+  pushBudgetedSection(lines, "Routes:", evidence.routes, 8, (row) => `  route-match ${String(row.method)} ${String(row.route)} -> ${String(row.handler)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Imports:", evidence.imports, 8, (row) => `  import-match ${String(row.from_file)}:${String(row.line)} -> ${String(row.to_ref)}${row.imported ? ` (${String(row.imported)})` : ""}`);
+  pushBudgetedSection(lines, "Incoming edges:", evidence.incomingEdges, 8, (row) => `  edge-in ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Outgoing edges:", evidence.outgoingEdges, 8, (row) => `  edge-out ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+  pushBudgetedSection(lines, "Owners:", evidence.owners, 6, (row) => `  owner ${row.owner} (${row.owner_source}, ${row.files} files): ${row.sample_files.join(", ")}`);
   return finalizeCodeContextPack(lines.join("\n"));
 }
 

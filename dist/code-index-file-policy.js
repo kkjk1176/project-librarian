@@ -43,27 +43,13 @@ exports.smallRepoCodeIndexGate = smallRepoCodeIndexGate;
 const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const path_ignore_policy_1 = require("./path-ignore-policy");
 const workspace_1 = require("./workspace");
 // Single source of truth for the disposable code-evidence directory name. Both
 // the heavy code-index module and the light bootstrap path (hooks.ts) key off
 // this; keeping it here avoids loading typescript/node:sqlite during bootstrap.
 exports.codeEvidenceDirectory = ".project-wiki";
-exports.ignoredDirectories = new Set([
-    ".git",
-    ".codex",
-    ".claude",
-    ".cursor",
-    ".gemini",
-    exports.codeEvidenceDirectory,
-    "node_modules",
-    ".next",
-    "dist",
-    "build",
-    "coverage",
-    "vendor",
-    "tmp",
-    "temp",
-]);
+exports.ignoredDirectories = (0, path_ignore_policy_1.ignoredDirectorySet)([exports.codeEvidenceDirectory]);
 const languageByExtension = {
     ".c": "c",
     ".cc": "cpp",
@@ -123,10 +109,7 @@ function shouldIndexFile(relativePath) {
     return ["Dockerfile", "Makefile", "package.json", "tsconfig.json"].includes(base);
 }
 function isIgnoredCodePath(relativePath) {
-    return (0, workspace_1.normalizePath)(relativePath)
-        .split("/")
-        .filter(Boolean)
-        .some((part) => exports.ignoredDirectories.has(part));
+    return (0, path_ignore_policy_1.pathContainsIgnoredDirectory)(relativePath, exports.ignoredDirectories);
 }
 // Mirrors normalizeProjectRelative in code-index.ts for git ls-files output, but
 // throws instead of exiting so the light bootstrap path can use discovery too.
