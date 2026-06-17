@@ -1,0 +1,13 @@
+#!/bin/sh
+MSG_FILE="$1"
+SOURCE="$2"
+
+case "$SOURCE" in
+  merge|squash|commit)
+    exit 0
+    ;;
+esac
+
+if command -v node >/dev/null 2>&1 && [ -f ".githooks/wiki-commit-trailers.js" ]; then
+  node .githooks/wiki-commit-trailers.js "$MSG_FILE"
+fi

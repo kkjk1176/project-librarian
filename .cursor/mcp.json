@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "project-librarian": {
+      "command": "project-librarian",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

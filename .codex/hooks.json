@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/wiki-session-start.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

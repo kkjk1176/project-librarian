@@ -1,0 +1,9 @@
+---
+alwaysApply: true
+---
+
+# Project Librarian Wiki-First Planning
+
+Use the repository root `AGENTS.md` as the project-wide instruction source.
+
+@AGENTS.md

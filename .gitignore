@@ -9,15 +9,9 @@ benchmarks/reports/*.md
 benchmarks/reports/llm/
 !benchmarks/reports/.gitkeep
 CLAUDE.local.md
-.claude/
-.codex/
-.cursor/
-.gemini/
+.claude/skills/
 wiki/
 wiki_legacy/
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-.githooks/
+AGENTS.local.md
 .npm-cache/
 .omc/
