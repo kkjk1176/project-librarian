@@ -36,4 +36,3 @@ During conversation:
 ## Local Private Instructions
 
 If `AGENTS.local.md` exists in this directory, read it at session start and follow it.
-`AGENTS.local.md` is local-only and must not be committed.
