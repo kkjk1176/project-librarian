@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CodeEvidenceIndexUnavailableError = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.codeownerRules = void 0;
+exports.CodeEvidenceIndexUnavailableError = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.codeownerRules = void 0;
 exports.codeIndexStaleness = codeIndexStaleness;
 exports.evidenceCoverage = evidenceCoverage;
 exports.workspaceSummary = workspaceSummary;
@@ -41,7 +41,6 @@ exports.workspaceDependencyGraph = workspaceDependencyGraph;
 exports.codeReportMetadata = codeReportMetadata;
 exports.codeImpact = codeImpact;
 exports.codeContextPack = codeContextPack;
-exports.codeIndexSnapshot = codeIndexSnapshot;
 exports.openCodeEvidenceDatabaseForServing = openCodeEvidenceDatabaseForServing;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
@@ -67,12 +66,13 @@ Object.defineProperty(exports, "codeownerRules", { enumerable: true, get: functi
 Object.defineProperty(exports, "matchedCodeownerRules", { enumerable: true, get: function () { return ownership_1.matchedCodeownerRules; } });
 Object.defineProperty(exports, "ownershipContext", { enumerable: true, get: function () { return ownership_1.ownershipContext; } });
 Object.defineProperty(exports, "ownershipInfo", { enumerable: true, get: function () { return ownership_1.ownershipInfo; } });
+const schema_1 = require("./code-index/schema");
+Object.defineProperty(exports, "codeIndexSnapshot", { enumerable: true, get: function () { return schema_1.codeIndexSnapshot; } });
 const search_1 = require("./code-index/search");
 Object.defineProperty(exports, "searchSymbols", { enumerable: true, get: function () { return search_1.searchSymbols; } });
 const workspace_1 = require("./workspace");
 exports.codeContextPackCharCap = 4000;
 exports.codeContextPackTruncationNotice = "[truncated - refine the query]";
-const codeIndexSchemaVersion = "3";
 const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
 const treeSitterGrammarPackages = {
     "tree-sitter-c": "@sengac/tree-sitter-c",
@@ -225,104 +225,6 @@ function scriptKindForPath(relativePath) {
     if ([".ts", ".mts", ".cts"].includes(extension))
         return ts.ScriptKind.TS;
     return ts.ScriptKind.JS;
-}
-function setupDatabase(database) {
-    database.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE files (
-      path TEXT PRIMARY KEY,
-      language TEXT NOT NULL,
-      profile TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      bytes INTEGER NOT NULL,
-      lines INTEGER NOT NULL,
-      hash TEXT NOT NULL
-    );
-    CREATE TABLE symbols (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      signature TEXT NOT NULL
-    );
-    CREATE TABLE imports (
-      id INTEGER PRIMARY KEY,
-      from_file TEXT NOT NULL,
-      to_ref TEXT NOT NULL,
-      imported TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      raw TEXT NOT NULL
-    );
-    CREATE TABLE routes (
-      id INTEGER PRIMARY KEY,
-      method TEXT NOT NULL,
-      route TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      handler TEXT NOT NULL
-    );
-    CREATE TABLE configs (
-      id INTEGER PRIMARY KEY,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL
-    );
-    CREATE TABLE edges (
-      id INTEGER PRIMARY KEY,
-      kind TEXT NOT NULL,
-      source_kind TEXT NOT NULL,
-      source TEXT NOT NULL,
-      target_kind TEXT NOT NULL,
-      target TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      evidence TEXT NOT NULL
-    );
-    CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
-    CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
-    CREATE INDEX idx_symbols_file ON symbols(file_path);
-    CREATE INDEX idx_symbols_name ON symbols(name);
-    CREATE INDEX idx_imports_from ON imports(from_file);
-    CREATE INDEX idx_routes_path ON routes(route);
-    CREATE INDEX idx_configs_file ON configs(file_path);
-    CREATE INDEX idx_edges_source ON edges(source_kind, source);
-    CREATE INDEX idx_edges_target ON edges(target_kind, target);
-    CREATE INDEX idx_edges_kind ON edges(kind);
-  `);
-}
-function createIndexStatements(database) {
-    return {
-        deleteConfig: database.prepare("DELETE FROM configs WHERE file_path = ?"),
-        deleteEdge: database.prepare("DELETE FROM edges WHERE file_path = ?"),
-        deleteFile: database.prepare("DELETE FROM files WHERE path = ?"),
-        deleteFileFts: database.prepare("DELETE FROM files_fts WHERE path = ?"),
-        deleteImport: database.prepare("DELETE FROM imports WHERE from_file = ?"),
-        deleteRoute: database.prepare("DELETE FROM routes WHERE file_path = ?"),
-        deleteSymbol: database.prepare("DELETE FROM symbols WHERE file_path = ?"),
-        deleteSymbolFts: database.prepare("DELETE FROM symbols_fts WHERE file_path = ?"),
-        insertConfig: database.prepare("INSERT INTO configs (key, value, file_path, line) VALUES (?, ?, ?, ?)"),
-        insertEdge: database.prepare("INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
-        insertFile: database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash) VALUES (?, ?, ?, ?, ?, ?, ?)"),
-        insertFileFts: database.prepare("INSERT INTO files_fts (path, language, profile, content) VALUES (?, ?, ?, ?)"),
-        insertImport: database.prepare("INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES (?, ?, ?, ?, ?)"),
-        insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),
-        insertRoute: database.prepare("INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)"),
-        insertSymbol: database.prepare("INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)"),
-        insertSymbolFts: database.prepare("INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)"),
-    };
-}
-function removeIndexedFile(filePath, statements) {
-    statements.deleteConfig.run(filePath);
-    statements.deleteEdge.run(filePath);
-    statements.deleteImport.run(filePath);
-    statements.deleteRoute.run(filePath);
-    statements.deleteSymbol.run(filePath);
-    statements.deleteSymbolFts.run(filePath);
-    statements.deleteFileFts.run(filePath);
-    statements.deleteFile.run(filePath);
 }
 const treeSitterParsers = new Map();
 function requireTreeSitterPackage(packageName) {
@@ -788,15 +690,6 @@ function indexCodeFile(file, statements) {
     statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
     extractionBackendForProfile(file.profile).index(file, statements);
 }
-function writeIndexMetadata(scopes, parserMode, statements) {
-    statements.insertMeta.run("schema_version", codeIndexSchemaVersion);
-    statements.insertMeta.run("updated_at", new Date().toISOString());
-    statements.insertMeta.run("root", workspace_1.root);
-    statements.insertMeta.run("scopes", scopes.join(", "));
-    statements.insertMeta.run("scopes_json", JSON.stringify(scopes));
-    statements.insertMeta.run("parser_mode", parserMode);
-    statements.insertMeta.run("terminology", "code evidence index");
-}
 function oneLine(text) {
     return text.replace(/\s+/g, " ").trim().slice(0, 240);
 }
@@ -1070,59 +963,6 @@ function requireExistingIndex() {
         process.exit(1);
     }
 }
-function readMetaValue(database, key) {
-    const rows = database.prepare("SELECT value FROM meta WHERE key = ?").all(key);
-    const value = rows[0]?.value;
-    return typeof value === "string" ? value : "";
-}
-function indexedScopes(database) {
-    const scopesJson = readMetaValue(database, "scopes_json");
-    if (scopesJson) {
-        try {
-            const parsed = JSON.parse(scopesJson);
-            if (Array.isArray(parsed) && parsed.every((scope) => typeof scope === "string"))
-                return parsed;
-        }
-        catch {
-            // Fall back to the legacy comma-separated scope metadata below.
-        }
-    }
-    return readMetaValue(database, "scopes")
-        .split(",")
-        .map((scope) => scope.trim())
-        .filter(Boolean);
-}
-function indexedParserMode(database) {
-    const mode = readMetaValue(database, "parser_mode");
-    return mode === "tree-sitter" ? "tree-sitter" : "default";
-}
-function scopesMatch(left, right) {
-    return left.length === right.length && left.every((scope, index) => scope === right[index]);
-}
-function incrementalCompatibility(database, scopes, parserMode) {
-    const existingSchemaVersion = readMetaValue(database, "schema_version");
-    if (existingSchemaVersion !== codeIndexSchemaVersion) {
-        return {
-            compatible: false,
-            reason: `existing schema version ${existingSchemaVersion || "(missing)"} does not match ${codeIndexSchemaVersion}`,
-        };
-    }
-    const existingScopes = indexedScopes(database);
-    if (!scopesMatch(existingScopes, scopes)) {
-        return {
-            compatible: false,
-            reason: `indexed scopes do not match requested scopes: indexed [${existingScopes.join(", ")}], requested [${scopes.join(", ")}]`,
-        };
-    }
-    const existingParserMode = indexedParserMode(database);
-    if (existingParserMode !== parserMode) {
-        return {
-            compatible: false,
-            reason: `indexed parser mode ${existingParserMode} does not match requested parser mode ${parserMode}`,
-        };
-    }
-    return { compatible: true, reason: "" };
-}
 function removeDatabaseFiles(databasePath) {
     for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
         if (fs.existsSync(filePath))
@@ -1130,8 +970,8 @@ function removeDatabaseFiles(databasePath) {
     }
 }
 function codeIndexStaleness(database) {
-    const scopes = indexedScopes(database);
-    const parserMode = indexedParserMode(database);
+    const scopes = (0, schema_1.indexedScopes)(database);
+    const parserMode = (0, schema_1.indexedParserMode)(database);
     const current = new Map((0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]).map((file) => {
         const codeFile = readCodeFile(file, parserMode);
         return [codeFile.path, codeFile.hash];
@@ -1399,8 +1239,8 @@ function codeReportMetadata(database) {
         schema_version: 1,
         generated_at: new Date().toISOString(),
         database: databasePath.relativePath,
-        scopes: indexedScopes(database),
-        parser_mode: indexedParserMode(database),
+        scopes: (0, schema_1.indexedScopes)(database),
+        parser_mode: (0, schema_1.indexedParserMode)(database),
         stale: {
             files: staleness.added + staleness.changed + staleness.deleted,
             changed: staleness.changed,
@@ -1552,26 +1392,6 @@ function codeContextPack(database, query) {
     pushBudgetedSection(lines, "Owners:", evidence.owners, 6, (row) => `  owner ${row.owner} (${row.owner_source}, ${row.files} files): ${row.sample_files.join(", ")}`);
     return finalizeCodeContextPack(lines.join("\n"));
 }
-function snapshotRows(database, sql) {
-    return database.prepare(sql).all().map((row) => {
-        const normalized = {};
-        for (const key of Object.keys(row).sort()) {
-            const value = row[key];
-            normalized[key] = typeof value === "string" || typeof value === "number" || value === null ? value : String(value);
-        }
-        return normalized;
-    });
-}
-function codeIndexSnapshot(database) {
-    return {
-        configs: snapshotRows(database, "SELECT file_path, line, key, value FROM configs ORDER BY file_path, line, key, value"),
-        edges: snapshotRows(database, "SELECT file_path, line, kind, source_kind, source, target_kind, target, evidence FROM edges ORDER BY file_path, line, kind, source, target, evidence"),
-        files: snapshotRows(database, "SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path"),
-        imports: snapshotRows(database, "SELECT from_file, line, to_ref, imported, raw FROM imports ORDER BY from_file, line, to_ref, imported, raw"),
-        routes: snapshotRows(database, "SELECT file_path, line, method, route, handler FROM routes ORDER BY file_path, line, method, route, handler"),
-        symbols: snapshotRows(database, "SELECT file_path, line, kind, name, signature FROM symbols ORDER BY file_path, line, kind, name, signature"),
-    };
-}
 // Error thrown when the code-evidence index is missing or schema-incompatible.
 // The MCP server catches this to return an isError tool result (tools/list still
 // works); CLI modes keep their own process.exit path via requireExistingIndex.
@@ -1595,16 +1415,16 @@ function openCodeEvidenceDatabaseForServing() {
     const database = openDatabase(databasePath.absolutePath);
     let schemaVersion = "";
     try {
-        schemaVersion = readMetaValue(database, "schema_version");
+        schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
     }
     catch (error) {
         database.close();
         const message = error instanceof Error ? error.message : String(error);
         throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
     }
-    if (schemaVersion !== codeIndexSchemaVersion) {
+    if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
         database.close();
-        throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${schema_1.codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
     }
     database.exec("PRAGMA query_only = ON");
     return { database, relativePath: databasePath.relativePath };
@@ -1635,7 +1455,7 @@ function runCodeIndexMode() {
         let compatibility = { compatible: false, reason: "compatibility was not checked" };
         const existingDatabase = openDatabase(databasePath.absolutePath);
         try {
-            compatibility = incrementalCompatibility(existingDatabase, scopes, parserMode);
+            compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
         }
         finally {
             existingDatabase.close();
@@ -1650,8 +1470,8 @@ function runCodeIndexMode() {
     const database = openDatabase(databasePath.absolutePath);
     try {
         if (!incremental)
-            setupDatabase(database);
-        const statements = createIndexStatements(database);
+            (0, schema_1.setupDatabase)(database);
+        const statements = (0, schema_1.createIndexStatements)(database);
         const currentFiles = discoveredFiles.map((filePath) => readCodeFile(filePath, parserMode));
         const currentByPath = new Map(currentFiles.map((file) => [file.path, file]));
         const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)])) : new Map();
@@ -1663,12 +1483,12 @@ function runCodeIndexMode() {
         database.exec("BEGIN");
         if (!incremental)
             statements.insertMeta.run("created_at", new Date().toISOString());
-        writeIndexMetadata(scopes, parserMode, statements);
+        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
         for (const filePath of deletedPaths)
-            removeIndexedFile(filePath, statements);
+            (0, schema_1.removeIndexedFile)(filePath, statements);
         for (const file of reindexedFiles) {
             if (incremental && indexed.has(file.path))
-                removeIndexedFile(file.path, statements);
+                (0, schema_1.removeIndexedFile)(file.path, statements);
             indexCodeFile(file, statements);
         }
         database.exec("COMMIT");
