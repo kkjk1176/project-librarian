@@ -12,6 +12,12 @@ import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSe
 
 type CodeIndexModule = typeof import("./code-index");
 
+interface CodeEvidenceCliMode {
+  active: boolean;
+  drainStdout: boolean;
+  run: (codeIndexModule: CodeIndexModule) => void;
+}
+
 function codeIndex(): CodeIndexModule {
   return require("./code-index") as CodeIndexModule;
 }
@@ -72,6 +78,20 @@ Commands:
 // guarantees everything queued before it has drained.
 function exitAfterStdoutDrain(code: number): void {
   process.stdout.write("", () => process.exit(code));
+}
+
+function activeCodeEvidenceCliModes(): CodeEvidenceCliMode[] {
+  const modes: CodeEvidenceCliMode[] = [
+    { active: codeQueryMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeQueryMode() },
+    { active: codeReportMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeReportMode() },
+    { active: codeStatusMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeStatusMode() },
+    { active: codeFilesMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeFilesMode() },
+    { active: codeImpactMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeImpactMode() },
+    { active: codeContextPackMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeContextPackMode() },
+    { active: codeSearchSymbolMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeSearchSymbolMode() },
+    { active: codeIndexMode, drainStdout: false, run: (codeIndexModule) => codeIndexModule.runCodeIndexMode() },
+  ];
+  return modes.filter((mode) => mode.active);
 }
 
 if (helpMode) {
@@ -169,50 +189,18 @@ if (command === "mcp") {
 }
 
 function runInitCommand(): void {
-const activeCodeModes = [codeQueryMode, codeReportMode, codeStatusMode, codeFilesMode, codeImpactMode, codeContextPackMode, codeSearchSymbolMode, codeIndexMode].filter(Boolean).length;
-if (activeCodeModes > 1) {
+const activeCodeModes = activeCodeEvidenceCliModes();
+if (activeCodeModes.length > 1) {
   console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
   process.exit(1);
 }
 
-if (codeQueryMode) {
-  codeIndex().runCodeQueryMode();
-  exitAfterStdoutDrain(0);
+const activeCodeMode = activeCodeModes[0];
+if (activeCodeMode) {
+  activeCodeMode.run(codeIndex());
+  if (activeCodeMode.drainStdout) exitAfterStdoutDrain(0);
+  else process.exit(0);
   return;
-}
-if (codeReportMode) {
-  codeIndex().runCodeReportMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeStatusMode) {
-  codeIndex().runCodeStatusMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeFilesMode) {
-  codeIndex().runCodeFilesMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeImpactMode) {
-  codeIndex().runCodeImpactMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeContextPackMode) {
-  codeIndex().runCodeContextPackMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeSearchSymbolMode) {
-  codeIndex().runCodeSearchSymbolMode();
-  exitAfterStdoutDrain(0);
-  return;
-}
-if (codeIndexMode) {
-  codeIndex().runCodeIndexMode();
-  process.exit(0);
 }
 if (wikiImpactMode) {
   runWikiImpactMode();

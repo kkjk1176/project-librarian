@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ignoredDirectorySet } from "./path-ignore-policy";
 import type { MarkdownFileInfo, MetadataSummary, WikiLinkReference, WikiMarkdownBlock, WikiMarkdownBlockKind } from "./types";
 import { abs, metadataValue, normalizePath, read, root, stripMetadataHeader, walkFilesUnder } from "./workspace";
 
@@ -48,7 +49,7 @@ export const standardWikiFiles: Set<string> = new Set([
   "tools/project-librarian/dist/init-project-wiki.js",
 ]);
 
-export const ignoredDirs: Set<string> = new Set([".git", ".codex", ".claude", ".cursor", ".gemini", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"]);
+export const ignoredDirs: Set<string> = ignoredDirectorySet();
 
 export function walkMarkdownFiles(dir: string = root, acc: MarkdownFileInfo[] = [], baseDir: string = root): MarkdownFileInfo[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

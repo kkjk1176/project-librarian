@@ -1,6 +1,7 @@
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ignoredDirectorySet, pathContainsIgnoredDirectory } from "./path-ignore-policy";
 import { abs, normalizePath, root } from "./workspace";
 
 // Single source of truth for the disposable code-evidence directory name. Both
@@ -8,22 +9,7 @@ import { abs, normalizePath, root } from "./workspace";
 // this; keeping it here avoids loading typescript/node:sqlite during bootstrap.
 export const codeEvidenceDirectory = ".project-wiki";
 
-export const ignoredDirectories = new Set([
-  ".git",
-  ".codex",
-  ".claude",
-  ".cursor",
-  ".gemini",
-  codeEvidenceDirectory,
-  "node_modules",
-  ".next",
-  "dist",
-  "build",
-  "coverage",
-  "vendor",
-  "tmp",
-  "temp",
-]);
+export const ignoredDirectories = ignoredDirectorySet([codeEvidenceDirectory]);
 
 const languageByExtension: Record<string, string> = {
   ".c": "c",
@@ -86,10 +72,7 @@ export function shouldIndexFile(relativePath: string): boolean {
 }
 
 export function isIgnoredCodePath(relativePath: string): boolean {
-  return normalizePath(relativePath)
-    .split("/")
-    .filter(Boolean)
-    .some((part) => ignoredDirectories.has(part));
+  return pathContainsIgnoredDirectory(relativePath, ignoredDirectories);
 }
 
 // Mirrors normalizeProjectRelative in code-index.ts for git ls-files output, but
