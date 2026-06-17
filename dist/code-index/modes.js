@@ -223,8 +223,9 @@ function runCodeContextPackMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
-        runtime.warnIfCodeIndexStale(database);
-        console.log(runtime.codeContextPack(database, args_1.codeContextPackTarget.trim()));
+        const staleness = runtime.codeIndexStaleness(database);
+        runtime.warnIfCodeIndexStale(database, staleness);
+        console.log(runtime.codeContextPack(database, args_1.codeContextPackTarget.trim(), { staleness }));
     }
     finally {
         database.close();
