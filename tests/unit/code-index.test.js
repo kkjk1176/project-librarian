@@ -36,6 +36,13 @@ function runCli(cwd, args) {
   return result.stdout;
 }
 
+function runCliResult(cwd, args) {
+  return childProcess.spawnSync(process.execPath, [cliPath, ...args], {
+    cwd,
+    encoding: "utf8",
+  });
+}
+
 function openSnapshotDatabase(databasePath) {
   return openDatabase(databasePath, (message) => {
     throw new Error(message);
@@ -201,6 +208,103 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
       firstDatabase.close();
       secondDatabase.close();
     }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code report sections expose focused routes, parsers, workspaces, and invalid-section errors", () => {
+  const cwd = makeTmpDir("code-report-sections-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({ name: "report-sections", dependencies: { express: "^4.18.0" } }, null, 2));
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), [
+      "const express = require(\"express\");",
+      "const app = express();",
+      "function healthHandler(req, res) { res.json({ ok: true }); }",
+      "app.get(\"/health\", healthHandler);",
+      "",
+    ].join("\n"));
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "package.json"]);
+
+    const fullReport = JSON.parse(runCli(cwd, ["--code-report"]));
+    assert.deepEqual(fullReport.report_sections, ["evidence_coverage", "ownership_summary", "language_profile_summary", "parser_backend_summary", "workspace_summary", "workspace_dependency_graph", "route_inventory", "dependency_hotspots", "config_inventory", "edge_summary"]);
+
+    const routes = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "routes"]));
+    assert.equal(routes.section, "routes");
+    assert.ok(routes.data.some((row) => row.route === "/health" && row.handler === "healthHandler"));
+
+    const parsers = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "parsers"]));
+    assert.equal(parsers.section, "parsers");
+    assert.ok(parsers.data.some((row) => row.profile === "typescript-ast" && row.backend === "typescript-compiler"));
+
+    const workspaces = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "workspaces"]));
+    assert.equal(workspaces.section, "workspaces");
+    assert.ok(Array.isArray(workspaces.data.workspace_packages));
+
+    const invalid = runCliResult(cwd, ["--code-report", "--code-report-section", "not-a-section"]);
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /invalid --code-report-section: not-a-section; expected one of: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, edges/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("incremental mode rejects parser-mode mismatches before loading optional parsers", () => {
+  const cwd = makeTmpDir("code-index-parser-mismatch-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export function health() { return true; }\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const result = runCliResult(cwd, ["--code-index", "--incremental", "--acknowledge-small-repo", "--code-scope", "src", "--code-parser", "tree-sitter"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /indexed parser mode default does not match requested parser mode tree-sitter/);
+    assert.doesNotMatch(result.stderr, /requires optional package/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code status reports stale changed, added, and deleted files", () => {
+  const cwd = makeTmpDir("code-status-stale-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "src", "changed.js"), "export const changed = 1;\n");
+    fs.writeFileSync(path.join(cwd, "src", "deleted.js"), "export const deleted = 1;\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    fs.writeFileSync(path.join(cwd, "src", "changed.js"), "export const changed = 2;\n");
+    fs.writeFileSync(path.join(cwd, "src", "added.js"), "export const added = 1;\n");
+    fs.rmSync(path.join(cwd, "src", "deleted.js"));
+
+    const rows = JSON.parse(runCli(cwd, ["--code-status"]));
+    const byMetric = new Map(rows.map((row) => [row.metric, row.value]));
+    assert.equal(byMetric.get("stale_changed_files"), 1);
+    assert.equal(byMetric.get("stale_added_files"), 1);
+    assert.equal(byMetric.get("stale_deleted_files"), 1);
+    assert.equal(byMetric.get("stale_files"), 3);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("--code-index-out accepts project-wiki paths and rejects paths outside the evidence directory", () => {
+  const cwd = makeTmpDir("code-index-out-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const ok = true;\n");
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-out", ".project-wiki/custom/code.sqlite"]);
+    assert.equal(fs.existsSync(path.join(cwd, ".project-wiki", "custom", "code.sqlite")), true);
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-out", "outside.sqlite"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /--code-index-out must stay inside \.project-wiki\//);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
