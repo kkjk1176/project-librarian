@@ -1,6 +1,6 @@
 {
   "name": "project-librarian",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Create and maintain compact project context for humans and LLM coding agents.",
   "license": "MIT",
   "type": "commonjs",
@@ -53,6 +53,9 @@
     "test": "npm run build && npm run typecheck && npm run unit && bash tests/smoke.sh",
     "prepack": "npm run build"
   },
+  "dependencies": {
+    "typescript": "^6.0.3"
+  },
   "optionalDependencies": {
     "@sengac/tree-sitter": "^0.25.15",
     "@sengac/tree-sitter-c": "^0.25.15",
@@ -69,7 +72,6 @@
     "@sengac/tree-sitter-typescript": "^0.25.15"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
-    "typescript": "^6.0.3"
+    "@types/node": "^25.9.2"
   }
 }
