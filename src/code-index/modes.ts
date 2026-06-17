@@ -3,7 +3,7 @@ import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImp
 import type { SqliteDatabase } from "../code-index-db";
 import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-policy";
 import { isReadOnlySql } from "../code-index-sql";
-import type { CodeContextPackOptions, CodeIndexStaleness } from "../code-index";
+import type { CodeContextPackOptions, CodeEvidenceRenderOptions, CodeIndexStaleness } from "../code-index";
 import type { CodeFile } from "./extractors/types";
 import { planIndexUpdate } from "./incremental";
 import { invalidCodeReportSectionMessage } from "./reports";
@@ -18,9 +18,9 @@ export interface CodeEvidenceDatabasePath {
 export interface CodeIndexModeRuntime {
   codeContextPack(database: SqliteDatabase, query: string, options?: CodeContextPackOptions): string;
   codeEvidenceDatabasePath(): CodeEvidenceDatabasePath;
-  codeImpact(database: SqliteDatabase, target: string): Record<string, unknown>;
+  codeImpact(database: SqliteDatabase, target: string, options?: CodeEvidenceRenderOptions): Record<string, unknown>;
   codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness;
-  codeReportForRequestedSection(database: SqliteDatabase, requestedSection: string): Record<string, unknown> | undefined;
+  codeReportForRequestedSection(database: SqliteDatabase, requestedSection: string, options?: CodeEvidenceRenderOptions): Record<string, unknown> | undefined;
   codeScopes(): string[];
   fail(message: string): never;
   indexCodeFile(file: CodeFile, statements: IndexStatements): void;
@@ -134,8 +134,9 @@ export function runCodeReportMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
-    runtime.warnIfCodeIndexStale(database);
-    const report = runtime.codeReportForRequestedSection(database, codeReportSection);
+    const staleness = runtime.codeIndexStaleness(database);
+    runtime.warnIfCodeIndexStale(database, staleness);
+    const report = runtime.codeReportForRequestedSection(database, codeReportSection, { staleness });
     if (!report) runtime.fail(invalidCodeReportSectionMessage(codeReportSection));
     printJson(report);
   } finally {
@@ -187,8 +188,9 @@ export function runCodeImpactMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
-    runtime.warnIfCodeIndexStale(database);
-    printJson(runtime.codeImpact(database, codeImpactTarget.trim()));
+    const staleness = runtime.codeIndexStaleness(database);
+    runtime.warnIfCodeIndexStale(database, staleness);
+    printJson(runtime.codeImpact(database, codeImpactTarget.trim(), { staleness }));
   } finally {
     database.close();
   }

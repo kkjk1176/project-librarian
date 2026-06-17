@@ -26,7 +26,9 @@ const {
   SUPPORTED_PROTOCOL_VERSION,
   TRUNCATION_NOTICE,
   TRUST_SENTENCE,
+  handleLine,
 } = require("../../dist/mcp-server.js");
+const codeIndex = require("../../dist/code-index.js");
 const distTemplates = require("../../dist/templates.js");
 
 function makeTmpDir(prefix) {
@@ -346,6 +348,73 @@ test("an unknown tool name returns an isError result (not a protocol error)", ()
     assert.match(toolResultText(response), /unknown tool: made_up_tool/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("MCP code context and impact tools reuse one staleness calculation per call", () => {
+  const originals = {
+    openCodeEvidenceDatabaseForServing: codeIndex.openCodeEvidenceDatabaseForServing,
+    codeIndexStaleness: codeIndex.codeIndexStaleness,
+    codeContextPack: codeIndex.codeContextPack,
+    codeImpact: codeIndex.codeImpact,
+  };
+  const staleness = { stale: false, changed: 0, added: 0, deleted: 0 };
+  const database = { closeCalls: 0, close() { this.closeCalls += 1; } };
+  let stalenessCalls = 0;
+  let contextCalls = 0;
+  let impactCalls = 0;
+  try {
+    codeIndex.openCodeEvidenceDatabaseForServing = () => ({
+      database,
+      relativePath: ".project-wiki/code-evidence.sqlite",
+    });
+    codeIndex.codeIndexStaleness = (actualDatabase) => {
+      stalenessCalls += 1;
+      assert.equal(actualDatabase, database);
+      return staleness;
+    };
+    codeIndex.codeContextPack = (actualDatabase, term, options) => {
+      contextCalls += 1;
+      assert.equal(actualDatabase, database);
+      assert.equal(term, "healthHandler");
+      assert.equal(options.staleness, staleness);
+      return "context body";
+    };
+    codeIndex.codeImpact = (actualDatabase, term, options) => {
+      impactCalls += 1;
+      assert.equal(actualDatabase, database);
+      assert.equal(term, "healthHandler");
+      assert.equal(options.staleness, staleness);
+      return {
+        matches: { files: [], symbols: [], routes: [], imports: [] },
+        edges: { incoming: [], outgoing: [] },
+        impacted_owners: [],
+      };
+    };
+
+    const contextResponse = JSON.parse(handleLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "code_context_pack", arguments: { term: "healthHandler" } },
+    })));
+    const impactResponse = JSON.parse(handleLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "code_impact", arguments: { term: "healthHandler" } },
+    })));
+
+    assert.equal(contextResponse.id, 1);
+    assert.equal(toolResultText(contextResponse), "context body");
+    assert.equal(impactResponse.id, 2);
+    assert.match(toolResultText(impactResponse).split("\n")[0], /^Impact of "healthHandler": 0 files/);
+    assert.equal(stalenessCalls, 2);
+    assert.equal(contextCalls, 1);
+    assert.equal(impactCalls, 1);
+    assert.equal(database.closeCalls, 2);
+  } finally {
+    Object.assign(codeIndex, originals);
   }
 });
 

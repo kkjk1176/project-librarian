@@ -37,6 +37,7 @@ exports.generatedMigrationInboxFiles = void 0;
 exports.classifyMarkdown = classifyMarkdown;
 exports.formOnlyMigrationDocumentReason = formOnlyMigrationDocumentReason;
 exports.extractMigrationUnits = extractMigrationUnits;
+exports.loadMigrationUnitContext = loadMigrationUnitContext;
 exports.collectMigrationCoverageDiagnostics = collectMigrationCoverageDiagnostics;
 exports.collectMigrationUnitMapDiagnostics = collectMigrationUnitMapDiagnostics;
 exports.collectMigrationSplitPlanDiagnostics = collectMigrationSplitPlanDiagnostics;
@@ -321,6 +322,9 @@ function expectedMigrationUnits() {
         .flatMap((legacyRoot) => (0, wiki_files_1.walkMarkdownFiles)((0, workspace_1.abs)(legacyRoot), [], (0, workspace_1.abs)(legacyRoot)))
         .flatMap((file) => extractMigrationUnits(file.basePath, (0, workspace_1.read)(file.path)));
 }
+function loadMigrationUnitContext() {
+    return { units: expectedMigrationUnits() };
+}
 function isMigrationConfidence(value) {
     return ["high", "medium", "low"].includes(value);
 }
@@ -353,8 +357,8 @@ function isReviewedCoverageRetarget(cells) {
     return note.includes("reviewed low-confidence content; retargeted")
         || reason.includes("reviewed source context; taxonomy target assigned");
 }
-function collectMigrationCoverageDiagnostics() {
-    const units = expectedMigrationUnits();
+function collectMigrationCoverageDiagnostics(context = loadMigrationUnitContext()) {
+    const units = context.units;
     if (units.length === 0)
         return [];
     if (!(0, workspace_1.exists)("wiki/migration/coverage.md")) {
@@ -417,8 +421,8 @@ function collectMigrationCoverageDiagnostics() {
     }
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
-function collectMigrationUnitMapDiagnostics() {
-    const units = expectedMigrationUnits();
+function collectMigrationUnitMapDiagnostics(context = loadMigrationUnitContext()) {
+    const units = context.units;
     if (units.length === 0)
         return [];
     const file = "wiki/migration/unit-map.md";
@@ -485,8 +489,8 @@ function collectMigrationUnitMapDiagnostics() {
     }
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
-function collectMigrationSplitPlanDiagnostics() {
-    const units = expectedMigrationUnits();
+function collectMigrationSplitPlanDiagnostics(context = loadMigrationUnitContext()) {
+    const units = context.units;
     if (units.length === 0)
         return [];
     const file = "wiki/migration/split-plan.md";

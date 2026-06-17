@@ -95,6 +95,29 @@ test("code index file policy excludes ignored and sensitive paths", () => {
   assert.equal(isIgnoredCodePath("dist/init-project-wiki.js"), true);
 });
 
+test("code index discovery skips ignored, oversized, non-indexable, and disappeared git paths", () => {
+  const cwd = makeTmpDir("code-index-discovery-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "dist"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({ name: "discovery-fixture" }, null, 2));
+    fs.writeFileSync(path.join(cwd, "src", "keep.js"), "export const keep = true;\n");
+    fs.writeFileSync(path.join(cwd, "src", "notes.txt"), "not indexed\n");
+    fs.writeFileSync(path.join(cwd, "src", "too-big.js"), `${"x".repeat(1024 * 1024 + 1)}\n`);
+    fs.writeFileSync(path.join(cwd, "dist", "ignored.js"), "export const ignored = true;\n");
+    fs.writeFileSync(path.join(cwd, "src", "deleted.js"), "export const deleted = true;\n");
+    childProcess.spawnSync("git", ["add", "src/deleted.js"], { cwd });
+    fs.unlinkSync(path.join(cwd, "src", "deleted.js"));
+
+    const stdout = runCli(cwd, ["--code-index", "--acknowledge-small-repo"]);
+    assert.match(stdout, /files: 2\b/);
+    assert.match(stdout, /reindexed_files: 2\b/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("codeIndexSnapshot returns stable normalized evidence rows", () => {
   const cwd = makeTmpDir("code-index-snapshot-");
   try {

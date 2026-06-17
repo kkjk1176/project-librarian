@@ -123,16 +123,25 @@ function gitTrackedAndUnignoredFiles(scopes: string[]): string[] | null {
   }
 }
 
+function indexableFileStat(file: string): fs.Stats | null {
+  try {
+    const stat = fs.statSync(abs(file));
+    return stat.isFile() ? stat : null;
+  } catch {
+    return null;
+  }
+}
+
 export function discoverCodeFiles(scopes: string[]): string[] {
   const gitFiles = gitTrackedAndUnignoredFiles(scopes);
   const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
-  return Array.from(new Set(candidates))
-    .filter((file) => !isIgnoredCodePath(file))
-    .filter((file) => fs.existsSync(abs(file)))
-    .filter((file) => fs.statSync(abs(file)).isFile())
-    .filter((file) => shouldIndexFile(file))
-    .filter((file) => fs.statSync(abs(file)).size <= maxIndexedBytes)
-    .sort();
+  const files: string[] = [];
+  for (const file of Array.from(new Set(candidates))) {
+    if (isIgnoredCodePath(file) || !shouldIndexFile(file)) continue;
+    const stat = indexableFileStat(file);
+    if (stat && stat.size <= maxIndexedBytes) files.push(file);
+  }
+  return files.sort();
 }
 
 // --- Scale-aware code-evidence gate ------------------------------------------
