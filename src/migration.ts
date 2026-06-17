@@ -280,6 +280,14 @@ function expectedMigrationUnits(): MigrationUnit[] {
     .flatMap((file) => extractMigrationUnits(file.basePath, read(file.path)));
 }
 
+export interface MigrationUnitContext {
+  units: MigrationUnit[];
+}
+
+export function loadMigrationUnitContext(): MigrationUnitContext {
+  return { units: expectedMigrationUnits() };
+}
+
 function isMigrationConfidence(value: string): value is MigrationConfidence {
   return ["high", "medium", "low"].includes(value);
 }
@@ -320,8 +328,8 @@ function isReviewedCoverageRetarget(cells: string[]): boolean {
     || reason.includes("reviewed source context; taxonomy target assigned");
 }
 
-export function collectMigrationCoverageDiagnostics(): WikiDiagnostic[] {
-  const units = expectedMigrationUnits();
+export function collectMigrationCoverageDiagnostics(context: MigrationUnitContext = loadMigrationUnitContext()): WikiDiagnostic[] {
+  const units = context.units;
   if (units.length === 0) return [];
   if (!exists("wiki/migration/coverage.md")) {
     return [{
@@ -384,8 +392,8 @@ export function collectMigrationCoverageDiagnostics(): WikiDiagnostic[] {
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 
-export function collectMigrationUnitMapDiagnostics(): WikiDiagnostic[] {
-  const units = expectedMigrationUnits();
+export function collectMigrationUnitMapDiagnostics(context: MigrationUnitContext = loadMigrationUnitContext()): WikiDiagnostic[] {
+  const units = context.units;
   if (units.length === 0) return [];
   const file = "wiki/migration/unit-map.md";
   if (!exists(file)) {
@@ -453,8 +461,8 @@ export function collectMigrationUnitMapDiagnostics(): WikiDiagnostic[] {
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 
-export function collectMigrationSplitPlanDiagnostics(): WikiDiagnostic[] {
-  const units = expectedMigrationUnits();
+export function collectMigrationSplitPlanDiagnostics(context: MigrationUnitContext = loadMigrationUnitContext()): WikiDiagnostic[] {
+  const units = context.units;
   if (units.length === 0) return [];
   const file = "wiki/migration/split-plan.md";
   if (!exists(file)) {

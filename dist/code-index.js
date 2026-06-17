@@ -174,7 +174,7 @@ function warnIfCodeIndexStale(database, staleness = codeIndexStaleness(database)
         return;
     console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
 }
-function codeReportRuntime(database) {
+function codeReportRuntime(database, options = {}) {
     const databasePath = codeEvidenceDatabasePath();
     return {
         databaseRelativePath: databasePath.relativePath,
@@ -186,10 +186,10 @@ function codeReportRuntime(database) {
                 strength: backend.strength,
             };
         },
-        staleness: codeIndexStaleness(database),
+        staleness: options.staleness ?? codeIndexStaleness(database),
     };
 }
-function codeImpact(database, target) {
+function codeImpact(database, target, options = {}) {
     const normalized = target.trim();
     const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, {
         edgeLimit: 100,
@@ -204,7 +204,7 @@ function codeImpact(database, target) {
         symbolLimit: 50,
     });
     return {
-        ...(0, reports_1.codeReportMetadata)(database, codeReportRuntime(database)),
+        ...(0, reports_1.codeReportMetadata)(database, codeReportRuntime(database, options)),
         target,
         matches: {
             files: evidence.files,
@@ -344,7 +344,7 @@ function codeIndexModeRuntime() {
         codeEvidenceDatabasePath,
         codeImpact,
         codeIndexStaleness,
-        codeReportForRequestedSection: (database, requestedSection) => (0, reports_1.codeReportForRequestedSection)(database, requestedSection, codeReportRuntime(database)),
+        codeReportForRequestedSection: (database, requestedSection, options) => (0, reports_1.codeReportForRequestedSection)(database, requestedSection, codeReportRuntime(database, options)),
         codeScopes,
         fail,
         indexCodeFile,

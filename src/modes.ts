@@ -6,9 +6,10 @@ import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraf
 import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
-import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, migrationSemanticReviewComplete } from "./migration";
+import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
 import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
+import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
 
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
@@ -473,11 +474,11 @@ function printDiagnostics(title: string, diagnostics: WikiDiagnostic[], checked:
   return true;
 }
 
-export function collectLinkDiagnostics(): WikiDiagnostic[] {
+export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): WikiDiagnostic[] {
   const diagnostics: WikiDiagnostic[] = [];
-  const files = wikiMarkdownFiles();
-  const fileSet = new Set(files);
-  const graph = buildWikiGraph(files.map((file) => ({ file, text: read(file) })));
+  const files = corpus.files;
+  const fileSet = corpus.fileSet;
+  const graph = wikiCorpusGraph(corpus);
   for (const link of graph.links) {
     if (!fileSet.has(link.normalizedTarget)) {
       diagnostics.push({
@@ -579,10 +580,10 @@ function shouldGuardAgainstLegacyReference(file: string): boolean {
   return !file.endsWith("/migration-inbox.md");
 }
 
-function migrationLegacyReferenceDiagnostics(files: string[]): WikiDiagnostic[] {
+function migrationLegacyReferenceDiagnostics(files: string[], corpus?: WikiCorpus): WikiDiagnostic[] {
   return files
     .filter(shouldGuardAgainstLegacyReference)
-    .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test(stripMetadataHeader(read(file))))
+    .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test(stripMetadataHeader(wikiCorpusText(corpus, file))))
     .map((file) => ({
       code: "migration-legacy-reference",
       severity: "error",
@@ -591,12 +592,12 @@ function migrationLegacyReferenceDiagnostics(files: string[]): WikiDiagnostic[] 
     }));
 }
 
-export function collectQualityDiagnostics(): WikiDiagnostic[] {
+export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): WikiDiagnostic[] {
   const diagnostics: WikiDiagnostic[] = [];
-  const files = wikiMarkdownFiles();
+  const files = corpus.files;
   const titles = new Map<string, string[]>();
   for (const file of files) {
-    const text = read(file);
+    const text = wikiCorpusText(corpus, file);
     const body = stripMetadataHeader(text);
     const title = wikiTitleForFile(file, text).toLowerCase();
     titles.set(title, [...(titles.get(title) ?? []), file]);
@@ -637,9 +638,8 @@ export function collectQualityDiagnostics(): WikiDiagnostic[] {
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 
-export function collectMigrationQualityDiagnostics(): WikiDiagnostic[] {
-  const files = wikiMarkdownFiles();
-  return migrationLegacyReferenceDiagnostics(files).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+export function collectMigrationQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): WikiDiagnostic[] {
+  return migrationLegacyReferenceDiagnostics(corpus.files, corpus).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 
 export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
@@ -665,24 +665,28 @@ export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
       file,
       message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
     }));
-  diagnostics.push(...collectMigrationCoverageDiagnostics());
-  diagnostics.push(...collectMigrationUnitMapDiagnostics());
-  diagnostics.push(...collectMigrationSplitPlanDiagnostics());
+  const migrationContext = loadMigrationUnitContext();
+  diagnostics.push(...collectMigrationCoverageDiagnostics(migrationContext));
+  diagnostics.push(...collectMigrationUnitMapDiagnostics(migrationContext));
+  diagnostics.push(...collectMigrationSplitPlanDiagnostics(migrationContext));
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 
 export function runLinkCheckMode(): void {
-  const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), wikiMarkdownFiles().length);
+  const corpus = loadWikiCorpus();
+  const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(corpus), corpus.files.length);
   if (!ok) process.exit(1);
 }
 
 export function runQualityCheckMode(): void {
-  const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), wikiMarkdownFiles().length);
+  const corpus = loadWikiCorpus();
+  const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(corpus), corpus.files.length);
   if (!ok) process.exit(1);
 }
 
 export function runMigrationQualityCheckMode(): void {
-  const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), wikiMarkdownFiles().length);
+  const corpus = loadWikiCorpus();
+  const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
   if (!ok) process.exit(1);
 }
 
@@ -692,8 +696,9 @@ export function runMigrationLintMode(): void {
 }
 
 export function runMigrationDoctorMode(): void {
-  const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), wikiMarkdownFiles().length);
-  const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), wikiMarkdownFiles().length);
+  const corpus = loadWikiCorpus();
+  const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), corpus.files.length);
+  const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
   if (!lintOk || !qualityOk) process.exit(1);
 }
 
@@ -733,10 +738,11 @@ function extractSectionBody(markdown: string, headingText: string): string {
   return nextHeading ? afterHeading.slice(0, nextHeading.index) : afterHeading;
 }
 
-export function collectRouterTruthDiagnostics(): WikiDiagnostic[] {
+export function collectRouterTruthDiagnostics(corpus?: WikiCorpus): WikiDiagnostic[] {
   const logPath = "wiki/decisions/log.md";
-  if (!exists(logPath)) return [];
-  const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test(stripMetadataHeader(read(logPath)));
+  const hasLog = corpus ? corpus.fileSet.has(logPath) : exists(logPath);
+  if (!hasLog) return [];
+  const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test(stripMetadataHeader(wikiCorpusText(corpus, logPath)));
   if (!logHasDatedEntry) return [];
   const diagnostics: WikiDiagnostic[] = [];
   // Each tuple: [file, headingText, surfaceLabel]
@@ -747,8 +753,9 @@ export function collectRouterTruthDiagnostics(): WikiDiagnostic[] {
     ["wiki/decisions/recent.md", "Decisions", "Decisions"],
   ];
   for (const [file, heading, surface] of routers) {
-    if (!exists(file)) continue;
-    const section = extractSectionBody(stripMetadataHeader(read(file)), heading);
+    const hasFile = corpus ? corpus.fileSet.has(file) : exists(file);
+    if (!hasFile) continue;
+    const section = extractSectionBody(stripMetadataHeader(wikiCorpusText(corpus, file)), heading);
     if (section === "") continue; // section absent — skip rather than false-positive
     if (ROUTER_TRUTH_NONE_YET_REGEX.test(section)) {
       diagnostics.push({
@@ -772,11 +779,11 @@ export function runDoctorMode(fix: boolean): void {
       console.log("skipped wiki/index.md auto-discovered pages: missing wiki/index.md");
     }
   }
-  const files = wikiMarkdownFiles();
-  const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), files.length);
-  const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), files.length);
-  const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(), files.length);
-  runLintMode();
+  const corpus = loadWikiCorpus();
+  const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(corpus), corpus.files.length);
+  const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(corpus), corpus.files.length);
+  const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(corpus), corpus.files.length);
+  runLintMode(corpus);
   if (!linkOk || !qualityOk || !routerTruthOk) process.exit(1);
 }
 
@@ -811,7 +818,7 @@ function activeLintAgentSurfaces(): Set<AgentSurface> {
   return active;
 }
 
-export function runLintMode(): void {
+export function runLintMode(corpus?: WikiCorpus): void {
   const errors: string[] = [];
   const warnings: string[] = [];
   const activeAgents = activeLintAgentSurfaces();
@@ -822,10 +829,10 @@ export function runLintMode(): void {
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);
   }
-  const files = wikiMarkdownFiles();
+  const files = corpus?.files ?? wikiMarkdownFiles();
   const requiredMetadataKeys = ["status", "updated", "scope", "read_budget", "decision_ref", "review_trigger"];
   for (const file of files) {
-    const text = read(file);
+    const text = wikiCorpusText(corpus, file);
     if (!hasMetadataHeader(text)) {
       errors.push(`missing metadata header: ${file}`);
       continue;
@@ -834,8 +841,8 @@ export function runLintMode(): void {
       if (!metadataValue(text, key)) errors.push(`missing metadata key ${key}: ${file}`);
     }
   }
-  const startupLength = exists("wiki/startup.md") ? read("wiki/startup.md").length : 0;
-  const indexLength = exists("wiki/index.md") ? read("wiki/index.md").length : 0;
+  const startupLength = exists("wiki/startup.md") ? wikiCorpusText(corpus, "wiki/startup.md").length : 0;
+  const indexLength = exists("wiki/index.md") ? wikiCorpusText(corpus, "wiki/index.md").length : 0;
   if (startupLength > 3500) warnings.push(`startup exceeds hook budget: ${startupLength}/3500 chars`);
   if (indexLength > 4500) warnings.push(`index exceeds hook budget: ${indexLength}/4500 chars`);
   if (exists("wiki/startup.md") && /##\s+Always Read First/.test(read("wiki/startup.md"))) warnings.push("startup uses Always Read First; prefer Read On Demand routing");

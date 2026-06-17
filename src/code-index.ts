@@ -33,6 +33,10 @@ export interface CodeContextPackOptions {
   staleness?: CodeIndexStaleness;
 }
 
+export interface CodeEvidenceRenderOptions {
+  staleness?: CodeIndexStaleness;
+}
+
 interface CodeEvidenceModeFlags {
   codeContextPackTarget: string;
   codeFilesMode: boolean;
@@ -159,7 +163,7 @@ function warnIfCodeIndexStale(database: SqliteDatabase, staleness = codeIndexSta
   console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
 }
 
-function codeReportRuntime(database: SqliteDatabase): CodeReportRuntime {
+function codeReportRuntime(database: SqliteDatabase, options: CodeEvidenceRenderOptions = {}): CodeReportRuntime {
   const databasePath = codeEvidenceDatabasePath();
   return {
     databaseRelativePath: databasePath.relativePath,
@@ -171,11 +175,11 @@ function codeReportRuntime(database: SqliteDatabase): CodeReportRuntime {
         strength: backend.strength,
       };
     },
-    staleness: codeIndexStaleness(database),
+    staleness: options.staleness ?? codeIndexStaleness(database),
   };
 }
 
-export function codeImpact(database: SqliteDatabase, target: string): Record<string, unknown> {
+export function codeImpact(database: SqliteDatabase, target: string, options: CodeEvidenceRenderOptions = {}): Record<string, unknown> {
   const normalized = target.trim();
   const evidence = collectCodeEvidence(database, normalized, {
     edgeLimit: 100,
@@ -190,7 +194,7 @@ export function codeImpact(database: SqliteDatabase, target: string): Record<str
     symbolLimit: 50,
   });
   return {
-    ...codeReportMetadata(database, codeReportRuntime(database)),
+    ...codeReportMetadata(database, codeReportRuntime(database, options)),
     target,
     matches: {
       files: evidence.files,
@@ -334,7 +338,7 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     codeEvidenceDatabasePath,
     codeImpact,
     codeIndexStaleness,
-    codeReportForRequestedSection: (database, requestedSection) => codeReportForRequestedSection(database, requestedSection, codeReportRuntime(database)),
+    codeReportForRequestedSection: (database, requestedSection, options) => codeReportForRequestedSection(database, requestedSection, codeReportRuntime(database, options)),
     codeScopes,
     fail,
     indexCodeFile,

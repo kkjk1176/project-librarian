@@ -366,8 +366,8 @@ function ownershipAnswer(filePath) {
     lines.push(`Workspace owner: ${info.owner} (source: ${info.owner_source})${info.codeowners ? `; codeowners ${info.codeowners}` : ""}.`);
     return lines.join("\n");
 }
-function impactAnswer(database, term) {
-    const impact = (0, code_index_1.codeImpact)(database, term);
+function impactAnswer(database, term, context) {
+    const impact = (0, code_index_1.codeImpact)(database, term, { staleness: context.staleness });
     const matches = (impact.matches ?? {});
     const edges = (impact.edges ?? {});
     const owners = asRows(impact.impacted_owners);
@@ -483,7 +483,7 @@ const TOOLS = [
             properties: { term: { type: "string", description: "Path, symbol, route, module, or concept to build a compact code context pack for." } },
             required: ["term"],
         },
-        run: (database, args) => (0, code_index_1.codeContextPack)(database, requireStringArg(args, "term")),
+        run: (database, args, context) => (0, code_index_1.codeContextPack)(database, requireStringArg(args, "term"), { staleness: context.staleness }),
     },
     {
         name: "code_impact",
@@ -493,7 +493,7 @@ const TOOLS = [
             properties: { term: { type: "string", description: "File path, symbol name, route, or module to trace." } },
             required: ["term"],
         },
-        run: (database, args) => impactAnswer(database, requireStringArg(args, "term")),
+        run: (database, args, context) => impactAnswer(database, requireStringArg(args, "term"), context),
     },
     {
         name: "code_ownership",
@@ -562,7 +562,7 @@ function callTool(name, rawArgs) {
         const staleness = (0, code_index_1.codeIndexStaleness)(opened.database);
         const body = name === "code_status"
             ? statusAnswer(opened.database, opened.relativePath, staleness)
-            : TOOLS_BY_NAME.get(name).run(opened.database, args);
+            : TOOLS_BY_NAME.get(name).run(opened.database, args, { staleness });
         return toolResultContent(finalizeAnswer(body, staleness));
     }
     catch (error) {

@@ -1,0 +1,270 @@
+{
+  "generated_at": "2026-06-17T05:22:06.910Z",
+  "node": "v22.17.1",
+  "runs_per_command": 3,
+  "scales": [
+    {
+      "file_count": 3000,
+      "index_time_ms": 362.992125,
+      "current_db": {
+        "file_bytes": 6012928,
+        "page_count": 1468,
+        "page_size": 4096,
+        "page_bytes": 6012928,
+        "rows": {
+          "files": 3002,
+          "symbols": 6001,
+          "imports": 3000,
+          "routes": 0,
+          "edges": 9001
+        }
+      },
+      "contentless_fts_db": {
+        "file_bytes": 4554752,
+        "page_count": 1112,
+        "page_size": 4096,
+        "page_bytes": 4554752,
+        "rows": {
+          "files": 3002,
+          "symbols": 6001,
+          "imports": 3000,
+          "routes": 0,
+          "edges": 9001
+        }
+      },
+      "contentless_fts_size_delta_percent": -24.250681198910083,
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 189.79725,
+          "median_ms": 193.953083,
+          "p95_ms": 193.997209,
+          "max_ms": 193.997209
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 195.163625,
+          "median_ms": 198.240666,
+          "p95_ms": 198.571375,
+          "max_ms": 198.571375
+        },
+        "code_impact": {
+          "runs": 3,
+          "min_ms": 197.243666,
+          "median_ms": 199.02925,
+          "p95_ms": 203.170667,
+          "max_ms": 203.170667
+        },
+        "code_report_coverage": {
+          "runs": 3,
+          "min_ms": 186.972667,
+          "median_ms": 190.15225,
+          "p95_ms": 191.970666,
+          "max_ms": 191.970666
+        }
+      },
+      "query_plans": {
+        "file_prefix_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "file_contains_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "symbol_contains_like": [
+          "SCAN symbols USING INDEX idx_symbols_file",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ],
+        "route_contains_like": [
+          "SCAN routes",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ],
+        "import_contains_like": [
+          "SCAN imports USING INDEX idx_imports_from",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ]
+      }
+    },
+    {
+      "file_count": 10000,
+      "index_time_ms": 846.78275,
+      "current_db": {
+        "file_bytes": 20226048,
+        "page_count": 4938,
+        "page_size": 4096,
+        "page_bytes": 20226048,
+        "rows": {
+          "files": 10002,
+          "symbols": 20001,
+          "imports": 10000,
+          "routes": 0,
+          "edges": 30001
+        }
+      },
+      "contentless_fts_db": {
+        "file_bytes": 15175680,
+        "page_count": 3705,
+        "page_size": 4096,
+        "page_bytes": 15175680,
+        "rows": {
+          "files": 10002,
+          "symbols": 20001,
+          "imports": 10000,
+          "routes": 0,
+          "edges": 30001
+        }
+      },
+      "contentless_fts_size_delta_percent": -24.96962332928311,
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 351.989959,
+          "median_ms": 351.997541,
+          "p95_ms": 353.415667,
+          "max_ms": 353.415667
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 360.428209,
+          "median_ms": 360.82475,
+          "p95_ms": 367.033958,
+          "max_ms": 367.033958
+        },
+        "code_impact": {
+          "runs": 3,
+          "min_ms": 375.278834,
+          "median_ms": 375.772625,
+          "p95_ms": 380.545083,
+          "max_ms": 380.545083
+        },
+        "code_report_coverage": {
+          "runs": 3,
+          "min_ms": 344.680833,
+          "median_ms": 348.075708,
+          "p95_ms": 351.904625,
+          "max_ms": 351.904625
+        }
+      },
+      "query_plans": {
+        "file_prefix_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "file_contains_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "symbol_contains_like": [
+          "SCAN symbols USING INDEX idx_symbols_file",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ],
+        "route_contains_like": [
+          "SCAN routes",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ],
+        "import_contains_like": [
+          "SCAN imports USING INDEX idx_imports_from",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ]
+      }
+    },
+    {
+      "file_count": 50000,
+      "index_time_ms": 5122.164625,
+      "current_db": {
+        "file_bytes": 101785600,
+        "page_count": 24850,
+        "page_size": 4096,
+        "page_bytes": 101785600,
+        "rows": {
+          "files": 50002,
+          "symbols": 100001,
+          "imports": 50000,
+          "routes": 0,
+          "edges": 150001
+        }
+      },
+      "contentless_fts_db": {
+        "file_bytes": 76496896,
+        "page_count": 18676,
+        "page_size": 4096,
+        "page_bytes": 76496896,
+        "rows": {
+          "files": 50002,
+          "symbols": 100001,
+          "imports": 50000,
+          "routes": 0,
+          "edges": 150001
+        }
+      },
+      "contentless_fts_size_delta_percent": -24.845070422535212,
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 2822.320083,
+          "median_ms": 2869.629833,
+          "p95_ms": 2909.858166,
+          "max_ms": 2909.858166
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 2938.462291,
+          "median_ms": 3018.405333,
+          "p95_ms": 3196.0545,
+          "max_ms": 3196.0545
+        },
+        "code_impact": {
+          "runs": 3,
+          "min_ms": 2954.060792,
+          "median_ms": 3066.592542,
+          "p95_ms": 3135.791333,
+          "max_ms": 3135.791333
+        },
+        "code_report_coverage": {
+          "runs": 3,
+          "min_ms": 2868.078917,
+          "median_ms": 3045.685333,
+          "p95_ms": 3159.149709,
+          "max_ms": 3159.149709
+        }
+      },
+      "query_plans": {
+        "file_prefix_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "file_contains_like": [
+          "SCAN files USING COVERING INDEX sqlite_autoindex_files_1"
+        ],
+        "symbol_contains_like": [
+          "SCAN symbols USING INDEX idx_symbols_file",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ],
+        "route_contains_like": [
+          "SCAN routes",
+          "USE TEMP B-TREE FOR ORDER BY"
+        ],
+        "import_contains_like": [
+          "SCAN imports USING INDEX idx_imports_from",
+          "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+        ]
+      }
+    }
+  ],
+  "build_commands": {
+    "build": {
+      "runs": 1,
+      "min_ms": 1257.049792,
+      "median_ms": 1257.049792,
+      "p95_ms": 1257.049792,
+      "max_ms": 1257.049792
+    },
+    "typecheck": {
+      "runs": 1,
+      "min_ms": 1097.835958,
+      "median_ms": 1097.835958,
+      "p95_ms": 1097.835958,
+      "max_ms": 1097.835958
+    }
+  },
+  "decisions": {
+    "fts": "contentless FTS experiment does not cross the DB-size adoption threshold in this run; keep current schema and revisit with stronger latency evidence",
+    "build": "build/typecheck measured for tracking; keep clean build/typecheck commands until duplicate compiler work is a measured bottleneck"
+  }
+}

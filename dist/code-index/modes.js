@@ -159,8 +159,9 @@ function runCodeReportMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
-        runtime.warnIfCodeIndexStale(database);
-        const report = runtime.codeReportForRequestedSection(database, args_1.codeReportSection);
+        const staleness = runtime.codeIndexStaleness(database);
+        runtime.warnIfCodeIndexStale(database, staleness);
+        const report = runtime.codeReportForRequestedSection(database, args_1.codeReportSection, { staleness });
         if (!report)
             runtime.fail((0, reports_1.invalidCodeReportSectionMessage)(args_1.codeReportSection));
         printJson(report);
@@ -208,8 +209,9 @@ function runCodeImpactMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
-        runtime.warnIfCodeIndexStale(database);
-        printJson(runtime.codeImpact(database, args_1.codeImpactTarget.trim()));
+        const staleness = runtime.codeIndexStaleness(database);
+        runtime.warnIfCodeIndexStale(database, staleness);
+        printJson(runtime.codeImpact(database, args_1.codeImpactTarget.trim(), { staleness }));
     }
     finally {
         database.close();

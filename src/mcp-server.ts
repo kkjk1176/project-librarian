@@ -83,7 +83,11 @@ interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  run(database: SqliteDatabase, args: Record<string, unknown>): string;
+  run(database: SqliteDatabase, args: Record<string, unknown>, context: ToolRunContext): string;
+}
+
+interface ToolRunContext {
+  staleness: CodeIndexStaleness;
 }
 
 interface ResourceDefinition {
@@ -399,8 +403,8 @@ function ownershipAnswer(filePath: string): string {
   return lines.join("\n");
 }
 
-function impactAnswer(database: SqliteDatabase, term: string): string {
-  const impact = codeImpact(database, term) as Record<string, unknown>;
+function impactAnswer(database: SqliteDatabase, term: string, context: ToolRunContext): string {
+  const impact = codeImpact(database, term, { staleness: context.staleness }) as Record<string, unknown>;
   const matches = (impact.matches ?? {}) as Record<string, unknown>;
   const edges = (impact.edges ?? {}) as Record<string, unknown>;
   const owners = asRows(impact.impacted_owners);
@@ -525,7 +529,7 @@ const TOOLS: ToolDefinition[] = [
       properties: { term: { type: "string", description: "Path, symbol, route, module, or concept to build a compact code context pack for." } },
       required: ["term"],
     },
-    run: (database, args) => codeContextPack(database, requireStringArg(args, "term")),
+    run: (database, args, context) => codeContextPack(database, requireStringArg(args, "term"), { staleness: context.staleness }),
   },
   {
     name: "code_impact",
@@ -535,7 +539,7 @@ const TOOLS: ToolDefinition[] = [
       properties: { term: { type: "string", description: "File path, symbol name, route, or module to trace." } },
       required: ["term"],
     },
-    run: (database, args) => impactAnswer(database, requireStringArg(args, "term")),
+    run: (database, args, context) => impactAnswer(database, requireStringArg(args, "term"), context),
   },
   {
     name: "code_ownership",
@@ -609,7 +613,7 @@ function callTool(name: unknown, rawArgs: unknown): Record<string, unknown> {
     const staleness = codeIndexStaleness(opened.database);
     const body = name === "code_status"
       ? statusAnswer(opened.database, opened.relativePath, staleness)
-      : (TOOLS_BY_NAME.get(name) as ToolDefinition).run(opened.database, args);
+      : (TOOLS_BY_NAME.get(name) as ToolDefinition).run(opened.database, args, { staleness });
     return toolResultContent(finalizeAnswer(body, staleness));
   } catch (error: unknown) {
     if (error instanceof ToolArgumentError) throw error;

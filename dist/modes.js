@@ -63,6 +63,7 @@ const templates_1 = require("./templates");
 const migration_1 = require("./migration");
 const wiki_files_1 = require("./wiki-files");
 const wiki_graph_1 = require("./wiki-graph");
+const wiki_corpus_1 = require("./wiki-corpus");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
 function isScopedAutoIndex(file) {
@@ -533,11 +534,11 @@ function printDiagnostics(title, diagnostics, checked) {
     console.log(`passed: ${checked} wiki markdown files checked, ${warnings} warnings`);
     return true;
 }
-function collectLinkDiagnostics() {
+function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
     const diagnostics = [];
-    const files = (0, wiki_files_1.wikiMarkdownFiles)();
-    const fileSet = new Set(files);
-    const graph = (0, wiki_graph_1.buildWikiGraph)(files.map((file) => ({ file, text: (0, workspace_1.read)(file) })));
+    const files = corpus.files;
+    const fileSet = corpus.fileSet;
+    const graph = (0, wiki_corpus_1.wikiCorpusGraph)(corpus);
     for (const link of graph.links) {
         if (!fileSet.has(link.normalizedTarget)) {
             diagnostics.push({
@@ -643,10 +644,10 @@ function shouldGuardAgainstLegacyReference(file) {
         return false;
     return !file.endsWith("/migration-inbox.md");
 }
-function migrationLegacyReferenceDiagnostics(files) {
+function migrationLegacyReferenceDiagnostics(files, corpus) {
     return files
         .filter(shouldGuardAgainstLegacyReference)
-        .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file))))
+        .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test((0, workspace_1.stripMetadataHeader)((0, wiki_corpus_1.wikiCorpusText)(corpus, file))))
         .map((file) => ({
         code: "migration-legacy-reference",
         severity: "error",
@@ -654,12 +655,12 @@ function migrationLegacyReferenceDiagnostics(files) {
         message: "new project truth must not link to or cite wiki_legacy*; migrate the meaning or keep unresolved material in migration inboxes",
     }));
 }
-function collectQualityDiagnostics() {
+function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
     const diagnostics = [];
-    const files = (0, wiki_files_1.wikiMarkdownFiles)();
+    const files = corpus.files;
     const titles = new Map();
     for (const file of files) {
-        const text = (0, workspace_1.read)(file);
+        const text = (0, wiki_corpus_1.wikiCorpusText)(corpus, file);
         const body = (0, workspace_1.stripMetadataHeader)(text);
         const title = (0, wiki_files_1.wikiTitleForFile)(file, text).toLowerCase();
         titles.set(title, [...(titles.get(title) ?? []), file]);
@@ -700,9 +701,8 @@ function collectQualityDiagnostics() {
     }
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
-function collectMigrationQualityDiagnostics() {
-    const files = (0, wiki_files_1.wikiMarkdownFiles)();
-    return migrationLegacyReferenceDiagnostics(files).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
+function collectMigrationQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
+    return migrationLegacyReferenceDiagnostics(corpus.files, corpus).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 function collectMigrationLintDiagnostics() {
     if (legacyWikiRoots().length === 0)
@@ -728,23 +728,27 @@ function collectMigrationLintDiagnostics() {
         file,
         message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
     }));
-    diagnostics.push(...(0, migration_1.collectMigrationCoverageDiagnostics)());
-    diagnostics.push(...(0, migration_1.collectMigrationUnitMapDiagnostics)());
-    diagnostics.push(...(0, migration_1.collectMigrationSplitPlanDiagnostics)());
+    const migrationContext = (0, migration_1.loadMigrationUnitContext)();
+    diagnostics.push(...(0, migration_1.collectMigrationCoverageDiagnostics)(migrationContext));
+    diagnostics.push(...(0, migration_1.collectMigrationUnitMapDiagnostics)(migrationContext));
+    diagnostics.push(...(0, migration_1.collectMigrationSplitPlanDiagnostics)(migrationContext));
     return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
 }
 function runLinkCheckMode() {
-    const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(corpus), corpus.files.length);
     if (!ok)
         process.exit(1);
 }
 function runQualityCheckMode() {
-    const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(corpus), corpus.files.length);
     if (!ok)
         process.exit(1);
 }
 function runMigrationQualityCheckMode() {
-    const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
     if (!ok)
         process.exit(1);
 }
@@ -754,8 +758,9 @@ function runMigrationLintMode() {
         process.exit(1);
 }
 function runMigrationDoctorMode() {
-    const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
-    const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(), (0, wiki_files_1.wikiMarkdownFiles)().length);
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), corpus.files.length);
+    const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
     if (!lintOk || !qualityOk)
         process.exit(1);
 }
@@ -794,11 +799,12 @@ function extractSectionBody(markdown, headingText) {
     const nextHeading = /^##\s/m.exec(afterHeading);
     return nextHeading ? afterHeading.slice(0, nextHeading.index) : afterHeading;
 }
-function collectRouterTruthDiagnostics() {
+function collectRouterTruthDiagnostics(corpus) {
     const logPath = "wiki/decisions/log.md";
-    if (!(0, workspace_1.exists)(logPath))
+    const hasLog = corpus ? corpus.fileSet.has(logPath) : (0, workspace_1.exists)(logPath);
+    if (!hasLog)
         return [];
-    const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(logPath)));
+    const logHasDatedEntry = /\b\d{4}-\d{2}-\d{2}\b/.test((0, workspace_1.stripMetadataHeader)((0, wiki_corpus_1.wikiCorpusText)(corpus, logPath)));
     if (!logHasDatedEntry)
         return [];
     const diagnostics = [];
@@ -810,9 +816,10 @@ function collectRouterTruthDiagnostics() {
         ["wiki/decisions/recent.md", "Decisions", "Decisions"],
     ];
     for (const [file, heading, surface] of routers) {
-        if (!(0, workspace_1.exists)(file))
+        const hasFile = corpus ? corpus.fileSet.has(file) : (0, workspace_1.exists)(file);
+        if (!hasFile)
             continue;
-        const section = extractSectionBody((0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file)), heading);
+        const section = extractSectionBody((0, workspace_1.stripMetadataHeader)((0, wiki_corpus_1.wikiCorpusText)(corpus, file)), heading);
         if (section === "")
             continue; // section absent — skip rather than false-positive
         if (ROUTER_TRUTH_NONE_YET_REGEX.test(section)) {
@@ -837,11 +844,11 @@ function runDoctorMode(fix) {
             console.log("skipped wiki/index.md auto-discovered pages: missing wiki/index.md");
         }
     }
-    const files = (0, wiki_files_1.wikiMarkdownFiles)();
-    const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(), files.length);
-    const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(), files.length);
-    const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(), files.length);
-    runLintMode();
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const linkOk = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(corpus), corpus.files.length);
+    const qualityOk = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(corpus), corpus.files.length);
+    const routerTruthOk = printDiagnostics("Project wiki router-truth check", collectRouterTruthDiagnostics(corpus), corpus.files.length);
+    runLintMode(corpus);
     if (!linkOk || !qualityOk || !routerTruthOk)
         process.exit(1);
 }
@@ -872,7 +879,7 @@ function activeLintAgentSurfaces() {
     }
     return active;
 }
-function runLintMode() {
+function runLintMode(corpus) {
     const errors = [];
     const warnings = [];
     const activeAgents = activeLintAgentSurfaces();
@@ -884,10 +891,10 @@ function runLintMode() {
         if (!(0, workspace_1.exists)(file))
             errors.push(`missing required file: ${file}`);
     }
-    const files = (0, wiki_files_1.wikiMarkdownFiles)();
+    const files = corpus?.files ?? (0, wiki_files_1.wikiMarkdownFiles)();
     const requiredMetadataKeys = ["status", "updated", "scope", "read_budget", "decision_ref", "review_trigger"];
     for (const file of files) {
-        const text = (0, workspace_1.read)(file);
+        const text = (0, wiki_corpus_1.wikiCorpusText)(corpus, file);
         if (!(0, workspace_1.hasMetadataHeader)(text)) {
             errors.push(`missing metadata header: ${file}`);
             continue;
@@ -897,8 +904,8 @@ function runLintMode() {
                 errors.push(`missing metadata key ${key}: ${file}`);
         }
     }
-    const startupLength = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md").length : 0;
-    const indexLength = (0, workspace_1.exists)("wiki/index.md") ? (0, workspace_1.read)("wiki/index.md").length : 0;
+    const startupLength = (0, workspace_1.exists)("wiki/startup.md") ? (0, wiki_corpus_1.wikiCorpusText)(corpus, "wiki/startup.md").length : 0;
+    const indexLength = (0, workspace_1.exists)("wiki/index.md") ? (0, wiki_corpus_1.wikiCorpusText)(corpus, "wiki/index.md").length : 0;
     if (startupLength > 3500)
         warnings.push(`startup exceeds hook budget: ${startupLength}/3500 chars`);
     if (indexLength > 4500)
