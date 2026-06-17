@@ -12,6 +12,7 @@ const { buildManifest, conditions, controlProfiles, scales, taskFamilies, taskTr
 const { buildIsolatedCodexHome, buildSpawnEnv, checkPreRunFingerprint, injectMcpServerConfig, resolveRealCodexHome, snapshotFixturePaths, validateFixtureAfterRun } = require("./lib/hermetic");
 const { buildRealCorpusManifest } = require("./lib/real-corpus-manifest");
 const { checkRealRepoPreRun, snapshotRealRepoUntracked, validateRealRepoAfterRun } = require("./lib/real-corpus");
+const { applyCodexHomeRetention } = require("./lib/llm-raw-retention");
 
 // A real-corpus scenario is identified by its pinned-sha + git-clean fingerprint
 // algorithm (the synthetic path uses a content-hash fingerprint). Real scenarios
@@ -671,7 +672,7 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, droppedScenarios }) {
   const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   return {
@@ -702,6 +703,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       require_clean: requireClean,
       requested_model: manifest.requested_model,
       cache_discount: cacheDiscount,
+      keep_codex_homes: Boolean(keepCodexHomes),
       selected_scales: selectedScales,
       selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
@@ -733,7 +735,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [] }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false }) {
   requireMeasuredAuth(authMode);
   const rawReportRoot = sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root;
   const rawRoot = path.join(rawReportRoot, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -750,7 +752,12 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   // missing, rather than falling back to the unisolated user home.
   const homeDir = os.homedir();
   const realCodexHome = resolveRealCodexHome(process.env, homeDir);
-  const isolatedCodexHome = path.join(rawRoot, "codex-home");
+  const codexHomePaths = new Set();
+  function trackCodexHome(homePath) {
+    codexHomePaths.add(homePath);
+    return homePath;
+  }
+  const isolatedCodexHome = trackCodexHome(path.join(rawRoot, "codex-home"));
   const isolation = buildIsolatedCodexHome({ realCodexHome, destHome: isolatedCodexHome });
   const spawnEnv = buildSpawnEnv({ sourceEnv: process.env, codexHome: isolatedCodexHome, authMode, homeDir });
   const hermetic = {
@@ -771,7 +778,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   // copy and allowlist-only env are identical to the single-session path.
   function buildSessionSpawnEnvs(scenario, runIndex) {
     return scenario.sessions.map((session) => {
-      const sessionHome = path.join(rawRoot, `codex-home-${safeName(scenario.prompt_id)}-run-${runIndex}-s${session.session_index}`);
+      const sessionHome = trackCodexHome(path.join(rawRoot, `codex-home-${safeName(scenario.prompt_id)}-run-${runIndex}-s${session.session_index}`));
       buildIsolatedCodexHome({ realCodexHome, destHome: sessionHome });
       return buildSpawnEnv({ sourceEnv: process.env, codexHome: sessionHome, authMode, homeDir });
     });
@@ -784,7 +791,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   // clobbering the copied auth material (auth lives in auth.json, not config.toml).
   // Control-arm homes get NO MCP entry — a usage-faithful with/without contrast.
   function buildRealScenarioSpawnEnv(scenario, runIndex) {
-    const scenarioHome = path.join(rawRoot, `codex-home-${safeName(scenario.prompt_id)}-run-${runIndex}`);
+    const scenarioHome = trackCodexHome(path.join(rawRoot, `codex-home-${safeName(scenario.prompt_id)}-run-${runIndex}`));
     buildIsolatedCodexHome({ realCodexHome, destHome: scenarioHome });
     if (scenario.mcp) {
       if (!scenario.mcp_runner_path) {
@@ -884,6 +891,12 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     scenarios.push(scenarioRecord);
   }
 
+  const codexHomeRetention = applyCodexHomeRetention({
+    rawRoot,
+    homePaths: [...codexHomePaths],
+    keepCodexHomes,
+  });
+
   const presentTracks = tracksPresent(scenarios);
   const expectedByTrack = expectedTasksByTrack(selectedTasks);
 
@@ -918,7 +931,18 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     corpus: manifest.corpus || "synthetic",
     cache_discount: cacheDiscount,
     sanitized_pack: sanitizedPack || { enabled: false },
-    hermetic,
+    hermetic: {
+      ...hermetic,
+      codex_home_retention: {
+        manifest_path: codexHomeRetention.manifest_path,
+        keep_codex_homes: codexHomeRetention.keep_codex_homes,
+        home_count: codexHomeRetention.home_count,
+        retained_home_count: codexHomeRetention.retained_home_count,
+        pruned_home_count: codexHomeRetention.pruned_home_count,
+        retained_bytes: codexHomeRetention.retained_bytes,
+        pruned_bytes: codexHomeRetention.pruned_bytes,
+      },
+    },
     codex: {
       version: commandOutput("codex", ["--version"]),
     },
@@ -933,6 +957,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       control_profile: manifest.control_profile,
       cache_discount: cacheDiscount,
       sanitized_pack: Boolean(sanitizedPack && sanitizedPack.enabled),
+      keep_codex_homes: Boolean(keepCodexHomes),
       scenario_order: "deterministic-alternating-pairs",
       requested_model: manifest.requested_model,
       selected_scales: selectedScales,
@@ -1200,6 +1225,7 @@ function main() {
   const fullMatrix = hasFlag("--full-matrix");
   const requireClaimable = hasFlag("--require-claimable");
   const requireClean = hasFlag("--require-clean");
+  const keepCodexHomes = hasFlag("--keep-codex-homes");
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const controlProfile = argValue("--control-profile", "organic");
@@ -1321,6 +1347,7 @@ function main() {
       cacheDiscount,
       sourceRoot,
       sanitizedPack,
+      keepCodexHomes,
       droppedScenarios,
     });
     writeJson(payloadPreviewPath, preview);
@@ -1337,7 +1364,7 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
@@ -1353,6 +1380,7 @@ function main() {
       fixture_root: fixtureRoot,
       control_profile: manifest.control_profile,
       isolated_codex_home: report.hermetic.isolated_codex_home,
+      codex_home_retention: report.hermetic.codex_home_retention,
       allowlisted_env_key_count: report.hermetic.allowlisted_env_key_count,
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
       scenario_count: report.scenarios.length,

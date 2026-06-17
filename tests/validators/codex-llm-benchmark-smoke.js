@@ -2,11 +2,13 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
+const { applyCodexHomeRetention } = require("../../benchmarks/lib/llm-raw-retention");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { aggregationExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
 const { sampleImpactTraceExpectation } = require("../../benchmarks/llm/samples/sample-code-graph-expectation");
@@ -428,6 +430,14 @@ function validateReport(reportPath) {
   assert.equal(report.hermetic.inherited_process_env, false, "hermetic env must not inherit process.env");
   assert(report.hermetic.allowlisted_env_keys.includes("PATH"), "allowlist must include PATH");
   assert(report.hermetic.allowlisted_env_keys.includes("CODEX_HOME"), "allowlist must include CODEX_HOME");
+  if (report.hermetic.codex_home_retention) {
+    const retention = report.hermetic.codex_home_retention;
+    assert(typeof retention.manifest_path === "string" && retention.manifest_path.length > 0);
+    assert.equal(typeof retention.keep_codex_homes, "boolean");
+    assert.equal(retention.home_count, retention.retained_home_count + retention.pruned_home_count);
+    assert(Number.isInteger(retention.retained_bytes));
+    assert(Number.isInteger(retention.pruned_bytes));
+  }
   // Auth-mode contract: subscription mode must not leak API-key env into the child.
   if (report.auth_mode !== "api-key") {
     assert(!report.hermetic.allowlisted_env_keys.includes("CODEX_API_KEY"), "subscription mode must not forward CODEX_API_KEY");
@@ -830,6 +840,41 @@ function validateMeasurementClaimability() {
   assert.equal(claimableWithRequestedModel.status, "claimable");
 }
 
+function validateRawRetention() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-raw-retention-"));
+  try {
+    const rawRoot = path.join(tempRoot, "raw");
+    const rawJsonl = path.join(rawRoot, "sample-run-1.jsonl");
+    const stderrPath = path.join(rawRoot, "sample-run-1.stderr.txt");
+    const home = path.join(rawRoot, "codex-home");
+    fs.mkdirSync(path.join(home, ".tmp", "plugins", ".git", "objects", "pack"), { recursive: true });
+    fs.writeFileSync(rawJsonl, `${JSON.stringify({ type: "assistant.message", message: "ok" })}\n`);
+    fs.writeFileSync(stderrPath, "stderr\n");
+    fs.writeFileSync(path.join(home, "auth.json"), "{}\n");
+    fs.writeFileSync(path.join(home, ".tmp", "plugins", ".git", "objects", "pack", "pack-a.pack"), Buffer.alloc(1024));
+
+    const pruned = applyCodexHomeRetention({ rawRoot, homePaths: [home], keepCodexHomes: false });
+    assert.equal(pruned.home_count, 1);
+    assert.equal(pruned.pruned_home_count, 1);
+    assert(pruned.pruned_bytes >= 1024);
+    assert(fs.existsSync(pruned.manifest_path), "retention manifest should remain after pruning homes");
+    assert(!fs.existsSync(home), "codex home should be pruned by default");
+    assert(fs.existsSync(rawJsonl), "raw JSONL must survive codex-home pruning");
+    assert(fs.existsSync(stderrPath), "stderr must survive codex-home pruning");
+
+    const keepRawRoot = path.join(tempRoot, "keep-raw");
+    const keepHome = path.join(keepRawRoot, "codex-home");
+    fs.mkdirSync(keepHome, { recursive: true });
+    fs.writeFileSync(path.join(keepHome, "auth.json"), "{}\n");
+    const kept = applyCodexHomeRetention({ rawRoot: keepRawRoot, homePaths: [keepHome], keepCodexHomes: true });
+    assert.equal(kept.retained_home_count, 1);
+    assert.equal(kept.pruned_home_count, 0);
+    assert(fs.existsSync(keepHome), "codex home should remain when explicitly retained");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function validateCliArgumentFailures() {
   for (const args of [
     ["benchmarks/codex-llm-metrics.js", "--dry-run", "--scales", ","],
@@ -857,6 +902,7 @@ validateInvocationCounts();
 validatePairSelectionOrder();
 validateCorrectness();
 validateMeasurementClaimability();
+validateRawRetention();
 validateCliArgumentFailures();
 if (reportPath) validateReport(path.resolve(reportPath));
 console.log("codex llm benchmark smoke ok");
