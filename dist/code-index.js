@@ -169,8 +169,7 @@ function codeIndexStaleness(database) {
         stale: plan.addedFiles.length > 0 || plan.changedFiles.length > 0 || plan.deletedPaths.length > 0,
     };
 }
-function warnIfCodeIndexStale(database) {
-    const staleness = codeIndexStaleness(database);
+function warnIfCodeIndexStale(database, staleness = codeIndexStaleness(database)) {
     if (!staleness.stale)
         return;
     console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
@@ -262,7 +261,7 @@ function structuralSignature(value) {
     const bodyStart = signature.indexOf("{");
     return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
 }
-function codeContextPack(database, query) {
+function codeContextPack(database, query, options = {}) {
     const normalized = query.trim();
     if (!normalized)
         return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
@@ -278,7 +277,7 @@ function codeContextPack(database, query) {
         routeLimit: 20,
         symbolLimit: 20,
     });
-    const staleness = codeIndexStaleness(database);
+    const staleness = options.staleness ?? codeIndexStaleness(database);
     const coverage = (0, reports_1.evidenceCoverage)(database);
     const staleLabel = staleness.stale
         ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`

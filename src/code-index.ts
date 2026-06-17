@@ -29,6 +29,10 @@ export interface CodeIndexStaleness {
   stale: boolean;
 }
 
+export interface CodeContextPackOptions {
+  staleness?: CodeIndexStaleness;
+}
+
 interface CodeEvidenceModeFlags {
   codeContextPackTarget: string;
   codeFilesMode: boolean;
@@ -150,8 +154,7 @@ export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness
   };
 }
 
-function warnIfCodeIndexStale(database: SqliteDatabase): void {
-  const staleness = codeIndexStaleness(database);
+function warnIfCodeIndexStale(database: SqliteDatabase, staleness = codeIndexStaleness(database)): void {
   if (!staleness.stale) return;
   console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
 }
@@ -246,7 +249,7 @@ function structuralSignature(value: unknown): string {
   return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
 }
 
-export function codeContextPack(database: SqliteDatabase, query: string): string {
+export function codeContextPack(database: SqliteDatabase, query: string, options: CodeContextPackOptions = {}): string {
   const normalized = query.trim();
   if (!normalized) return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
   const evidence = collectCodeEvidence(database, normalized, {
@@ -261,7 +264,7 @@ export function codeContextPack(database: SqliteDatabase, query: string): string
     routeLimit: 20,
     symbolLimit: 20,
   });
-  const staleness = codeIndexStaleness(database);
+  const staleness = options.staleness ?? codeIndexStaleness(database);
   const coverage = evidenceCoverage(database);
   const staleLabel = staleness.stale
     ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`

@@ -3,7 +3,7 @@ import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImp
 import type { SqliteDatabase } from "../code-index-db";
 import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-policy";
 import { isReadOnlySql } from "../code-index-sql";
-import type { CodeIndexStaleness } from "../code-index";
+import type { CodeContextPackOptions, CodeIndexStaleness } from "../code-index";
 import type { CodeFile } from "./extractors/types";
 import { planIndexUpdate } from "./incremental";
 import { invalidCodeReportSectionMessage } from "./reports";
@@ -16,7 +16,7 @@ export interface CodeEvidenceDatabasePath {
 }
 
 export interface CodeIndexModeRuntime {
-  codeContextPack(database: SqliteDatabase, query: string): string;
+  codeContextPack(database: SqliteDatabase, query: string, options?: CodeContextPackOptions): string;
   codeEvidenceDatabasePath(): CodeEvidenceDatabasePath;
   codeImpact(database: SqliteDatabase, target: string): Record<string, unknown>;
   codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness;
@@ -30,7 +30,7 @@ export interface CodeIndexModeRuntime {
   removeDatabaseFiles(databasePath: string): void;
   requireExistingIndex(): void;
   selectedCodeParserMode(): CodeParserMode;
-  warnIfCodeIndexStale(database: SqliteDatabase): void;
+  warnIfCodeIndexStale(database: SqliteDatabase, staleness?: CodeIndexStaleness): void;
 }
 
 function printRows(rows: Record<string, unknown>[]): void {
@@ -202,8 +202,9 @@ export function runCodeContextPackMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
-    runtime.warnIfCodeIndexStale(database);
-    console.log(runtime.codeContextPack(database, codeContextPackTarget.trim()));
+    const staleness = runtime.codeIndexStaleness(database);
+    runtime.warnIfCodeIndexStale(database, staleness);
+    console.log(runtime.codeContextPack(database, codeContextPackTarget.trim(), { staleness }));
   } finally {
     database.close();
   }
