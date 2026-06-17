@@ -85,7 +85,7 @@ npm run benchmark:release -- --allow-codex-run
 | 중형 | 53.4% 적음 | 4.4% 적음 | 68.5% 적음 |
 | 대형 | 71.6% 적음* | 12.8% 적음 | 66.0% 적음 |
 
-최신 합성 위키 트랙 릴리스 후보는 2026-06-16에 `gpt-5.5`로 측정했으며, 42개 시나리오를 각 3회 측정하고 1회 예열했습니다. 전체 주장 게이트는 **실패**했습니다. 42개 중 41개 시나리오는 정확성 검사를 통과했지만, Project Librarian이 없는 대형 `decision_lookup` 대조군이 3회 중 2회만 정답이었습니다. 실패한 대조군 실행은 기대한 최신 benchmark evidence 결정인 `2026-06-10` decision log 항목 대신, dated history 파일의 `2026-05-04` 항목을 골랐습니다. 따라서 이 표는 공개 릴리스 주장이 아니라 진단 근거로만 보아야 하며, 깨끗한 릴리스 실행이 주장 게이트를 통과해야 공개 주장으로 쓸 수 있습니다. 숨기지 않는 한계도 그대로 남습니다. 소형 `aggregation`은 위키를 켰을 때 훨씬 비싸고, 소형 `multi_session`도 약간 더 비싸며, `aggregation`은 토큰 비용이 줄어드는 규모에서도 실행 시간은 매번 더 느립니다.
+최신 합성 위키 트랙 릴리스 후보는 2026-06-16에 `gpt-5.5`로 측정했으며, 42개 시나리오를 각 3회 측정하고 1회 예열했습니다. 전체 주장 게이트는 **실패**했습니다. 42개 중 41개 시나리오는 정확성 검사를 통과했지만, Project Librarian이 없는 대형 `decision_lookup` 대조군이 3회 중 2회만 정답이었습니다. 실패한 대조군 실행은 날짜가 붙은 히스토리 파일에서 `2026-05-04`를 골랐고, 기대값은 결정 로그의 최신 벤치마크 근거 결정인 `2026-06-10`이었습니다. 따라서 이 표는 공개 릴리스 주장이 아니라 진단 근거로만 보아야 하며, 깨끗한 릴리스 실행이 주장 게이트를 통과해야 공개 주장으로 쓸 수 있습니다. 숨기지 않는 한계도 그대로 남습니다. 소형 `aggregation`은 위키를 켰을 때 훨씬 비싸고, 소형 `multi_session`도 약간 더 비싸며, `aggregation`은 토큰 비용이 줄어드는 규모에서도 실행 시간은 매번 더 느립니다.
 
 ### 코드 그래프 트랙 (코드 근거 인덱스, 실제 저장소)
 
@@ -240,7 +240,7 @@ Git 훅 파일:
 - `wiki/index.md`
 - `wiki/meta/document-taxonomy.md`
 
-`canonical/project-brief.md`, `canonical/open-questions.md`, `canonical/assumptions.md`, `canonical/risks.md`, ADR 템플릿처럼 실제 내용이 없는 빈 프로젝트 문서는 기본 생성하지 않습니다. 나중에 실제 내용이 생기면 문서를 만들고 `--refresh-index`로 라우팅할 수 있습니다. 마이그레이션 중 발견한 양식 전용 legacy 템플릿은 새 위키 페이지나 검토 row로 만들지 않고 `wiki/migration/inventory.md`에 스킵 사유만 남깁니다.
+`canonical/project-brief.md`, `canonical/open-questions.md`, `canonical/assumptions.md`, `canonical/risks.md`, ADR 템플릿처럼 실제 내용이 없는 빈 프로젝트 문서는 기본 생성하지 않습니다. 나중에 실제 내용이 생기면 문서를 만들고 `--refresh-index`로 라우팅할 수 있습니다. 마이그레이션 중 발견한 양식 전용 기존 템플릿은 새 위키 페이지나 검토 행으로 만들지 않고 `wiki/migration/inventory.md`에 스킵 사유만 남깁니다.
 
 MCP 서버 등록 (`mcpServers`에 기존 항목 보존하며 병합):
 
@@ -276,12 +276,12 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 6. `--refresh-index`는 새로 발견한 위키 페이지를 라우팅하며, route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 분리합니다.
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`가 계획 갱신용 코드 근거를 제공합니다.
-9. 읽기 전용 위키 소비자는 공통 concept read model을 사용해 canonical 위키 스키마를 다시 쓰지 않고 경로와 frontmatter에서 사용자용 페이지 유형을 파생합니다.
-10. 위키 생산자는 기존 markdown/YAML 정본 스키마를 계속 작성하고, 진단·MCP·시각화 같은 읽기 전용 소비자는 원본 문서를 바꾸지 않는 파생 보기를 사용합니다.
-11. `--wiki-visualize`는 데이터베이스나 서버를 추가하지 않고 기존 위키 그래프와 concept read model을 재사용해 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
+9. 읽기 전용 위키 소비자는 공통 개념 읽기 모델을 사용해 정본 위키 스키마를 다시 쓰지 않고 경로와 frontmatter에서 사용자용 페이지 유형을 파생합니다.
+10. 위키 생산자는 기존 Markdown/YAML 정본 스키마를 계속 작성하고, 진단·MCP·시각화 같은 읽기 전용 소비자는 원본 문서를 바꾸지 않는 파생 보기를 사용합니다.
+11. `--wiki-visualize`는 데이터베이스나 서버를 추가하지 않고 기존 위키 그래프와 개념 읽기 모델을 재사용해 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
 12. 진단은 깨진 링크, 중복 route, 고아 페이지, 오래된 페이지, 누락된 TL;DR, 근거 누락, 마이그레이션 정책 위반을 보고합니다.
 
-마이그레이션은 검토를 우선합니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 legacy 파일은 제외한 뒤, 여러 성격의 내용이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 문서 분류 체계에 따라 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.
+마이그레이션은 검토를 우선합니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 기존 파일은 제외한 뒤, 여러 성격의 내용이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 문서 분류 체계에 따라 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.
 
 - `inventory.md`는 기존 마크다운 파일 목록과 파일 단위 분류를 기록합니다.
 - `unit-map.md`는 각 제목, 문단, 목록 항목, 표 행, 코드 블록의 권장 분류 영역과 대상 페이지를 기록합니다.
