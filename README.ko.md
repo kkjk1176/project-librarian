@@ -75,6 +75,8 @@ npm run benchmark:release:preview
 npm run benchmark:release -- --allow-codex-run
 ```
 
+실측 릴리스 실행은 stderr에 `[benchmark:progress]` 줄을 스트리밍하여 시나리오 수, 예상 Codex 실행 총량, 현재 실행 순번, 단계, 프롬프트 ID, 종료 상태, 경과 시간, 원시 JSONL 경로를 보여줍니다. stdout은 최종 JSON 결과 전용으로 유지됩니다.
+
 ### 위키 트랙 (계획 문서 라우팅)
 
 비용 가중 토큰, Project Librarian 대 대조군:

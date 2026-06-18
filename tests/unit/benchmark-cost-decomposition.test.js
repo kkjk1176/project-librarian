@@ -172,13 +172,57 @@ function runDryRun(args) {
   });
 }
 
-function runMetrics(args) {
+function runMetrics(args, options = {}) {
   return childProcess.spawnSync(process.execPath, [metricsCli, ...args], {
     cwd: root,
+    env: options.env || process.env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 50 * 1024 * 1024,
   });
+}
+
+function writeFakeCodex(binDir) {
+  fs.mkdirSync(binDir, { recursive: true });
+  const codexPath = path.join(binDir, "codex");
+  fs.writeFileSync(codexPath, `#!/usr/bin/env node
+"use strict";
+
+if (process.argv.includes("--version")) {
+  console.log("codex-test 0.0.0");
+  process.exit(0);
+}
+
+console.log(JSON.stringify({ type: "session.started", model: "gpt-test", cwd: process.cwd() }));
+console.log(JSON.stringify({ type: "assistant.message", message: { content: "fake codex benchmark response" } }));
+console.log(JSON.stringify({
+  type: "turn.completed",
+  usage: {
+    input_tokens: 100,
+    cached_input_tokens: 0,
+    output_tokens: 5,
+    reasoning_output_tokens: 0
+  }
+}));
+`);
+  fs.chmodSync(codexPath, 0o755);
+  return codexPath;
+}
+
+function fakeCodexEnv(tmp) {
+  const binDir = path.join(tmp, "bin");
+  writeFakeCodex(binDir);
+  const codexHome = path.join(tmp, "codex-home");
+  fs.mkdirSync(codexHome, { recursive: true });
+  const authPath = path.join(codexHome, "auth.json");
+  fs.writeFileSync(authPath, "{}\n");
+  fs.chmodSync(authPath, 0o600);
+  return {
+    ...process.env,
+    PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
+    CODEX_HOME: codexHome,
+    CODEX_API_KEY: "test-key",
+  };
 }
 
 test("--cache-discount validates: rejects negative, > 1, and non-numeric values", () => {
@@ -295,6 +339,31 @@ test("--sanitized-pack re-executes dry-run from a minimized pack boundary", () =
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   assert.equal(manifest.scenarios.length, 2);
   assert(manifest.scenarios.every((scenario) => scenario.cwd.startsWith(packRoot)), "scenario cwd must stay inside the sanitized pack");
+});
+
+test("measured benchmark reports live progress on stderr without corrupting stdout JSON", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-progress-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.mode, "measured");
+  assert.equal(stdout.scenario_count, 2);
+  assert.match(result.stderr, /\[benchmark:progress\] plan .*scenarios=2 .*codex_exec_total=2/);
+  assert.match(result.stderr, /\[benchmark:progress\] start .*current=1\/2 .*phase=measured/);
+  assert.match(result.stderr, /\[benchmark:progress\] done .*current=2\/2 .*status=completed .*exit=0/);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.scenarios.length, 2);
 });
 
 // --- Per-track report assembly: cost-weighted headline, merged total secondary ---

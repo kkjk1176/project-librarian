@@ -232,7 +232,7 @@ function summarizeJsonlSafely(content, timing) {
   }
 }
 
-function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
+function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
   const rawPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.jsonl`);
   const stderrPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.stderr.txt`);
   fs.mkdirSync(path.dirname(rawPath), { recursive: true });
@@ -265,6 +265,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
     // distinguish pre-existing bootstrap dot-dirs from paths written during the run.
     preRunSnapshot = snapshotFixturePaths(scenario.cwd);
   }
+  const progressItem = progress ? progress.start({ scenario, runIndex }) : null;
   const started = process.hrtime.bigint();
   const result = childProcess.spawnSync(command, args, {
     cwd: scenario.cwd,
@@ -322,6 +323,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
     fixture_validation: fixtureValidation,
   };
   run.measurement = measurementStatus(run);
+  if (progressItem) progress.complete(progressItem, run);
   return run;
 }
 
@@ -333,7 +335,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
 // metrics and raw JSONL paths are recorded in session_metrics so the session-2
 // metrics are reported separately from session 1. Both sessions are ephemeral with
 // no shared codex state, so the only amortization surface is the repo itself.
-function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs }) {
+function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs, progress }) {
   if (!Array.isArray(scenario.sessions) || scenario.sessions.length === 0) {
     fail(`internal error: multi_session scenario ${scenario.prompt_id} has no sessions`);
   }
@@ -362,6 +364,7 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
     }
     const command = session.command[0];
     const args = session.command.slice(1);
+    const progressItem = progress ? progress.start({ scenario, runIndex, session }) : null;
     const started = process.hrtime.bigint();
     const result = childProcess.spawnSync(command, args, {
       cwd: scenario.cwd,
@@ -387,6 +390,12 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
       metrics,
     };
     sessionMetrics.push(sessionRecord);
+    if (progressItem) {
+      progress.complete(progressItem, {
+        raw_jsonl_path: sessionRecord.raw_jsonl_path,
+        execution: sessionRecord.execution,
+      });
+    }
     if (session.role === "measured") measuredSession = sessionRecord;
   }
   if (!measuredSession) {
@@ -607,31 +616,19 @@ function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
 }
 
 function reexecFromSanitizedPack(packRoot) {
-  const created = createSanitizedPack(packRoot);
+  createSanitizedPack(packRoot);
   const activeRunner = path.join(packRoot, "benchmarks", "codex-llm-metrics.js");
   const activeArgs = normalizeArgsForSanitizedPack(process.argv.slice(2), { originalRoot: root, packRoot });
   const result = childProcess.spawnSync(process.execPath, [activeRunner, ...activeArgs], {
     cwd: packRoot,
     env: process.env,
-    encoding: "utf8",
-    maxBuffer: 100 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "inherit", "inherit"],
   });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) {
     fail(`sanitized benchmark pack execution failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
     process.exit(result.status);
-  }
-  if (!result.stdout) {
-    console.log(JSON.stringify({
-      status: "ok",
-      mode: "sanitized-pack",
-      pack_root: packRoot,
-      pack_manifest: created.manifest_path,
-    }, null, 2));
   }
 }
 
@@ -664,6 +661,83 @@ function promptDigest(prompt) {
 function scenarioCodexExecCount(scenario, runs, warmupRuns) {
   const sessionCount = Array.isArray(scenario.sessions) && scenario.sessions.length > 0 ? scenario.sessions.length : 1;
   return (runs + warmupRuns) * sessionCount;
+}
+
+function formatProgressSeconds(ms) {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function compactProgressFields(fields) {
+  return Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
+    .join(" ");
+}
+
+function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot, sanitizedPack }) {
+  const total = selectedScenarios.reduce((sum, scenario) => sum + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
+  const startedAt = Date.now();
+  let startedCount = 0;
+  let completedCount = 0;
+
+  function log(event, fields) {
+    process.stderr.write(`[benchmark:progress] ${event} ${compactProgressFields(fields)}\n`);
+  }
+
+  log("plan", {
+    scenarios: selectedScenarios.length,
+    codex_exec_total: total,
+    measured_runs: runs,
+    warmup_runs: warmupRuns,
+    raw_root: rawRoot,
+    sanitized_pack: sanitizedPack && sanitizedPack.pack_root,
+  });
+
+  return {
+    start({ scenario, runIndex, session }) {
+      startedCount += 1;
+      const item = {
+        ordinal: startedCount,
+        scenario,
+        runIndex,
+        session,
+        startedAt: Date.now(),
+      };
+      log("start", {
+        current: `${startedCount}/${total}`,
+        prompt_id: scenario.prompt_id,
+        phase: String(runIndex).startsWith("warmup-") ? "warmup" : "measured",
+        run: runIndex,
+        session: session ? session.session_index : undefined,
+        role: session ? session.role : undefined,
+        track: scenario.benchmark_track,
+        corpus: scenario.corpus || "synthetic",
+        scale: scenario.scale,
+        task: scenario.task_family,
+        condition: scenario.condition,
+      });
+      return item;
+    },
+    complete(item, run) {
+      completedCount += 1;
+      const elapsedMs = Date.now() - startedAt;
+      const itemMs = Date.now() - item.startedAt;
+      log("done", {
+        current: `${completedCount}/${total}`,
+        prompt_id: item.scenario.prompt_id,
+        phase: String(item.runIndex).startsWith("warmup-") ? "warmup" : "measured",
+        run: item.runIndex,
+        session: item.session ? item.session.session_index : undefined,
+        role: item.session ? item.session.role : undefined,
+        status: run.execution && run.execution.status,
+        exit: run.execution && run.execution.exit_code,
+        elapsed: formatProgressSeconds(elapsedMs),
+        duration: formatProgressSeconds(itemMs),
+        raw: run.raw_jsonl_path,
+        stderr: run.execution && run.execution.stderr_path,
+      });
+    },
+  };
 }
 
 function scenarioPayloadPreview(scenario, runs, warmupRuns) {
@@ -775,6 +849,13 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   }
   const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
   if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
+  const progress = createBenchmarkProgress({
+    selectedScenarios,
+    runs,
+    warmupRuns,
+    rawRoot,
+    sanitizedPack,
+  });
 
   // Hermetic measurement (A5), always on for measured runs (not flag-gated): copy
   // only the auth material from the real Codex home into a fresh isolated
@@ -835,12 +916,12 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
 
   function runScenarioOnce(scenario, runIndex) {
     if (Array.isArray(scenario.sessions) && scenario.sessions.length > 0) {
-      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex) });
+      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex), progress });
     }
     // Real-corpus scenarios use a per-scenario isolated home (with conditional MCP
     // injection); synthetic scenarios share the single auth-only isolated home.
     const scenarioSpawnEnv = isRealScenario(scenario) ? buildRealScenarioSpawnEnv(scenario, runIndex) : spawnEnv;
-    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv });
+    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv, progress });
   }
 
   const scenarios = [];

@@ -75,6 +75,8 @@ npm run benchmark:release:preview
 npm run benchmark:release -- --allow-codex-run
 ```
 
+Measured release runs stream `[benchmark:progress]` lines to stderr for the scenario count, expected Codex exec total, current exec ordinal, phase, prompt id, exit status, elapsed time, and raw JSONL path. stdout stays reserved for the final JSON result.
+
 ### Wiki track (planning-doc routing)
 
 Cost-weighted tokens, Project Librarian vs control:
