@@ -4,7 +4,7 @@ Project Librarian benchmark evidence is based on actual Codex JSONL usage and lo
 
 ## Code performance efficiency harness
 
-`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes a `sample_corpora` section for checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, and `python-cli`) so synthetic scale evidence and mixed sample evidence stay separate.
+`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes a `sample_corpora` section for checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy`) so synthetic scale evidence and mixed sample evidence stay separate.
 
 ## Claim ledger
 
@@ -136,7 +136,7 @@ Preview the measured-run disclosure surface before launching Codex:
 npm run benchmark:release:preview
 ```
 
-The release scripts pin `--model gpt-5.5`; `--require-claimable` now fails before fixture execution when no model is requested. This avoids burning the full matrix only to discover that the current Codex JSONL stream omitted model metadata, which would make every otherwise successful run unclaimable.
+The release scripts pin `--model gpt-5.5`; `--require-claimable` now fails before fixture execution when no model is requested. This avoids burning the full matrix only to discover that the current Codex JSONL stream omitted model metadata, which would make every otherwise successful run unclaimable. During measured execution, `--require-claimable` also fails fast on the first Codex process/session execution failure and prints the raw JSONL and stderr paths, instead of spending the whole matrix on runs that cannot become claimable.
 
 `--payload-preview <path>` builds the selected fixture matrix and writes a local audit JSON without launching Codex or requiring `--allow-codex-run`. The preview includes every selected prompt, prompt hash, requested model, scenario cwd, expected Codex exec count, fixture fingerprint, MCP injection flag, and the sanitized-pack provenance when enabled. It is intentionally a stop point: inspect the JSON first, then run the measured command separately.
 

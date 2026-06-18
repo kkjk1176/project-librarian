@@ -1,0 +1,5 @@
+{
+  "indexName": "docs-search",
+  "includeDrafts": false,
+  "sources": ["architecture", "runbook", "release-notes"]
+}

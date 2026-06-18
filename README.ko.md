@@ -387,7 +387,7 @@ npm pack --dry-run
 
 관리자 벤치마크 명령은 [benchmarks/README.md](benchmarks/README.md)에 있습니다. 이 명령은 릴리스 근거와 공개 주장 검증을 위한 것이며, 일반 사용자 설정 절차가 아닙니다.
 
-코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서에는 `mixed-monorepo`를 포함한 체크인 샘플 corpus도 합성 scale fixture와 분리해 포함됩니다.
+코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서는 `mixed-monorepo`, `web-service`, `python-cli`, `docs-heavy` 체크인 corpus도 합성 scale fixture와 분리해 측정합니다.
 
 무시된 오래된 LLM 벤치마크 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 먼저 감사할 수 있습니다.
 

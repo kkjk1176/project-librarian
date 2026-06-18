@@ -435,6 +435,37 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
   return run;
 }
 
+function executionFailureReason(run) {
+  if (run.execution?.status && run.execution.status !== "completed") {
+    return `execution ${run.execution.status}`;
+  }
+  if (Array.isArray(run.session_metrics)) {
+    for (const session of run.session_metrics) {
+      if (session.execution?.status && session.execution.status !== "completed") {
+        return `session ${session.session_index} execution ${session.execution.status}`;
+      }
+    }
+  }
+  return "";
+}
+
+function requireCompletedExecutionForClaimableRun(scenario, run) {
+  const reason = executionFailureReason(run);
+  if (!reason) return;
+  const stderrPaths = [];
+  if (run.execution?.stderr_path) stderrPaths.push(run.execution.stderr_path);
+  if (Array.isArray(run.session_metrics)) {
+    for (const session of run.session_metrics) {
+      if (session.execution?.stderr_path) stderrPaths.push(session.execution.stderr_path);
+    }
+  }
+  fail([
+    `measured Codex benchmark execution failed before claim evaluation: ${scenario.prompt_id} run ${run.run_index} (${reason})`,
+    `raw: ${run.raw_jsonl_path}`,
+    stderrPaths.length > 0 ? `stderr: ${stderrPaths.join(", ")}` : "stderr: n/a",
+  ].join("\n"));
+}
+
 function summarizeScenarios(scenarioList) {
   return {
     scenario_count: scenarioList.length,
@@ -816,11 +847,14 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
 
   for (const scenario of selectedScenarios) {
     for (let index = 0; index < warmupRuns; index += 1) {
-      runScenarioOnce(scenario, `warmup-${index + 1}`);
+      const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
+      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
     }
     const measuredRuns = [];
     for (let index = 0; index < runs; index += 1) {
-      measuredRuns.push(runScenarioOnce(scenario, index + 1));
+      const measuredRun = runScenarioOnce(scenario, index + 1);
+      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
+      measuredRuns.push(measuredRun);
     }
     const correctnessPassedRuns = passedRuns(measuredRuns);
     const actualClaimableRuns = claimableRuns(measuredRuns);
