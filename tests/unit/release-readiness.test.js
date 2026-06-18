@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -10,6 +11,7 @@ const {
   packFilePaths,
   parsePackJson,
   temporaryNpmCacheEnv,
+  trustedPublishingWorkflowStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
 test("release readiness parses npm pack JSON and normalizes package paths", () => {
@@ -61,4 +63,39 @@ test("release readiness recognizes the current README benchmark boundary as diag
   const status = benchmarkClaimStatus(readme);
   assert.equal(status.ok, true);
   assert.equal(status.status, "diagnostic_only");
+});
+
+test("release readiness validates the trusted publishing workflow", () => {
+  const workflow = path.resolve(__dirname, "..", "..", ".github", "workflows", "publish.yml");
+  const status = trustedPublishingWorkflowStatus(workflow);
+  assert.equal(status.ok, true);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.forbidden, []);
+});
+
+test("release readiness rejects token-based npm publish workflows", () => {
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-workflow-")), "publish.yml");
+  fs.writeFileSync(fixture, [
+    "name: Publish Package",
+    "permissions:",
+    "  contents: read",
+    "  id-token: write",
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/setup-node@v6",
+    "        with:",
+    "          registry-url: https://registry.npmjs.org",
+    "          package-manager-cache: false",
+    "      - run: npm run release:check",
+    "      - run: npm publish --access public",
+    "        env:",
+    "          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}",
+    "",
+  ].join("\n"));
+  const status = trustedPublishingWorkflowStatus(fixture);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.forbidden, ["NODE_AUTH_TOKEN", "NPM_TOKEN", "npm token secret"]);
 });

@@ -383,6 +383,8 @@ npm pack --dry-run
 
 `npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, 벤치마크 파서 smoke, 벤치마크 release preview, 벤치마크 claim ledger 분류, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 measured Codex 벤치마크도 실행하지 않습니다.
 
+배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하며, `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 됩니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
+
 관리자 벤치마크 명령은 [benchmarks/README.md](benchmarks/README.md)에 있습니다. 이 명령은 릴리스 근거와 공개 주장 검증을 위한 것이며, 일반 사용자 설정 절차가 아닙니다.
 
 코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서에는 `mixed-monorepo`를 포함한 체크인 샘플 corpus도 합성 scale fixture와 분리해 포함됩니다.
