@@ -268,6 +268,10 @@ if (lintMode) {
   runLintMode();
   process.exit(0);
 }
+if (refreshIndexMode && !migrateMode && !glossaryMode && !captureInboxMode) {
+  runRefreshIndexOnlyMode();
+  process.exit(0);
+}
 
 const migrationState: MigrationState | null = migrateMode ? prepareMigrationMode() : null;
 const results: ResultRow[] = [];
@@ -369,4 +373,14 @@ console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complet
 for (const [relativePath, status] of results) {
   console.log(`${String(status).padEnd(7)} ${relativePath}`);
 }
+}
+
+function runRefreshIndexOnlyMode(): void {
+  const results: ResultRow[] = [];
+  results.push(["wiki/index.md", writeStarter("wiki/index.md", index)]);
+  results.push(["wiki/index.md auto-discovered pages", upsertMarkedSection("wiki/index.md", "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->", buildRefreshIndexBlock())]);
+  console.log("Project Librarian refresh-index complete.");
+  for (const [relativePath, status] of results) {
+    console.log(`${String(status).padEnd(7)} ${relativePath}`);
+  }
 }

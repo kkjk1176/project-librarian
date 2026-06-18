@@ -512,6 +512,60 @@ test("query output reports the strongest section-aware table row match", () => {
   }
 });
 
+test("broad efficiency queries rank active canonical pages ahead of migration ledgers", () => {
+  const root = makeTmpDir("wg-query-ranking-");
+  try {
+    runCli(root);
+    writePage(root, "wiki/canonical/code-efficiency-active.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-17",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: efficiency query ranking changes",
+      "---",
+      "",
+      "# Code Efficiency Active",
+      "",
+      "## TL;DR",
+      "",
+      "- Active canonical guidance for technology stack efficiency and code evidence.",
+      "",
+      "The active project truth covers technology stack efficiency, runtime storage efficiency, and code evidence.",
+      "",
+    ].join("\n"));
+    writePage(root, "wiki/migration/coverage.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-17",
+      "scope: migration-ledger",
+      "read_budget: on-demand",
+      "decision_ref: none",
+      "review_trigger: migration audit changes",
+      "---",
+      "",
+      "# Migration Coverage",
+      "",
+      "## TL;DR",
+      "",
+      "- Migration ledger with repeated historical terms.",
+      "",
+      "technology stack efficiency code evidence technology stack efficiency code evidence",
+      "technology stack efficiency code evidence technology stack efficiency code evidence",
+      "",
+    ].join("\n"));
+
+    const broad = runCli(root, ["--query", "technology stack efficiency code evidence"]);
+    assert.match(broad.split(/\r?\n/)[0], /^Project wiki query "technology stack efficiency code evidence": best match wiki\/canonical\/code-efficiency-active\.md/);
+
+    const migrationSpecific = runCli(root, ["--query", "migration coverage technology stack efficiency code evidence"]);
+    assert.match(migrationSpecific.split(/\r?\n/)[0], /^Project wiki query "migration coverage technology stack efficiency code evidence": best match wiki\/migration\/coverage\.md/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("query output includes capped one-hop graph evidence without self-link cycles", () => {
   const root = makeTmpDir("wg-query-graph-");
   try {

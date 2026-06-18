@@ -35,7 +35,8 @@ import {
   searchSymbols,
   workspaceDependencyGraph,
 } from "./code-index";
-import { SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
+import { discoverCodeFiles, SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
+import { indexedParserMode, indexedScopes, readMetaValue } from "./code-index/schema";
 import { normalizePath, root } from "./workspace";
 
 // Pinned MCP protocol version. This is the spec revision this server is written
@@ -585,6 +586,69 @@ const TOOLS: ToolDefinition[] = [
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool] as const));
 
+interface OpenedCodeEvidenceDatabase {
+  database: SqliteDatabase;
+  relativePath: string;
+}
+
+interface CachedStaleness {
+  cacheKey: string;
+  staleness: CodeIndexStaleness;
+}
+
+let cachedStaleness: CachedStaleness | null = null;
+
+function statFingerprint(relativePath: string): string {
+  const absolutePath = path.join(root, relativePath);
+  try {
+    const stat = fs.statSync(absolutePath);
+    if (!stat.isFile()) return `${relativePath}:not-file`;
+    return [
+      relativePath,
+      stat.size,
+      stat.mtimeMs,
+      stat.ctimeMs,
+    ].join(":");
+  } catch {
+    return `${relativePath}:missing`;
+  }
+}
+
+function codeEvidenceFreshnessCacheKey(opened: OpenedCodeEvidenceDatabase): string | null {
+  try {
+    const database = opened.database;
+    const scopes = indexedScopes(database);
+    const parserMode = indexedParserMode(database);
+    const schemaVersion = readMetaValue(database, "schema_version");
+    const updatedAt = readMetaValue(database, "updated_at");
+    const currentFiles = discoverCodeFiles(scopes.length > 0 ? scopes : ["."]);
+    const currentFingerprint = currentFiles.map(statFingerprint).join("\n");
+    const indexedFingerprint = database.prepare("SELECT path, hash, mtime_ms, size FROM files ORDER BY path")
+      .all()
+      .map((row) => `${String(row.path)}:${String(row.hash)}:${Number(row.mtime_ms)}:${Number(row.size)}`)
+      .join("\n");
+    return [
+      opened.relativePath,
+      schemaVersion,
+      updatedAt,
+      parserMode,
+      scopes.join("\0"),
+      currentFingerprint,
+      indexedFingerprint,
+    ].join("\n---\n");
+  } catch {
+    return null;
+  }
+}
+
+function codeIndexStalenessForToolCall(opened: OpenedCodeEvidenceDatabase): CodeIndexStaleness {
+  const cacheKey = codeEvidenceFreshnessCacheKey(opened);
+  if (cacheKey && cachedStaleness?.cacheKey === cacheKey) return cachedStaleness.staleness;
+  const staleness = codeIndexStaleness(opened.database);
+  cachedStaleness = cacheKey ? { cacheKey, staleness } : null;
+  return staleness;
+}
+
 // ---------------------------------------------------------------------------
 // tools/call dispatch
 // ---------------------------------------------------------------------------
@@ -599,7 +663,7 @@ function callTool(name: unknown, rawArgs: unknown): Record<string, unknown> {
   }
   const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? (rawArgs as Record<string, unknown>) : {};
 
-  let opened: { database: SqliteDatabase; relativePath: string };
+  let opened: OpenedCodeEvidenceDatabase;
   try {
     opened = openCodeEvidenceDatabaseForServing();
   } catch (error: unknown) {
@@ -610,7 +674,7 @@ function callTool(name: unknown, rawArgs: unknown): Record<string, unknown> {
   }
 
   try {
-    const staleness = codeIndexStaleness(opened.database);
+    const staleness = codeIndexStalenessForToolCall(opened);
     const body = name === "code_status"
       ? statusAnswer(opened.database, opened.relativePath, staleness)
       : (TOOLS_BY_NAME.get(name) as ToolDefinition).run(opened.database, args, { staleness });

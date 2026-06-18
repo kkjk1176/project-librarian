@@ -8,8 +8,7 @@ import { isReadOnlySql } from "./code-index-sql";
 import { collectCodeEvidence } from "./code-index/evidence";
 import { createExtractionBackendRegistry, extractionProfile } from "./code-index/extractors/registry";
 import { oneLine } from "./code-index/extractors/shared";
-import type { CodeFile } from "./code-index/extractors/types";
-import { planIndexUpdate } from "./code-index/incremental";
+import type { CodeFile, CodeFileFingerprint } from "./code-index/extractors/types";
 import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexModeRuntime } from "./code-index/modes";
 import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
@@ -86,16 +85,32 @@ function selectedCodeParserMode(): CodeParserMode {
   fail(`invalid --code-parser: ${codeParser}; expected one of: default, tree-sitter`);
 }
 
+function normalizedMtimeMs(stat: fs.Stats): number {
+  return Number(stat.mtimeMs.toFixed(3));
+}
+
+function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
+  const stat = fs.statSync(abs(relativePath));
+  return {
+    mtimeMs: normalizedMtimeMs(stat),
+    path: relativePath,
+    size: stat.size,
+  };
+}
+
 function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
   const text = fs.readFileSync(abs(relativePath), "utf8");
+  const fingerprint = readCodeFileFingerprint(relativePath);
   const language = fileLanguage(relativePath) || "config";
   return {
-    bytes: Buffer.byteLength(text),
+    bytes: fingerprint.size,
     hash: crypto.createHash("sha256").update(text).digest("hex"),
     language,
     lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
+    mtimeMs: fingerprint.mtimeMs,
     path: relativePath,
     profile: extractionProfile(relativePath, language, parserMode),
+    size: fingerprint.size,
     text,
   };
 }
@@ -107,7 +122,7 @@ function extractionBackendForProfile(profile: string) {
 }
 
 function indexCodeFile(file: CodeFile, statements: IndexStatements): void {
-  statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash);
+  statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
   statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
   extractionBackendForProfile(file.profile).index(file, statements);
 }
@@ -146,15 +161,32 @@ function removeDatabaseFiles(databasePath: string): void {
 export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
   const scopes = indexedScopes(database);
   const parserMode = indexedParserMode(database);
-  const currentFiles = discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => readCodeFile(file, parserMode));
-  const indexed = new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)] as const));
-  const plan = planIndexUpdate(currentFiles, indexed);
+  const currentFiles = discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map(readCodeFileFingerprint);
+  const currentPaths = new Set(currentFiles.map((file) => file.path));
+  const indexedRows = database.prepare("SELECT path, hash, mtime_ms, size FROM files").all();
+  const indexed = new Map(indexedRows.map((row) => [String(row.path), {
+    hash: String(row.hash),
+    mtimeMs: Number(row.mtime_ms),
+    size: Number(row.size),
+  }] as const));
+  let added = 0;
+  let changed = 0;
+  for (const file of currentFiles) {
+    const existing = indexed.get(file.path);
+    if (!existing) {
+      added += 1;
+      continue;
+    }
+    if (existing.mtimeMs === file.mtimeMs && existing.size === file.size) continue;
+    if (readCodeFile(file.path, parserMode).hash !== existing.hash) changed += 1;
+  }
+  const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
 
   return {
-    added: plan.addedFiles.length,
-    changed: plan.changedFiles.length,
-    deleted: plan.deletedPaths.length,
-    stale: plan.addedFiles.length > 0 || plan.changedFiles.length > 0 || plan.deletedPaths.length > 0,
+    added,
+    changed,
+    deleted,
+    stale: added > 0 || changed > 0 || deleted > 0,
   };
 }
 
@@ -344,6 +376,7 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     indexCodeFile,
     openDatabase,
     prepareOutputPath,
+    readCodeFileFingerprint,
     readCodeFile,
     removeDatabaseFiles,
     requireExistingIndex,

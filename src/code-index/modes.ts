@@ -4,10 +4,9 @@ import type { SqliteDatabase } from "../code-index-db";
 import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-policy";
 import { isReadOnlySql } from "../code-index-sql";
 import type { CodeContextPackOptions, CodeEvidenceRenderOptions, CodeIndexStaleness } from "../code-index";
-import type { CodeFile } from "./extractors/types";
-import { planIndexUpdate } from "./incremental";
+import type { CodeFile, CodeFileFingerprint } from "./extractors/types";
 import { invalidCodeReportSectionMessage } from "./reports";
-import { createIndexStatements, incrementalCompatibility, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./schema";
+import { codeIndexSchemaVersion, createIndexStatements, incrementalCompatibility, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./schema";
 import { searchSymbols } from "./search";
 
 export interface CodeEvidenceDatabasePath {
@@ -26,6 +25,7 @@ export interface CodeIndexModeRuntime {
   indexCodeFile(file: CodeFile, statements: IndexStatements): void;
   openDatabase(databasePath: string): SqliteDatabase;
   prepareOutputPath(): void;
+  readCodeFileFingerprint(relativePath: string): CodeFileFingerprint;
   readCodeFile(relativePath: string, parserMode: CodeParserMode): CodeFile;
   removeDatabaseFiles(databasePath: string): void;
   requireExistingIndex(): void;
@@ -39,6 +39,13 @@ function printRows(rows: Record<string, unknown>[]): void {
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+function requireCompatibleDatabase(database: SqliteDatabase, runtime: CodeIndexModeRuntime): void {
+  const schemaVersion = readMetaValue(database, "schema_version");
+  if (schemaVersion !== codeIndexSchemaVersion) {
+    runtime.fail(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with --code-index`);
+  }
 }
 
 export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
@@ -73,19 +80,41 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
   try {
     if (!incremental) setupDatabase(database);
     const statements = createIndexStatements(database);
-    const currentFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
-    const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)] as const)) : new Map<string, string>();
-    const updatePlan = planIndexUpdate(currentFiles, indexed);
-    const deletedPaths = incremental ? updatePlan.deletedPaths : [];
-    const reindexedFiles = incremental ? updatePlan.reindexedFiles : currentFiles;
-    const unchangedFiles = incremental ? updatePlan.unchangedFiles : 0;
+    const currentFingerprints = discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath));
+    let reindexedFiles: CodeFile[];
+    let deletedPaths: string[];
+    let indexedPaths = new Set<string>();
+    let unchangedFiles = 0;
+    if (incremental) {
+      const indexedRows = database.prepare("SELECT path, hash, mtime_ms, size FROM files").all();
+      indexedPaths = new Set(indexedRows.map((row) => String(row.path)));
+      const indexed = new Map(indexedRows.map((row) => [String(row.path), {
+        hash: String(row.hash),
+        mtimeMs: Number(row.mtime_ms),
+        size: Number(row.size),
+      }] as const));
+      const currentPaths = new Set(currentFingerprints.map((file) => file.path));
+      deletedPaths = indexedRows.map((row) => String(row.path)).filter((filePath) => !currentPaths.has(filePath));
+      reindexedFiles = [];
+      for (const file of currentFingerprints) {
+        const existing = indexed.get(file.path);
+        if (existing && existing.mtimeMs === file.mtimeMs && existing.size === file.size) {
+          unchangedFiles += 1;
+          continue;
+        }
+        reindexedFiles.push(runtime.readCodeFile(file.path, parserMode));
+      }
+    } else {
+      deletedPaths = [];
+      reindexedFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
+    }
 
     database.exec("BEGIN");
     if (!incremental) statements.insertMeta.run("created_at", new Date().toISOString());
     writeIndexMetadata(scopes, parserMode, statements);
     for (const filePath of deletedPaths) removeIndexedFile(filePath, statements);
     for (const file of reindexedFiles) {
-      if (incremental && indexed.has(file.path)) removeIndexedFile(file.path, statements);
+      if (incremental && indexedPaths.has(file.path)) removeIndexedFile(file.path, statements);
       runtime.indexCodeFile(file, statements);
     }
     database.exec("COMMIT");
@@ -94,7 +123,7 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
     console.log(`mode: ${incremental ? "incremental" : "full"}`);
     console.log(`parser_mode: ${parserMode}`);
     console.log(`scopes: ${scopes.join(", ")}`);
-    console.log(`files: ${currentFiles.length}`);
+    console.log(`files: ${currentFingerprints.length}`);
     console.log(`reindexed_files: ${reindexedFiles.length}`);
     console.log(`deleted_files: ${deletedPaths.length}`);
     console.log(`unchanged_files: ${unchangedFiles}`);
@@ -123,6 +152,7 @@ export function runCodeQueryMode(runtime: CodeIndexModeRuntime): void {
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
     database.exec("PRAGMA query_only = ON");
+    requireCompatibleDatabase(database, runtime);
     runtime.warnIfCodeIndexStale(database);
     printRows(database.prepare(codeQuerySql).all());
   } finally {
@@ -134,6 +164,7 @@ export function runCodeReportMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     const staleness = runtime.codeIndexStaleness(database);
     runtime.warnIfCodeIndexStale(database, staleness);
     const report = runtime.codeReportForRequestedSection(database, codeReportSection, { staleness });
@@ -148,6 +179,7 @@ export function runCodeStatusMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     const rows = database.prepare(`
       SELECT 'files' AS metric, count(*) AS value FROM files
       UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -173,6 +205,7 @@ export function runCodeFilesMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     runtime.warnIfCodeIndexStale(database);
     printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
   } finally {
@@ -188,6 +221,7 @@ export function runCodeImpactMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     const staleness = runtime.codeIndexStaleness(database);
     runtime.warnIfCodeIndexStale(database, staleness);
     printJson(runtime.codeImpact(database, codeImpactTarget.trim(), { staleness }));
@@ -204,6 +238,7 @@ export function runCodeContextPackMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     const staleness = runtime.codeIndexStaleness(database);
     runtime.warnIfCodeIndexStale(database, staleness);
     console.log(runtime.codeContextPack(database, codeContextPackTarget.trim(), { staleness }));
@@ -220,6 +255,7 @@ export function runCodeSearchSymbolMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
   try {
+    requireCompatibleDatabase(database, runtime);
     runtime.warnIfCodeIndexStale(database);
     printRows(searchSymbols(database, codeSearchSymbol.trim()));
   } finally {

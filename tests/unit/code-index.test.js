@@ -6,8 +6,9 @@ const path = require("node:path");
 const test = require("node:test");
 const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, searchSymbols } = require("../../dist/code-index.js");
 const { openDatabase } = require("../../dist/code-index-db.js");
-const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile } = require("../../dist/code-index-file-policy.js");
+const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
+const { shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
 const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
@@ -236,6 +237,48 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
   }
 });
 
+test("code index staleness skips file reads when stored freshness metadata matches", () => {
+  const cwd = makeTmpDir("code-index-staleness-fast-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "src", "stable.js"), "export const stable = true;\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const script = `
+      const assert = require("node:assert/strict");
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const { codeIndexStaleness } = require(${JSON.stringify(path.resolve(__dirname, "..", "..", "dist", "code-index.js"))});
+      const { openDatabase } = require(${JSON.stringify(path.resolve(__dirname, "..", "..", "dist", "code-index-db.js"))});
+      const database = openDatabase(".project-wiki/code-evidence.sqlite", (message) => { throw new Error(message); });
+      const originalReadFileSync = fs.readFileSync;
+      try {
+        fs.readFileSync = function patchedReadFileSync(filePath, ...args) {
+          if (String(filePath).endsWith(path.join("src", "stable.js"))) {
+            throw new Error("staleness should not read unchanged file content");
+          }
+          return originalReadFileSync.call(this, filePath, ...args);
+        };
+        assert.deepEqual(codeIndexStaleness(database), { stale: false, changed: 0, added: 0, deleted: 0 });
+      } finally {
+        fs.readFileSync = originalReadFileSync;
+        database.close();
+      }
+    `;
+    const result = childProcess.spawnSync(process.execPath, ["-e", script], { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("FTS search gate skips small-repo single-token searches but preserves multi-token search", () => {
+  assert.equal(shouldUseFtsSearchForScale("Handler", SMALL_REPO_FILE_THRESHOLD - 1), false);
+  assert.equal(shouldUseFtsSearchForScale("Promise UserRecord", 2), true);
+  assert.equal(shouldUseFtsSearchForScale("Handler", SMALL_REPO_FILE_THRESHOLD), true);
+});
+
 test("code report sections expose focused routes, parsers, workspaces, and invalid-section errors", () => {
   const cwd = makeTmpDir("code-report-sections-");
   try {
@@ -291,6 +334,28 @@ test("incremental mode rejects parser-mode mismatches before loading optional pa
   }
 });
 
+test("read-only code evidence modes reject old schema indexes with a rebuild message", () => {
+  const cwd = makeTmpDir("code-index-old-schema-");
+  try {
+    fs.mkdirSync(path.join(cwd, ".project-wiki"), { recursive: true });
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      database.exec(`
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta (key, value) VALUES ('schema_version', '3');
+      `);
+    } finally {
+      database.close();
+    }
+    const result = runCliResult(cwd, ["--code-status"]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /schema version 3 is incompatible with \d+; rebuild with --code-index/);
+    assert.doesNotMatch(result.stderr, /no such column|SQLITE_ERROR/i);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("code status reports stale changed, added, and deleted files", () => {
   const cwd = makeTmpDir("code-status-stale-");
   try {
@@ -310,6 +375,27 @@ test("code status reports stale changed, added, and deleted files", () => {
     assert.equal(byMetric.get("stale_added_files"), 1);
     assert.equal(byMetric.get("stale_deleted_files"), 1);
     assert.equal(byMetric.get("stale_files"), 3);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code status stays fresh when only file timestamps change", () => {
+  const cwd = makeTmpDir("code-status-touched-only-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    const filePath = path.join(cwd, "src", "touched.js");
+    fs.writeFileSync(filePath, "export const touched = true;\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const future = new Date(Date.now() + 5000);
+    fs.utimesSync(filePath, future, future);
+
+    const rows = JSON.parse(runCli(cwd, ["--code-status"]));
+    const byMetric = new Map(rows.map((row) => [row.metric, row.value]));
+    assert.equal(byMetric.get("stale_files"), 0);
+    assert.equal(byMetric.get("stale_changed_files"), 0);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

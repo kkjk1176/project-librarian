@@ -9,6 +9,7 @@ const { DatabaseSync } = require("node:sqlite");
 const repoRoot = path.resolve(__dirname, "..", "..");
 const cliPath = path.join(repoRoot, "dist", "init-project-wiki.js");
 const reportDir = path.join(repoRoot, "benchmarks", "reports", "code-performance-efficiency");
+const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code-index", "search.js"));
 const defaultScales = process.argv.includes("--full") ? [3000, 10000, 50000] : [3000, 10000];
 const runsPerCommand = process.argv.includes("--quick") ? 1 : 3;
 
@@ -143,7 +144,9 @@ function createContentlessFtsExperiment(sourceDbPath, targetDbPath) {
         kind TEXT NOT NULL,
         bytes INTEGER NOT NULL,
         lines INTEGER NOT NULL,
-        hash TEXT NOT NULL
+        hash TEXT NOT NULL,
+        mtime_ms REAL NOT NULL,
+        size INTEGER NOT NULL
       );
       CREATE TABLE symbols (
         id INTEGER PRIMARY KEY,
@@ -202,18 +205,18 @@ function createContentlessFtsExperiment(sourceDbPath, targetDbPath) {
       CREATE INDEX idx_edges_target ON edges(target_kind, target);
       CREATE INDEX idx_edges_kind ON edges(kind);
     `);
-    const insertFile = target.prepare("INSERT INTO files (rowid, path, language, profile, kind, bytes, lines, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const insertFile = target.prepare("INSERT INTO files (rowid, path, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     const insertFileFts = target.prepare("INSERT INTO files_fts (rowid, path, language, profile, content) VALUES (?, ?, ?, ?, ?)");
     const insertSymbol = target.prepare("INSERT INTO symbols (id, name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?, ?)");
     const insertSymbolFts = target.prepare("INSERT INTO symbols_fts (rowid, name, kind, file_path, signature) VALUES (?, ?, ?, ?, ?)");
     target.exec("BEGIN");
     for (const row of source.prepare(`
-      SELECT files.rowid AS rowid, files.path, files.language, files.profile, files.kind, files.bytes, files.lines, files.hash, files_fts.content AS content
+      SELECT files.rowid AS rowid, files.path, files.language, files.profile, files.kind, files.bytes, files.lines, files.hash, files.mtime_ms, files.size, files_fts.content AS content
       FROM files
       JOIN files_fts ON files.path = files_fts.path
       ORDER BY files.rowid
     `).all()) {
-      insertFile.run(row.rowid, row.path, row.language, row.profile, row.kind, row.bytes, row.lines, row.hash);
+      insertFile.run(row.rowid, row.path, row.language, row.profile, row.kind, row.bytes, row.lines, row.hash, row.mtime_ms, row.size);
       insertFileFts.run(row.rowid, row.path, row.language, row.profile, row.content);
     }
     for (const row of source.prepare("SELECT id, name, kind, file_path, line, signature FROM symbols ORDER BY id").all()) {
@@ -265,6 +268,49 @@ function measureCommands(cwd, scale) {
   return measured;
 }
 
+function likePattern(term) {
+  return `%${term.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
+}
+
+function measureDatabaseQueryGroups(dbPath, scale) {
+  const width = String(scale).length;
+  const target = `handler${String(scale - 1).padStart(width, "0")}`;
+  const groups = {
+    file_search_path: (db) => searchFiles(db, `handler-${String(scale - 1).padStart(width, "0")}`, 25),
+    symbol_search_single_token: (db) => searchSymbols(db, target, 50),
+    symbol_search_multi_token: (db) => searchSymbols(db, `${target} input`, 50),
+    route_contains: (db) => {
+      const like = likePattern("api/items");
+      return db.prepare("SELECT method, route, file_path FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 50").all(like, like, like);
+    },
+    import_contains: (db) => {
+      const like = likePattern("shared");
+      return db.prepare("SELECT from_file, to_ref FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 75").all(like, like, like);
+    },
+    edge_contains: (db) => {
+      const like = likePattern("handler");
+      return db.prepare("SELECT kind, source, target, file_path FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like, like, like, like);
+    },
+  };
+  const measured = {};
+  for (const [name, query] of Object.entries(groups)) {
+    const samples = [];
+    let rows = 0;
+    for (let runIndex = 0; runIndex < runsPerCommand; runIndex += 1) {
+      const db = openDatabase(dbPath);
+      const started = process.hrtime.bigint();
+      try {
+        rows = query(db).length;
+      } finally {
+        samples.push(Number(process.hrtime.bigint() - started) / 1_000_000);
+        db.close();
+      }
+    }
+    measured[name] = { ...summarizeTimings(samples), rows };
+  }
+  return measured;
+}
+
 function measureBuildCommands() {
   const commands = {
     build: ["npm", ["run", "build"]],
@@ -311,6 +357,17 @@ function markdownReport(result) {
       lines.push(`- ${name}: ${rows.join(" | ")}`);
     }
   }
+  lines.push("");
+  lines.push("## Query Groups");
+  lines.push("");
+  lines.push("Direct DB query timings exclude CLI startup and staleness checks.");
+  for (const scale of result.scales) {
+    lines.push("");
+    lines.push(`### ${scale.file_count} files`);
+    for (const [name, timing] of Object.entries(scale.query_groups)) {
+      lines.push(`- ${name}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -345,6 +402,7 @@ function main() {
         contentless_fts_db: contentlessFtsDb,
         contentless_fts_size_delta_percent: ((contentlessFtsDb.file_bytes - currentDb.file_bytes) / currentDb.file_bytes) * 100,
         commands: measureCommands(cwd, scale),
+        query_groups: measureDatabaseQueryGroups(dbPath, scale),
         query_plans: queryPlans(dbPath, "handler"),
       });
     }

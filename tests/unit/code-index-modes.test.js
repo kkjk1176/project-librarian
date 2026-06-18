@@ -5,9 +5,28 @@ process.argv = [process.execPath, "code-index-modes.test.js", "--code-context-pa
 
 const { runCodeContextPackMode } = require("../../dist/code-index/modes.js");
 
+function fakeCompatibleDatabase() {
+  return {
+    closeCalls: 0,
+    close() {
+      this.closeCalls += 1;
+    },
+    prepare(sql) {
+      return {
+        all(key) {
+          if (/SELECT value FROM meta WHERE key = \?/.test(sql) && key === "schema_version") {
+            return [{ value: "4" }];
+          }
+          throw new Error(`unexpected fake database query: ${sql}`);
+        },
+      };
+    },
+  };
+}
+
 test("code context pack mode reuses one staleness calculation for warning and output", () => {
   const staleness = { stale: true, changed: 1, added: 2, deleted: 3 };
-  const database = { closeCalls: 0, close() { this.closeCalls += 1; } };
+  const database = fakeCompatibleDatabase();
   let stalenessCalls = 0;
   let warningCalls = 0;
   let packCalls = 0;

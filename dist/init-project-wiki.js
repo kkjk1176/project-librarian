@@ -241,6 +241,10 @@ function runInitCommand() {
         (0, modes_1.runLintMode)();
         process.exit(0);
     }
+    if (args_1.refreshIndexMode && !args_1.migrateMode && !args_1.glossaryMode && !args_1.captureInboxMode) {
+        runRefreshIndexOnlyMode();
+        process.exit(0);
+    }
     const migrationState = args_1.migrateMode ? (0, migration_1.prepareMigrationMode)() : null;
     const results = [];
     if (migrationState)
@@ -345,6 +349,15 @@ function runInitCommand() {
     if (args_1.noGitConfigMode)
         modes.push("no-git-config");
     console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
+    for (const [relativePath, status] of results) {
+        console.log(`${String(status).padEnd(7)} ${relativePath}`);
+    }
+}
+function runRefreshIndexOnlyMode() {
+    const results = [];
+    results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
+    results.push(["wiki/index.md auto-discovered pages", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->", (0, modes_1.buildRefreshIndexBlock)())]);
+    console.log("Project Librarian refresh-index complete.");
     for (const [relativePath, status] of results) {
         console.log(`${String(status).padEnd(7)} ${relativePath}`);
     }

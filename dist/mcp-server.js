@@ -58,6 +58,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const code_index_1 = require("./code-index");
 const code_index_file_policy_1 = require("./code-index-file-policy");
+const schema_1 = require("./code-index/schema");
 const workspace_1 = require("./workspace");
 // Pinned MCP protocol version. This is the spec revision this server is written
 // against; one constant so the supported version is auditable in a single place.
@@ -537,6 +538,59 @@ const TOOLS = [
     },
 ];
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
+let cachedStaleness = null;
+function statFingerprint(relativePath) {
+    const absolutePath = path.join(workspace_1.root, relativePath);
+    try {
+        const stat = fs.statSync(absolutePath);
+        if (!stat.isFile())
+            return `${relativePath}:not-file`;
+        return [
+            relativePath,
+            stat.size,
+            stat.mtimeMs,
+            stat.ctimeMs,
+        ].join(":");
+    }
+    catch {
+        return `${relativePath}:missing`;
+    }
+}
+function codeEvidenceFreshnessCacheKey(opened) {
+    try {
+        const database = opened.database;
+        const scopes = (0, schema_1.indexedScopes)(database);
+        const parserMode = (0, schema_1.indexedParserMode)(database);
+        const schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
+        const updatedAt = (0, schema_1.readMetaValue)(database, "updated_at");
+        const currentFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]);
+        const currentFingerprint = currentFiles.map(statFingerprint).join("\n");
+        const indexedFingerprint = database.prepare("SELECT path, hash, mtime_ms, size FROM files ORDER BY path")
+            .all()
+            .map((row) => `${String(row.path)}:${String(row.hash)}:${Number(row.mtime_ms)}:${Number(row.size)}`)
+            .join("\n");
+        return [
+            opened.relativePath,
+            schemaVersion,
+            updatedAt,
+            parserMode,
+            scopes.join("\0"),
+            currentFingerprint,
+            indexedFingerprint,
+        ].join("\n---\n");
+    }
+    catch {
+        return null;
+    }
+}
+function codeIndexStalenessForToolCall(opened) {
+    const cacheKey = codeEvidenceFreshnessCacheKey(opened);
+    if (cacheKey && cachedStaleness?.cacheKey === cacheKey)
+        return cachedStaleness.staleness;
+    const staleness = (0, code_index_1.codeIndexStaleness)(opened.database);
+    cachedStaleness = cacheKey ? { cacheKey, staleness } : null;
+    return staleness;
+}
 // ---------------------------------------------------------------------------
 // tools/call dispatch
 // ---------------------------------------------------------------------------
@@ -559,7 +613,7 @@ function callTool(name, rawArgs) {
         throw error;
     }
     try {
-        const staleness = (0, code_index_1.codeIndexStaleness)(opened.database);
+        const staleness = codeIndexStalenessForToolCall(opened);
         const body = name === "code_status"
             ? statusAnswer(opened.database, opened.relativePath, staleness)
             : TOOLS_BY_NAME.get(name).run(opened.database, args, { staleness });

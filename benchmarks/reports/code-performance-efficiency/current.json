@@ -1,16 +1,16 @@
 {
-  "generated_at": "2026-06-17T05:22:06.910Z",
-  "node": "v22.17.1",
+  "generated_at": "2026-06-17T23:49:23.813Z",
+  "node": "v22.19.0",
   "runs_per_command": 3,
   "scales": [
     {
       "file_count": 3000,
-      "index_time_ms": 362.992125,
+      "index_time_ms": 401.245833,
       "current_db": {
-        "file_bytes": 6012928,
-        "page_count": 1468,
+        "file_bytes": 6049792,
+        "page_count": 1477,
         "page_size": 4096,
-        "page_bytes": 6012928,
+        "page_bytes": 6049792,
         "rows": {
           "files": 3002,
           "symbols": 6001,
@@ -20,10 +20,10 @@
         }
       },
       "contentless_fts_db": {
-        "file_bytes": 4554752,
-        "page_count": 1112,
+        "file_bytes": 4591616,
+        "page_count": 1121,
         "page_size": 4096,
-        "page_bytes": 4554752,
+        "page_bytes": 4591616,
         "rows": {
           "files": 3002,
           "symbols": 6001,
@@ -32,35 +32,85 @@
           "edges": 9001
         }
       },
-      "contentless_fts_size_delta_percent": -24.250681198910083,
+      "contentless_fts_size_delta_percent": -24.102911306702776,
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 189.79725,
-          "median_ms": 193.953083,
-          "p95_ms": 193.997209,
-          "max_ms": 193.997209
+          "min_ms": 147.882333,
+          "median_ms": 149.22625,
+          "p95_ms": 151.881667,
+          "max_ms": 151.881667
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 195.163625,
-          "median_ms": 198.240666,
-          "p95_ms": 198.571375,
-          "max_ms": 198.571375
+          "min_ms": 150.210125,
+          "median_ms": 154.267708,
+          "p95_ms": 156.637583,
+          "max_ms": 156.637583
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 197.243666,
-          "median_ms": 199.02925,
-          "p95_ms": 203.170667,
-          "max_ms": 203.170667
+          "min_ms": 156.949875,
+          "median_ms": 161.051666,
+          "p95_ms": 163.326833,
+          "max_ms": 163.326833
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 186.972667,
-          "median_ms": 190.15225,
-          "p95_ms": 191.970666,
-          "max_ms": 191.970666
+          "min_ms": 145.636958,
+          "median_ms": 146.82425,
+          "p95_ms": 147.652667,
+          "max_ms": 147.652667
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 0.959209,
+          "median_ms": 1.128542,
+          "p95_ms": 1.582667,
+          "max_ms": 1.582667,
+          "rows": 1
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 2.00075,
+          "median_ms": 2.183625,
+          "p95_ms": 2.378625,
+          "max_ms": 2.378625,
+          "rows": 1
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 2.070709,
+          "median_ms": 2.286708,
+          "p95_ms": 2.435375,
+          "max_ms": 2.435375,
+          "rows": 1
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.347083,
+          "median_ms": 0.407,
+          "p95_ms": 0.468459,
+          "max_ms": 0.468459,
+          "rows": 0
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.418291,
+          "median_ms": 0.486459,
+          "p95_ms": 0.501084,
+          "max_ms": 0.501084,
+          "rows": 75
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 1.240125,
+          "median_ms": 1.3135,
+          "p95_ms": 1.330041,
+          "max_ms": 1.330041,
+          "rows": 100
         }
       },
       "query_plans": {
@@ -86,12 +136,12 @@
     },
     {
       "file_count": 10000,
-      "index_time_ms": 846.78275,
+      "index_time_ms": 951.593167,
       "current_db": {
-        "file_bytes": 20226048,
-        "page_count": 4938,
+        "file_bytes": 20336640,
+        "page_count": 4965,
         "page_size": 4096,
-        "page_bytes": 20226048,
+        "page_bytes": 20336640,
         "rows": {
           "files": 10002,
           "symbols": 20001,
@@ -101,10 +151,10 @@
         }
       },
       "contentless_fts_db": {
-        "file_bytes": 15175680,
-        "page_count": 3705,
+        "file_bytes": 15286272,
+        "page_count": 3732,
         "page_size": 4096,
-        "page_bytes": 15175680,
+        "page_bytes": 15286272,
         "rows": {
           "files": 10002,
           "symbols": 20001,
@@ -113,35 +163,85 @@
           "edges": 30001
         }
       },
-      "contentless_fts_size_delta_percent": -24.96962332928311,
+      "contentless_fts_size_delta_percent": -24.83383685800604,
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 351.989959,
-          "median_ms": 351.997541,
-          "p95_ms": 353.415667,
-          "max_ms": 353.415667
+          "min_ms": 215.898625,
+          "median_ms": 216.068083,
+          "p95_ms": 218.436958,
+          "max_ms": 218.436958
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 360.428209,
-          "median_ms": 360.82475,
-          "p95_ms": 367.033958,
-          "max_ms": 367.033958
+          "min_ms": 220.819125,
+          "median_ms": 231.953708,
+          "p95_ms": 235.533334,
+          "max_ms": 235.533334
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 375.278834,
-          "median_ms": 375.772625,
-          "p95_ms": 380.545083,
-          "max_ms": 380.545083
+          "min_ms": 241.91175,
+          "median_ms": 251.687291,
+          "p95_ms": 253.274666,
+          "max_ms": 253.274666
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 344.680833,
-          "median_ms": 348.075708,
-          "p95_ms": 351.904625,
-          "max_ms": 351.904625
+          "min_ms": 203.18025,
+          "median_ms": 203.285833,
+          "p95_ms": 206.244875,
+          "max_ms": 206.244875
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 2.385417,
+          "median_ms": 2.586666,
+          "p95_ms": 2.610875,
+          "max_ms": 2.610875,
+          "rows": 1
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 6.290875,
+          "median_ms": 6.454917,
+          "p95_ms": 7.053834,
+          "max_ms": 7.053834,
+          "rows": 1
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 6.585334,
+          "median_ms": 6.815792,
+          "p95_ms": 6.984792,
+          "max_ms": 6.984792,
+          "rows": 1
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.323208,
+          "median_ms": 0.362833,
+          "p95_ms": 0.497625,
+          "max_ms": 0.497625,
+          "rows": 0
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.354042,
+          "median_ms": 0.358833,
+          "p95_ms": 0.51725,
+          "max_ms": 0.51725,
+          "rows": 75
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 3.200666,
+          "median_ms": 3.233958,
+          "p95_ms": 3.474,
+          "max_ms": 3.474,
+          "rows": 100
         }
       },
       "query_plans": {
@@ -167,12 +267,12 @@
     },
     {
       "file_count": 50000,
-      "index_time_ms": 5122.164625,
+      "index_time_ms": 4450.510958,
       "current_db": {
-        "file_bytes": 101785600,
-        "page_count": 24850,
+        "file_bytes": 102354944,
+        "page_count": 24989,
         "page_size": 4096,
-        "page_bytes": 101785600,
+        "page_bytes": 102354944,
         "rows": {
           "files": 50002,
           "symbols": 100001,
@@ -182,10 +282,10 @@
         }
       },
       "contentless_fts_db": {
-        "file_bytes": 76496896,
-        "page_count": 18676,
+        "file_bytes": 77066240,
+        "page_count": 18815,
         "page_size": 4096,
-        "page_bytes": 76496896,
+        "page_bytes": 77066240,
         "rows": {
           "files": 50002,
           "symbols": 100001,
@@ -194,35 +294,85 @@
           "edges": 150001
         }
       },
-      "contentless_fts_size_delta_percent": -24.845070422535212,
+      "contentless_fts_size_delta_percent": -24.70687102325023,
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 2822.320083,
-          "median_ms": 2869.629833,
-          "p95_ms": 2909.858166,
-          "max_ms": 2909.858166
+          "min_ms": 626.872042,
+          "median_ms": 632.727792,
+          "p95_ms": 632.905792,
+          "max_ms": 632.905792
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 2938.462291,
-          "median_ms": 3018.405333,
-          "p95_ms": 3196.0545,
-          "max_ms": 3196.0545
+          "min_ms": 717.249083,
+          "median_ms": 721.204417,
+          "p95_ms": 724.791709,
+          "max_ms": 724.791709
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 2954.060792,
-          "median_ms": 3066.592542,
-          "p95_ms": 3135.791333,
-          "max_ms": 3135.791333
+          "min_ms": 770.416625,
+          "median_ms": 784.005833,
+          "p95_ms": 787.679709,
+          "max_ms": 787.679709
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 2868.078917,
-          "median_ms": 3045.685333,
-          "p95_ms": 3159.149709,
-          "max_ms": 3159.149709
+          "min_ms": 624.742042,
+          "median_ms": 633.171584,
+          "p95_ms": 637.776,
+          "max_ms": 637.776
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 12.169875,
+          "median_ms": 12.337375,
+          "p95_ms": 12.37525,
+          "max_ms": 12.37525,
+          "rows": 1
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 34.77475,
+          "median_ms": 36.077917,
+          "p95_ms": 36.287584,
+          "max_ms": 36.287584,
+          "rows": 1
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 36.364542,
+          "median_ms": 36.567083,
+          "p95_ms": 36.943375,
+          "max_ms": 36.943375,
+          "rows": 1
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.51425,
+          "median_ms": 0.519666,
+          "p95_ms": 0.620375,
+          "max_ms": 0.620375,
+          "rows": 0
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.450041,
+          "median_ms": 0.457667,
+          "p95_ms": 0.48575,
+          "max_ms": 0.48575,
+          "rows": 75
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 16.008,
+          "median_ms": 16.07325,
+          "p95_ms": 16.13125,
+          "max_ms": 16.13125,
+          "rows": 100
         }
       },
       "query_plans": {
@@ -250,17 +400,17 @@
   "build_commands": {
     "build": {
       "runs": 1,
-      "min_ms": 1257.049792,
-      "median_ms": 1257.049792,
-      "p95_ms": 1257.049792,
-      "max_ms": 1257.049792
+      "min_ms": 1131.595166,
+      "median_ms": 1131.595166,
+      "p95_ms": 1131.595166,
+      "max_ms": 1131.595166
     },
     "typecheck": {
       "runs": 1,
-      "min_ms": 1097.835958,
-      "median_ms": 1097.835958,
-      "p95_ms": 1097.835958,
-      "max_ms": 1097.835958
+      "min_ms": 977.202292,
+      "median_ms": 977.202292,
+      "p95_ms": 977.202292,
+      "max_ms": 977.202292
     }
   },
   "decisions": {

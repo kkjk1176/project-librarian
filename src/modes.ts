@@ -3,12 +3,12 @@ import * as childProcess from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm, wikiImpactTarget } from "./args";
-import type { CursorHookConfig, FileStatus, HookConfig, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
+import type { CursorHookConfig, FileStatus, HookConfig, MetadataSummary, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
 import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
-import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
+import { finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
 
 const scopedAutoIndexThreshold = 40;
@@ -138,6 +138,27 @@ function scoreQueryBlock(block: WikiMarkdownBlock, terms: string[]): number {
   return occurrences > 0 ? occurrences + blockKindBoost(block) : 0;
 }
 
+function hasMigrationQueryIntent(terms: string[]): boolean {
+  return terms.some((term) => /^(migrat|legacy|coverage|unit|ledger|review)/.test(term));
+}
+
+function isMigrationSurface(file: string, meta: MetadataSummary): boolean {
+  return file.startsWith("wiki/migration/")
+    || /(?:^|-)migration(?:-|$)/.test(file)
+    || /migration|legacy/.test(meta.scope);
+}
+
+function querySurfaceScore(file: string, meta: MetadataSummary, rawScore: number, terms: string[]): number {
+  if (rawScore <= 0) return 0;
+  if (isMigrationSurface(file, meta) && !hasMigrationQueryIntent(terms)) {
+    return Math.max(1, Math.floor(rawScore * 0.25) - 20);
+  }
+  let score = rawScore;
+  if (file.startsWith("wiki/canonical/") && meta.status === "active") score += 12;
+  else if (meta.status === "active") score += 2;
+  return score;
+}
+
 // Answer-shaped query output (2026-06-12 method-transfer decision): first line is
 // the answer, each result carries the page's TL;DR first bullet and the strongest
 // matching block so the agent can pick a page without opening it, and the whole
@@ -148,8 +169,9 @@ export function runQueryMode(): void {
     process.exit(1);
   }
   const terms = queryTerm.toLowerCase().split(/\s+/).filter(Boolean);
-  const pages = wikiMarkdownFiles().map((file) => ({ file, text: read(file) }));
-  const graph = buildWikiGraph(pages);
+  const corpus = loadWikiCorpus();
+  const pages = corpus.pages;
+  const graph = wikiCorpusGraph(corpus);
   const routerDepths = wikiRouterDepths(graph);
   const matches: QueryResult[] = pages.map(({ file, text }) => {
     const body = stripMetadataHeader(text);
@@ -163,7 +185,7 @@ export function runQueryMode(): void {
       .sort((left, right) => right.score - left.score || left.block.line - right.block.line || left.block.id.localeCompare(right.block.id));
     const topBlock = blocks[0]?.block;
     const blockScore = blocks.slice(0, 5).reduce((sum, item) => sum + item.score, 0);
-    const score = metadataScore + blockScore;
+    const score = querySurfaceScore(file, meta, metadataScore + blockScore, terms);
     return {
       blockKind: topBlock?.kind ?? "",
       blockLine: topBlock?.line ?? 0,
@@ -209,8 +231,8 @@ export function runWikiImpactMode(): void {
     console.error("missing wiki impact target: use --wiki-impact \"page-or-term\"");
     process.exit(1);
   }
-  const pages = wikiMarkdownFiles().map((file) => ({ file, text: read(file) }));
-  console.log(wikiImpactAnswer(pages, wikiImpactTarget.trim()));
+  const corpus = loadWikiCorpus();
+  console.log(wikiImpactAnswer(corpus.pages, wikiImpactTarget.trim(), wikiCorpusGraph(corpus)));
 }
 
 export function projectCandidatesContent(): string {

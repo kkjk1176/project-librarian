@@ -29,6 +29,21 @@ function appendLine(root, relativePath, line) {
   fs.appendFileSync(path.join(root, relativePath), `${line}\n`);
 }
 
+function snapshotFiles(root, files) {
+  return new Map(files.map((file) => {
+    const absolutePath = path.join(root, file);
+    return [file, fs.existsSync(absolutePath) ? fs.readFileSync(absolutePath, "utf8") : null];
+  }));
+}
+
+function assertSnapshotUnchanged(root, snapshot) {
+  for (const [file, before] of snapshot.entries()) {
+    const absolutePath = path.join(root, file);
+    const after = fs.existsSync(absolutePath) ? fs.readFileSync(absolutePath, "utf8") : null;
+    assert.equal(after, before, `${file} changed during wiki-only refresh-index`);
+  }
+}
+
 test("bootstrap creates router templates when absent", () => {
   const root = makeTmpDir("router-create-");
   try {
@@ -96,7 +111,24 @@ test("--refresh-index preserves customized routers while updating the auto-index
       "Regression fixture page for auto-index discovery.",
       "",
     ].join("\n"));
+    const nonWikiGeneratedFiles = snapshotFiles(root, [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "GEMINI.md",
+      ".codex/hooks.json",
+      ".codex/hooks/wiki-session-start.js",
+      ".claude/settings.json",
+      ".claude/hooks/wiki-session-start.js",
+      ".cursor/hooks.json",
+      ".cursor/hooks/wiki-session-start.js",
+      ".cursor/rules/project-librarian.mdc",
+      ".gemini/settings.json",
+      ".gemini/hooks/wiki-session-start.js",
+      ".githooks/prepare-commit-msg",
+      ".githooks/wiki-commit-trailers.js",
+    ]);
     runCli(root, ["--refresh-index"]);
+    assertSnapshotUnchanged(root, nonWikiGeneratedFiles);
     assert.equal(readFile(root, "wiki/startup.md"), customizedStartup);
     const index = readFile(root, "wiki/index.md");
     assert.match(index, /CUSTOM-INDEX-ROUTE: keep this during refresh-index\./);

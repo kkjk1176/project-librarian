@@ -1,11 +1,16 @@
 import type { IndexStatements } from "../schema";
 
-export interface CodeFile {
+export interface CodeFileFingerprint {
+  mtimeMs: number;
+  path: string;
+  size: number;
+}
+
+export interface CodeFile extends CodeFileFingerprint {
   bytes: number;
   hash: string;
   language: string;
   lines: number;
-  path: string;
   profile: string;
   text: string;
 }

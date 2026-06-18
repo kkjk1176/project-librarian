@@ -2,6 +2,10 @@
 
 Project Librarian benchmark evidence is based on actual Codex JSONL usage and local wall-clock timing.
 
+## Code performance efficiency harness
+
+`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated.
+
 ## Dual-track benchmark
 
 The benchmark measures two product tracks and reports them separately (no merged cross-track headline):
@@ -98,6 +102,13 @@ Measured Codex runs are hermetic, and this is always on for measured runs (it is
 After each measured run the runner re-fingerprints the fixture directory and compares it to the manifest fingerprint; any difference fails the run. Independently, the presence of any runtime-state directory/file (at minimum `.omx/`, `.omc/`, plus dotfile state dirs such as `.codex/`, `.claude/`, `.gemini/`, `.cursor/`) anywhere inside the fixture is a HARD FAILURE naming the offending paths — runtime state is never silently excluded from the fingerprint, because an isolation leak must fail the run.
 
 The measured report records hermetic provenance in a top-level `hermetic` block (isolated Codex home path, real Codex home, auth source, copied files, allowlisted env key names and count, and `inherited_process_env: false`) and a per-run `fixture_validation` record (`status`, `runtime_state_paths`, `fingerprint_matched`). By default the runner prunes the isolated `codex-home*` directories after metrics and fixture validation finish, while keeping raw JSONL, stderr, reports, and a `codex-home-retention.json` manifest under the raw run directory. Pass `--keep-codex-homes` only when debugging the isolated home contents themselves.
+
+Old ignored raw output can be audited and cleaned later with the dry-run-first helper. It only targets directories named `codex-home` or `codex-home-*` directly under `benchmarks/reports/llm/raw` or one timestamp directory below it; raw JSONL, stderr, report JSON/Markdown, sanitized-pack manifests, and retention manifests are not deletion targets.
+
+```sh
+npm run benchmark:llm:prune-raw -- --older-than-days 14
+npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
+```
 
 ## Codex injection sentinel (B1)
 
