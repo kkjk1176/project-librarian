@@ -37,6 +37,25 @@ test("parseArgs preserves update migration conflicts for command validation", ()
   assert.deepEqual(adopt.commandArgs, ["--adopt-existing"]);
 });
 
+test("parseArgs parses init/update agent surface selection", () => {
+  const parsed = parseArgs(["update", "--agents", "codex,claude", "--agents=cursor"]);
+  assert.equal(parsed.command, "update");
+  assert.deepEqual(parsed.agentTargets, ["codex", "claude", "cursor"]);
+  assert.deepEqual(parsed.invalidAgentTargets, []);
+});
+
+test("parseArgs validates invalid agent surface entries", () => {
+  const parsed = parseArgs(["--agents", "codex,unknown"]);
+  assert.deepEqual(parsed.agentTargets, ["codex"]);
+  assert.deepEqual(parsed.invalidAgentTargets, ["unknown"]);
+});
+
+test("parseArgs expands all agent surfaces", () => {
+  const parsed = parseArgs(["--agents=all"]);
+  assert.deepEqual(parsed.agentTargets, ["codex", "claude", "cursor", "gemini"]);
+  assert.deepEqual(parsed.invalidAgentTargets, []);
+});
+
 test("parseArgs reports unknown commands and options without editing mode state", () => {
   const parsed = parseArgs(["unknown-command", "--definitely-unknown"]);
   assert.equal(parsed.unknownCommand, "unknown-command");

@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as childProcess from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AgentSurface } from "./agent-surfaces";
+import { agentSurfaceRequiredFiles } from "./agent-surfaces";
 import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm, wikiImpactTarget } from "./args";
 import type { CursorHookConfig, FileStatus, HookConfig, MetadataSummary, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
@@ -811,8 +813,6 @@ export function runDoctorMode(fix: boolean): void {
   if (!linkOk || !qualityOk || !routerTruthOk) process.exit(1);
 }
 
-type AgentSurface = "codex" | "claude" | "cursor" | "gemini";
-
 const commonLintRequiredFiles = [
     "AGENTS.md",
     "wiki/AGENTS.md",
@@ -827,16 +827,9 @@ const commonLintRequiredFiles = [
     ".githooks/wiki-commit-trailers.js",
 ] as const;
 
-const agentLintRequiredFiles: Record<AgentSurface, readonly string[]> = {
-  codex: [".codex/hooks/wiki-session-start.js", ".codex/hooks.json"],
-  claude: ["CLAUDE.md", ".claude/hooks/wiki-session-start.js", ".claude/settings.json"],
-  cursor: [".cursor/rules/project-librarian.mdc", ".cursor/hooks/wiki-session-start.js", ".cursor/hooks.json"],
-  gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
-};
-
 function activeLintAgentSurfaces(): Set<AgentSurface> {
   const active = new Set<AgentSurface>();
-  for (const [agent, files] of Object.entries(agentLintRequiredFiles) as Array<[AgentSurface, readonly string[]]>) {
+  for (const [agent, files] of Object.entries(agentSurfaceRequiredFiles) as Array<[AgentSurface, readonly string[]]>) {
     if (files.some((file) => exists(file))) active.add(agent);
   }
   return active;
@@ -848,7 +841,7 @@ export function runLintMode(corpus?: WikiCorpus): void {
   const activeAgents = activeLintAgentSurfaces();
   const requiredFiles = [
     ...commonLintRequiredFiles,
-    ...Array.from(activeAgents).flatMap((agent) => agentLintRequiredFiles[agent]),
+    ...Array.from(activeAgents).flatMap((agent) => agentSurfaceRequiredFiles[agent]),
   ];
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push(`missing required file: ${file}`);

@@ -57,6 +57,7 @@ const fs = __importStar(require("node:fs"));
 const childProcess = __importStar(require("node:child_process"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const agent_surfaces_1 = require("./agent-surfaces");
 const args_1 = require("./args");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
@@ -889,15 +890,9 @@ const commonLintRequiredFiles = [
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
 ];
-const agentLintRequiredFiles = {
-    codex: [".codex/hooks/wiki-session-start.js", ".codex/hooks.json"],
-    claude: ["CLAUDE.md", ".claude/hooks/wiki-session-start.js", ".claude/settings.json"],
-    cursor: [".cursor/rules/project-librarian.mdc", ".cursor/hooks/wiki-session-start.js", ".cursor/hooks.json"],
-    gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
-};
 function activeLintAgentSurfaces() {
     const active = new Set();
-    for (const [agent, files] of Object.entries(agentLintRequiredFiles)) {
+    for (const [agent, files] of Object.entries(agent_surfaces_1.agentSurfaceRequiredFiles)) {
         if (files.some((file) => (0, workspace_1.exists)(file)))
             active.add(agent);
     }
@@ -909,7 +904,7 @@ function runLintMode(corpus) {
     const activeAgents = activeLintAgentSurfaces();
     const requiredFiles = [
         ...commonLintRequiredFiles,
-        ...Array.from(activeAgents).flatMap((agent) => agentLintRequiredFiles[agent]),
+        ...Array.from(activeAgents).flatMap((agent) => agent_surfaces_1.agentSurfaceRequiredFiles[agent]),
     ];
     for (const file of requiredFiles) {
         if (!(0, workspace_1.exists)(file))

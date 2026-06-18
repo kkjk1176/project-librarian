@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { acknowledgeSmallRepoMode, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
+import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
+import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { runInstallSkillMode } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
@@ -49,6 +50,7 @@ Options:
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
+  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing installs preserve detected surfaces by default.
   --prune-check                    Report active pages with stale or unresolved signals.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
@@ -121,6 +123,12 @@ if (unexpectedValueOptions.length > 0) {
 
 if (missingValueOptions.length > 0) {
   console.error(`missing value for option${missingValueOptions.length === 1 ? "" : "s"}: ${missingValueOptions.join(", ")}`);
+  printUsage();
+  process.exit(1);
+}
+
+if (invalidAgentTargets.length > 0) {
+  console.error(`invalid --agents entr${invalidAgentTargets.length === 1 ? "y" : "ies"}: ${invalidAgentTargets.join(", ")}; expected codex, claude, cursor, gemini, or all`);
   printUsage();
   process.exit(1);
 }
@@ -275,6 +283,17 @@ if (refreshIndexMode && !migrateMode && !glossaryMode && !captureInboxMode) {
   process.exit(0);
 }
 
+const selectedAgentSurfaces = agentTargets.length > 0
+  ? agentTargets
+  : migrateMode
+    ? Array.from(allAgentSurfaces)
+    : resolveBootstrapAgentSurfaces(agentTargets, exists, read);
+const shouldWriteSurface = (surface: "codex" | "claude" | "cursor" | "gemini"): boolean => includesAgentSurface(selectedAgentSurfaces, surface);
+const writeCodexSurface = shouldWriteSurface("codex");
+const writeClaudeSurface = shouldWriteSurface("claude");
+const writeCursorSurface = shouldWriteSurface("cursor");
+const writeGeminiSurface = shouldWriteSurface("gemini");
+
 const migrationState: MigrationState | null = migrateMode ? prepareMigrationMode() : null;
 const results: ResultRow[] = [];
 if (migrationState) results.push(["migration prepare", migrationState.note]);
@@ -284,11 +303,13 @@ mkdirp("wiki/decisions");
 mkdirp("wiki/inbox");
 mkdirp("wiki/meta");
 mkdirp("wiki/sources");
-mkdirp(".codex/hooks");
-mkdirp(".claude/hooks");
-mkdirp(".cursor/hooks");
-mkdirp(".cursor/rules");
-mkdirp(".gemini/hooks");
+if (writeCodexSurface) mkdirp(".codex/hooks");
+if (writeClaudeSurface) mkdirp(".claude/hooks");
+if (writeCursorSurface) {
+  mkdirp(".cursor/hooks");
+  mkdirp(".cursor/rules");
+}
+if (writeGeminiSurface) mkdirp(".gemini/hooks");
 mkdirp(".githooks");
 
 // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
@@ -300,23 +321,31 @@ mkdirp(".githooks");
 const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
 const startupTldrForAgents = extractStartupTldr(startupForSync);
 results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection(startupTldrForAgents))]);
-results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
-results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
-results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
+if (writeClaudeSurface) results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
+if (writeGeminiSurface) results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
+if (writeCursorSurface) results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
 results.push(["wiki/AGENTS.md", upsertMarkedSection("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", wikiAgentsSection)]);
 results.push([".githooks/prepare-commit-msg", writeManaged(".githooks/prepare-commit-msg", gitPrepareCommitMsgHook)]);
 makeExecutable(".githooks/prepare-commit-msg");
 results.push([".githooks/wiki-commit-trailers.js", writeManaged(".githooks/wiki-commit-trailers.js", gitWikiCommitTrailersScript)]);
 makeExecutable(".githooks/wiki-commit-trailers.js");
 results.push(["git core.hooksPath", upsertGitHooksPath()]);
-results.push([".codex/hooks.json", upsertHookConfig()]);
-results.push([".codex/hooks/wiki-session-start.js", writeManaged(".codex/hooks/wiki-session-start.js", hookScript)]);
-results.push([".claude/settings.json", upsertClaudeHookConfig()]);
-results.push([".claude/hooks/wiki-session-start.js", writeManaged(".claude/hooks/wiki-session-start.js", hookScript)]);
-results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
-results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
-results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
-results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
+if (writeCodexSurface) {
+  results.push([".codex/hooks.json", upsertHookConfig()]);
+  results.push([".codex/hooks/wiki-session-start.js", writeManaged(".codex/hooks/wiki-session-start.js", hookScript)]);
+}
+if (writeClaudeSurface) {
+  results.push([".claude/settings.json", upsertClaudeHookConfig()]);
+  results.push([".claude/hooks/wiki-session-start.js", writeManaged(".claude/hooks/wiki-session-start.js", hookScript)]);
+}
+if (writeCursorSurface) {
+  results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
+  results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
+}
+if (writeGeminiSurface) {
+  results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
+  results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
+}
 // Bootstrap-managed MCP registration (preservation-first, idempotent). Claude
 // Code reads `.mcp.json`, Cursor reads `.cursor/mcp.json`, and Gemini reads
 // `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
@@ -325,15 +354,17 @@ results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks
 // Registration is scale-gated (2026-06-12 decision): below the measured
 // file-count threshold with no existing .project-wiki index, the rows report the
 // skip reason instead of writing config; an existing index registers regardless.
-const mcpGate = mcpRegistrationGate();
-if (mcpGate.register) {
-  results.push([".mcp.json", upsertClaudeMcpConfig()]);
-  results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
-  results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
-} else {
-  results.push([".mcp.json", mcpGate.reason]);
-  results.push([".cursor/mcp.json", mcpGate.reason]);
-  results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+if (writeClaudeSurface || writeCursorSurface || writeGeminiSurface) {
+  const mcpGate = mcpRegistrationGate();
+  if (mcpGate.register) {
+    if (writeClaudeSurface) results.push([".mcp.json", upsertClaudeMcpConfig()]);
+    if (writeCursorSurface) results.push([".cursor/mcp.json", upsertCursorMcpConfig()]);
+    if (writeGeminiSurface) results.push([".gemini/settings.json mcpServers", upsertGeminiMcpConfig()]);
+  } else {
+    if (writeClaudeSurface) results.push([".mcp.json", mcpGate.reason]);
+    if (writeCursorSurface) results.push([".cursor/mcp.json", mcpGate.reason]);
+    if (writeGeminiSurface) results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+  }
 }
 // Routers accumulate user-maintained project state after bootstrap, so they are
 // starter files: templates are written only when the file is absent, never rebuilt.

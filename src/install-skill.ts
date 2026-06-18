@@ -1,15 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { AgentSurface } from "./agent-surfaces";
+import { allAgentSurfaces } from "./agent-surfaces";
 import { args, argValue } from "./args";
 
-type AgentTarget = "codex" | "claude" | "cursor" | "gemini";
 type InstallScope = "user" | "project";
 type InstallStatus = "created" | "updated" | "exists" | "dry-run";
 type InstallRow = [label: string, status: InstallStatus];
 
 const skillName = "project-librarian";
-const allAgentTargets: AgentTarget[] = ["codex", "claude", "cursor", "gemini"];
 const packageFiles = [
   "SKILL.md",
   "dist",
@@ -31,15 +31,15 @@ function installScope(): InstallScope {
   return fail(`invalid --scope: ${scope}; expected user or project`);
 }
 
-function installAgents(): AgentTarget[] {
+function installAgents(): AgentSurface[] {
   const value = argValue("--agents") || "all";
   const parts = value.split(",").map((item) => item.trim()).filter(Boolean);
-  const agents = new Set<AgentTarget>();
+  const agents = new Set<AgentSurface>();
   for (const part of parts) {
     if (part === "all") {
-      for (const agent of allAgentTargets) agents.add(agent);
-    } else if (allAgentTargets.includes(part as AgentTarget)) {
-      agents.add(part as AgentTarget);
+      for (const agent of allAgentSurfaces) agents.add(agent);
+    } else if ((allAgentSurfaces as readonly string[]).includes(part)) {
+      agents.add(part as AgentSurface);
     } else {
       return fail(`invalid --agents entry: ${part}; expected codex, claude, cursor, gemini, or all`);
     }
@@ -51,7 +51,7 @@ function packageRoot(): string {
   return path.resolve(__dirname, "..");
 }
 
-function userAgentRoot(agent: AgentTarget): string {
+function userAgentRoot(agent: AgentSurface): string {
   const home = os.homedir();
   if (agent === "codex") return process.env.CODEX_HOME || path.join(home, ".codex");
   if (agent === "claude") return process.env.CLAUDE_HOME || path.join(home, ".claude");
@@ -59,14 +59,14 @@ function userAgentRoot(agent: AgentTarget): string {
   return process.env.GEMINI_HOME || path.join(home, ".gemini");
 }
 
-function projectAgentRoot(agent: AgentTarget): string {
+function projectAgentRoot(agent: AgentSurface): string {
   if (agent === "codex") return ".codex";
   if (agent === "claude") return ".claude";
   if (agent === "cursor") return ".cursor";
   return ".gemini";
 }
 
-function installTarget(agent: AgentTarget, scope: InstallScope): string {
+function installTarget(agent: AgentSurface, scope: InstallScope): string {
   const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
   return path.join(base, "skills", skillName);
 }
