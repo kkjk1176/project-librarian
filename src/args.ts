@@ -1,5 +1,9 @@
+import type { AgentSurface } from "./agent-surfaces";
+import { parseAgentSurfaceValues } from "./agent-surfaces";
+
 export interface ParsedArgs {
   acknowledgeSmallRepoMode: boolean;
+  agentTargets: AgentSurface[];
   args: Set<string>;
   captureCategory: string;
   captureContent: string;
@@ -35,6 +39,7 @@ export interface ParsedArgs {
   issueCreateMode: boolean;
   issueDraftMode: boolean;
   issueDraftTitle: string;
+  invalidAgentTargets: string[];
   linkCheckMode: boolean;
   lintMode: boolean;
   migrationDoctorMode: boolean;
@@ -193,8 +198,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const codeContextPackTarget = argValue("--code-context-pack") || argValue("--code-evidence-context-pack");
   const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
   const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
+  const parsedAgentTargets = parseAgentSurfaceValues(argValues("--agents"));
   return {
     acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
+    agentTargets: parsedAgentTargets.surfaces,
     args,
     captureCategory: argValue("--category") || "project-candidate",
     captureContent: argValue("--content"),
@@ -230,6 +237,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     issueCreateMode: args.has("--issue-create"),
     issueDraftMode: args.has("--issue-draft"),
     issueDraftTitle: argValue("--issue-title"),
+    invalidAgentTargets: parsedAgentTargets.invalid,
     linkCheckMode: args.has("--link-check"),
     lintMode: args.has("--lint"),
     migrationDoctorMode: args.has("--migration-doctor"),
@@ -261,6 +269,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 export const parsedArgs: ParsedArgs = parseArgs(rawArgs);
+export const agentTargets = parsedArgs.agentTargets;
 export const helpMode = parsedArgs.helpMode;
 export const unknownCommand = parsedArgs.unknownCommand;
 export const command = parsedArgs.command;
@@ -269,6 +278,7 @@ export const args = parsedArgs.args;
 export const unknownOptions = parsedArgs.unknownOptions;
 export const unexpectedValueOptions = parsedArgs.unexpectedValueOptions;
 export const missingValueOptions = parsedArgs.missingValueOptions;
+export const invalidAgentTargets = parsedArgs.invalidAgentTargets;
 export const migrateMode = parsedArgs.migrateMode;
 export const lintMode = parsedArgs.lintMode;
 export const migrationDoctorMode = parsedArgs.migrationDoctorMode;

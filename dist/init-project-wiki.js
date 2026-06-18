@@ -2,6 +2,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const args_1 = require("./args");
+const agent_surfaces_1 = require("./agent-surfaces");
 const hooks_1 = require("./hooks");
 const install_skill_1 = require("./install-skill");
 const modes_1 = require("./modes");
@@ -39,6 +40,7 @@ Options:
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
+  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing installs preserve detected surfaces by default.
   --prune-check                    Report active pages with stale or unresolved signals.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
@@ -104,6 +106,11 @@ if (args_1.unexpectedValueOptions.length > 0) {
 }
 if (args_1.missingValueOptions.length > 0) {
     console.error(`missing value for option${args_1.missingValueOptions.length === 1 ? "" : "s"}: ${args_1.missingValueOptions.join(", ")}`);
+    printUsage();
+    process.exit(1);
+}
+if (args_1.invalidAgentTargets.length > 0) {
+    console.error(`invalid --agents entr${args_1.invalidAgentTargets.length === 1 ? "y" : "ies"}: ${args_1.invalidAgentTargets.join(", ")}; expected codex, claude, cursor, gemini, or all`);
     printUsage();
     process.exit(1);
 }
@@ -247,6 +254,16 @@ function runInitCommand() {
         runRefreshIndexOnlyMode();
         process.exit(0);
     }
+    const selectedAgentSurfaces = args_1.agentTargets.length > 0
+        ? args_1.agentTargets
+        : args_1.migrateMode
+            ? Array.from(agent_surfaces_1.allAgentSurfaces)
+            : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    const shouldWriteSurface = (surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface);
+    const writeCodexSurface = shouldWriteSurface("codex");
+    const writeClaudeSurface = shouldWriteSurface("claude");
+    const writeCursorSurface = shouldWriteSurface("cursor");
+    const writeGeminiSurface = shouldWriteSurface("gemini");
     const migrationState = args_1.migrateMode ? (0, migration_1.prepareMigrationMode)() : null;
     const results = [];
     if (migrationState)
@@ -256,11 +273,16 @@ function runInitCommand() {
     (0, workspace_1.mkdirp)("wiki/inbox");
     (0, workspace_1.mkdirp)("wiki/meta");
     (0, workspace_1.mkdirp)("wiki/sources");
-    (0, workspace_1.mkdirp)(".codex/hooks");
-    (0, workspace_1.mkdirp)(".claude/hooks");
-    (0, workspace_1.mkdirp)(".cursor/hooks");
-    (0, workspace_1.mkdirp)(".cursor/rules");
-    (0, workspace_1.mkdirp)(".gemini/hooks");
+    if (writeCodexSurface)
+        (0, workspace_1.mkdirp)(".codex/hooks");
+    if (writeClaudeSurface)
+        (0, workspace_1.mkdirp)(".claude/hooks");
+    if (writeCursorSurface) {
+        (0, workspace_1.mkdirp)(".cursor/hooks");
+        (0, workspace_1.mkdirp)(".cursor/rules");
+    }
+    if (writeGeminiSurface)
+        (0, workspace_1.mkdirp)(".gemini/hooks");
     (0, workspace_1.mkdirp)(".githooks");
     // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
     // so non-interactive `codex exec` (which does not run SessionStart hooks) still
@@ -271,23 +293,34 @@ function runInitCommand() {
     const startupForSync = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md") : templates_1.startup;
     const startupTldrForAgents = (0, templates_1.extractStartupTldr)(startupForSync);
     results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", (0, templates_1.agentsSection)(startupTldrForAgents))]);
-    results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
-    results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
-    results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
+    if (writeClaudeSurface)
+        results.push(["CLAUDE.md", (0, workspace_1.upsertMarkedSection)("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", templates_1.claudeSection)]);
+    if (writeGeminiSurface)
+        results.push(["GEMINI.md", (0, workspace_1.upsertMarkedSection)("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", templates_1.geminiSection)]);
+    if (writeCursorSurface)
+        results.push([".cursor/rules/project-librarian.mdc", (0, workspace_1.writeManaged)(".cursor/rules/project-librarian.mdc", templates_1.cursorRule)]);
     results.push(["wiki/AGENTS.md", (0, workspace_1.upsertMarkedSection)("wiki/AGENTS.md", "<!-- PROJECT-WIKI-INTERNAL:START -->", "<!-- PROJECT-WIKI-INTERNAL:END -->", templates_1.wikiAgentsSection)]);
     results.push([".githooks/prepare-commit-msg", (0, workspace_1.writeManaged)(".githooks/prepare-commit-msg", hooks_1.gitPrepareCommitMsgHook)]);
     (0, workspace_1.makeExecutable)(".githooks/prepare-commit-msg");
     results.push([".githooks/wiki-commit-trailers.js", (0, workspace_1.writeManaged)(".githooks/wiki-commit-trailers.js", hooks_1.gitWikiCommitTrailersScript)]);
     (0, workspace_1.makeExecutable)(".githooks/wiki-commit-trailers.js");
     results.push(["git core.hooksPath", (0, hooks_1.upsertGitHooksPath)()]);
-    results.push([".codex/hooks.json", (0, hooks_1.upsertHookConfig)()]);
-    results.push([".codex/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".codex/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-    results.push([".claude/settings.json", (0, hooks_1.upsertClaudeHookConfig)()]);
-    results.push([".claude/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".claude/hooks/wiki-session-start.js", hooks_1.hookScript)]);
-    results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
-    results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
-    results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
-    results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+    if (writeCodexSurface) {
+        results.push([".codex/hooks.json", (0, hooks_1.upsertHookConfig)()]);
+        results.push([".codex/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".codex/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+    }
+    if (writeClaudeSurface) {
+        results.push([".claude/settings.json", (0, hooks_1.upsertClaudeHookConfig)()]);
+        results.push([".claude/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".claude/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+    }
+    if (writeCursorSurface) {
+        results.push([".cursor/hooks.json", (0, hooks_1.upsertCursorHookConfig)()]);
+        results.push([".cursor/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".cursor/hooks/wiki-session-start.js", hooks_1.cursorHookScript)]);
+    }
+    if (writeGeminiSurface) {
+        results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
+        results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
+    }
     // Bootstrap-managed MCP registration (preservation-first, idempotent). Claude
     // Code reads `.mcp.json`, Cursor reads `.cursor/mcp.json`, and Gemini reads
     // `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
@@ -296,16 +329,24 @@ function runInitCommand() {
     // Registration is scale-gated (2026-06-12 decision): below the measured
     // file-count threshold with no existing .project-wiki index, the rows report the
     // skip reason instead of writing config; an existing index registers regardless.
-    const mcpGate = (0, hooks_1.mcpRegistrationGate)();
-    if (mcpGate.register) {
-        results.push([".mcp.json", (0, hooks_1.upsertClaudeMcpConfig)()]);
-        results.push([".cursor/mcp.json", (0, hooks_1.upsertCursorMcpConfig)()]);
-        results.push([".gemini/settings.json mcpServers", (0, hooks_1.upsertGeminiMcpConfig)()]);
-    }
-    else {
-        results.push([".mcp.json", mcpGate.reason]);
-        results.push([".cursor/mcp.json", mcpGate.reason]);
-        results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+    if (writeClaudeSurface || writeCursorSurface || writeGeminiSurface) {
+        const mcpGate = (0, hooks_1.mcpRegistrationGate)();
+        if (mcpGate.register) {
+            if (writeClaudeSurface)
+                results.push([".mcp.json", (0, hooks_1.upsertClaudeMcpConfig)()]);
+            if (writeCursorSurface)
+                results.push([".cursor/mcp.json", (0, hooks_1.upsertCursorMcpConfig)()]);
+            if (writeGeminiSurface)
+                results.push([".gemini/settings.json mcpServers", (0, hooks_1.upsertGeminiMcpConfig)()]);
+        }
+        else {
+            if (writeClaudeSurface)
+                results.push([".mcp.json", mcpGate.reason]);
+            if (writeCursorSurface)
+                results.push([".cursor/mcp.json", mcpGate.reason]);
+            if (writeGeminiSurface)
+                results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
+        }
     }
     // Routers accumulate user-maintained project state after bootstrap, so they are
     // starter files: templates are written only when the file is absent, never rebuilt.

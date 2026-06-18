@@ -143,6 +143,8 @@ npx project-librarian install-skill --scope project --agents all
 
 `--agents`는 `codex,claude,cursor,gemini`처럼 쉼표로 구분한 값도 받습니다. `all`은 지원하는 모든 에이전트를 대상으로 합니다. `--scope`는 `user` 또는 `project`를 받습니다.
 
+프로젝트 설정/갱신 실행기도 `--agents`를 받습니다. 새로 설정할 때는 지원하는 모든 에이전트 표면을 기본으로 만들지만, 마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
+
 ## 실행 경로
 
 이 경로들은 주로 에이전트와 자동화를 위한 참조입니다. 설치 후 에이전트는 `npx`가 아니라 설치된 로컬 복사본을 `node`로 실행해야 합니다. 이렇게 하면 제한된 에이전트 환경에서 네트워크 접근과 버전이 고정되지 않은 패키지 실행을 피할 수 있습니다.
@@ -168,6 +170,7 @@ npx project-librarian install-skill --scope project --agents all
 | --- | --- | --- |
 | 위키 생성 또는 갱신 | "Project Librarian으로 이 저장소의 계획 위키를 설정하거나 갱신해줘." | `[init]` |
 | 마이그레이션 없이 기존 설정 갱신 | "위키를 마이그레이션하지 말고 이 저장소의 Project Librarian 설정을 갱신해줘." | `update` |
+| 기존 설정에 특정 에이전트 표면 추가 | "위키 마이그레이션 없이 Cursor Project Librarian 표면을 추가해줘." | `update --agents cursor` |
 | 기존 문서/위키 마이그레이션 | "Project Librarian으로 기존 docs/wiki 내용을 마이그레이션해줘." | `--migrate` |
 | 생성된 설정 검증 | "Project Librarian 검증을 실행해줘." | `--lint` |
 | 링크와 문서 품질 점검 | "Project Librarian 진단을 실행해줘." | `--doctor` |
@@ -201,6 +204,8 @@ npx project-librarian install-skill --scope project --agents all
 코드 근거 모드는 한 번에 하나만 실행할 수 있습니다. `--incremental`, `--code-index-full`, `--code-parser`는 `--code-index`와 함께 쓸 때만 유효합니다.
 
 ## 설치되는 파일
+
+새로 설정할 때는 `--agents`로 좁히지 않는 한 아래 지원 에이전트 표면을 설치합니다. 마이그레이션 없는 기존 설정 갱신은 기본적으로 감지된 표면만 보존해서 갱신하고, 공통 위키/git 훅 파일은 계속 갱신합니다.
 
 프로젝트 지침 파일:
 

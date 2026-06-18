@@ -37,9 +37,9 @@ exports.runInstallSkillMode = runInstallSkillMode;
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const agent_surfaces_1 = require("./agent-surfaces");
 const args_1 = require("./args");
 const skillName = "project-librarian";
-const allAgentTargets = ["codex", "claude", "cursor", "gemini"];
 const packageFiles = [
     "SKILL.md",
     "dist",
@@ -65,10 +65,10 @@ function installAgents() {
     const agents = new Set();
     for (const part of parts) {
         if (part === "all") {
-            for (const agent of allAgentTargets)
+            for (const agent of agent_surfaces_1.allAgentSurfaces)
                 agents.add(agent);
         }
-        else if (allAgentTargets.includes(part)) {
+        else if (agent_surfaces_1.allAgentSurfaces.includes(part)) {
             agents.add(part);
         }
         else {

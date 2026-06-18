@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = void 0;
+exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.invalidAgentTargets = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.agentTargets = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
+const agent_surfaces_1 = require("./agent-surfaces");
 exports.rawArgs = process.argv.slice(2);
 const knownCommands = new Set(["init", "update", "install-skill", "mcp"]);
 const flagsWithoutValues = new Set([
@@ -139,8 +140,10 @@ function parseArgs(argv) {
     const codeContextPackTarget = argValue("--code-context-pack") || argValue("--code-evidence-context-pack");
     const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
     const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
+    const parsedAgentTargets = (0, agent_surfaces_1.parseAgentSurfaceValues)(argValues("--agents"));
     return {
         acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
+        agentTargets: parsedAgentTargets.surfaces,
         args,
         captureCategory: argValue("--category") || "project-candidate",
         captureContent: argValue("--content"),
@@ -176,6 +179,7 @@ function parseArgs(argv) {
         issueCreateMode: args.has("--issue-create"),
         issueDraftMode: args.has("--issue-draft"),
         issueDraftTitle: argValue("--issue-title"),
+        invalidAgentTargets: parsedAgentTargets.invalid,
         linkCheckMode: args.has("--link-check"),
         lintMode: args.has("--lint"),
         migrationDoctorMode: args.has("--migration-doctor"),
@@ -206,6 +210,7 @@ function parseArgs(argv) {
     };
 }
 exports.parsedArgs = parseArgs(exports.rawArgs);
+exports.agentTargets = exports.parsedArgs.agentTargets;
 exports.helpMode = exports.parsedArgs.helpMode;
 exports.unknownCommand = exports.parsedArgs.unknownCommand;
 exports.command = exports.parsedArgs.command;
@@ -214,6 +219,7 @@ exports.args = exports.parsedArgs.args;
 exports.unknownOptions = exports.parsedArgs.unknownOptions;
 exports.unexpectedValueOptions = exports.parsedArgs.unexpectedValueOptions;
 exports.missingValueOptions = exports.parsedArgs.missingValueOptions;
+exports.invalidAgentTargets = exports.parsedArgs.invalidAgentTargets;
 exports.migrateMode = exports.parsedArgs.migrateMode;
 exports.lintMode = exports.parsedArgs.lintMode;
 exports.migrationDoctorMode = exports.parsedArgs.migrationDoctorMode;
