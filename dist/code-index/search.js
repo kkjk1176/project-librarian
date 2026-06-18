@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.containsLikePattern = containsLikePattern;
+exports.shouldUseFtsSearchForScale = shouldUseFtsSearchForScale;
 exports.searchFiles = searchFiles;
 exports.searchSymbols = searchSymbols;
+const code_index_file_policy_1 = require("../code-index-file-policy");
 function escapeLikeTerm(term) {
     return term.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -12,9 +14,32 @@ function containsLikePattern(term) {
 function prefixLikePattern(term) {
     return `${escapeLikeTerm(term)}%`;
 }
+function ftsTokens(term) {
+    return Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+}
 function ftsPrefixQuery(term) {
-    const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+    const tokens = ftsTokens(term);
     return tokens.slice(0, 8).map((token) => `"${token.replace(/"/g, "\"\"")}"*`).join(" AND ");
+}
+function indexedFileCount(database) {
+    const row = database.prepare("SELECT count(*) AS count FROM files").all()[0] ?? {};
+    return Number(row.count ?? 0);
+}
+function shouldUseFtsSearchForScale(term, fileCount) {
+    const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+    if (tokens.length === 0)
+        return false;
+    if (tokens.length > 1)
+        return true;
+    return fileCount >= code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD;
+}
+function shouldUseFtsSearch(database, term) {
+    const tokens = ftsTokens(term);
+    if (tokens.length === 0)
+        return false;
+    if (tokens.length > 1)
+        return true;
+    return indexedFileCount(database) >= code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD;
 }
 function stringValue(row, key) {
     const value = row[key];
@@ -52,7 +77,7 @@ function searchFiles(database, term, limit = 25) {
     exactRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 900));
     const prefixRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(prefix, limit);
     prefixRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 750));
-    const ftsQuery = ftsPrefixQuery(normalized);
+    const ftsQuery = shouldUseFtsSearch(database, normalized) ? ftsPrefixQuery(normalized) : "";
     if (ftsQuery) {
         const ftsRows = database.prepare(`
       SELECT files.path, files.language, files.profile, files.lines, files.bytes
@@ -100,7 +125,7 @@ function searchSymbols(database, term, limit = 50) {
     LIMIT ?
   `).all(prefix, prefix, limit);
     prefixRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 850));
-    const ftsQuery = ftsPrefixQuery(normalized);
+    const ftsQuery = shouldUseFtsSearch(database, normalized) ? ftsPrefixQuery(normalized) : "";
     if (ftsQuery) {
         const ftsRows = database.prepare(`
       SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature

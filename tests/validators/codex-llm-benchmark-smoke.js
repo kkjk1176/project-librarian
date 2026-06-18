@@ -8,7 +8,7 @@ const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
-const { applyCodexHomeRetention } = require("../../benchmarks/lib/llm-raw-retention");
+const { applyCodexHomeRetention, pruneOldCodexHomes } = require("../../benchmarks/lib/llm-raw-retention");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { aggregationExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
 const { sampleImpactTraceExpectation } = require("../../benchmarks/llm/samples/sample-code-graph-expectation");
@@ -870,6 +870,54 @@ function validateRawRetention() {
     assert.equal(kept.retained_home_count, 1);
     assert.equal(kept.pruned_home_count, 0);
     assert(fs.existsSync(keepHome), "codex home should remain when explicitly retained");
+
+    const cleanupRawRoot = path.join(tempRoot, "cleanup-raw");
+    const oldRun = path.join(cleanupRawRoot, "2026-01-01T00-00-00-000Z");
+    const freshRun = path.join(cleanupRawRoot, "2026-06-17T00-00-00-000Z");
+    const oldHome = path.join(oldRun, "codex-home-old-run");
+    const freshHome = path.join(freshRun, "codex-home-fresh-run");
+    const nestedHome = path.join(oldRun, "nested", "codex-home-nested");
+    const protectedJsonl = path.join(oldRun, "sample-run-1.jsonl");
+    const protectedStderr = path.join(oldRun, "sample-run-1.stderr.txt");
+    const protectedRetentionManifest = path.join(oldRun, "codex-home-retention.json");
+    const protectedPackManifest = path.join(oldRun, "SANITIZED_BENCHMARK_PACK.json");
+    fs.mkdirSync(oldHome, { recursive: true });
+    fs.mkdirSync(freshHome, { recursive: true });
+    fs.mkdirSync(nestedHome, { recursive: true });
+    fs.writeFileSync(path.join(oldHome, "logs.sqlite"), Buffer.alloc(256));
+    fs.writeFileSync(path.join(freshHome, "logs.sqlite"), Buffer.alloc(256));
+    fs.writeFileSync(path.join(nestedHome, "logs.sqlite"), Buffer.alloc(256));
+    fs.writeFileSync(protectedJsonl, "{}\n");
+    fs.writeFileSync(protectedStderr, "stderr\n");
+    fs.writeFileSync(protectedRetentionManifest, "{}\n");
+    fs.writeFileSync(protectedPackManifest, "{}\n");
+    const now = new Date("2026-06-17T00:00:00.000Z");
+    const oldDate = new Date("2026-05-01T00:00:00.000Z");
+    fs.utimesSync(oldHome, oldDate, oldDate);
+    fs.utimesSync(nestedHome, oldDate, oldDate);
+
+    const dryRunOutput = childProcess.execFileSync(process.execPath, [
+      "benchmarks/tools/prune-llm-raw.js",
+      "--raw-root",
+      cleanupRawRoot,
+      "--older-than-days",
+      "7",
+    ], { cwd: root, encoding: "utf8" });
+    const dryRun = JSON.parse(dryRunOutput);
+    assert.equal(dryRun.dry_run, true);
+    assert.equal(dryRun.pruned_count, 0);
+    assert.deepEqual(dryRun.candidates.map((candidate) => candidate.relative_path), ["2026-01-01T00-00-00-000Z/codex-home-old-run"]);
+    assert(fs.existsSync(oldHome), "dry-run must not remove old codex home");
+
+    const executed = pruneOldCodexHomes({ rawRoot: cleanupRawRoot, olderThanDays: 7, dryRun: false, now });
+    assert.equal(executed.pruned_count, 1);
+    assert(!fs.existsSync(oldHome), "execute should remove only the old direct codex home");
+    assert(fs.existsSync(freshHome), "fresh codex home should remain");
+    assert(fs.existsSync(nestedHome), "nested codex-home directories are outside the cleanup surface");
+    assert(fs.existsSync(protectedJsonl), "raw JSONL must survive old raw cleanup");
+    assert(fs.existsSync(protectedStderr), "stderr must survive old raw cleanup");
+    assert(fs.existsSync(protectedRetentionManifest), "retention manifest must survive old raw cleanup");
+    assert(fs.existsSync(protectedPackManifest), "sanitized-pack manifest must survive old raw cleanup");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

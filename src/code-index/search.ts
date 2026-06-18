@@ -1,4 +1,5 @@
 import type { SqliteDatabase } from "../code-index-db";
+import { SMALL_REPO_FILE_THRESHOLD } from "../code-index-file-policy";
 
 interface RankedRow {
   row: Record<string, unknown>;
@@ -17,9 +18,32 @@ function prefixLikePattern(term: string): string {
   return `${escapeLikeTerm(term)}%`;
 }
 
+function ftsTokens(term: string): string[] {
+  return Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+}
+
 function ftsPrefixQuery(term: string): string {
-  const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+  const tokens = ftsTokens(term);
   return tokens.slice(0, 8).map((token) => `"${token.replace(/"/g, "\"\"")}"*`).join(" AND ");
+}
+
+function indexedFileCount(database: SqliteDatabase): number {
+  const row = database.prepare("SELECT count(*) AS count FROM files").all()[0] ?? {};
+  return Number(row.count ?? 0);
+}
+
+export function shouldUseFtsSearchForScale(term: string, fileCount: number): boolean {
+  const tokens = Array.from(new Set(term.match(/[\p{L}\p{N}_]+/gu) ?? []));
+  if (tokens.length === 0) return false;
+  if (tokens.length > 1) return true;
+  return fileCount >= SMALL_REPO_FILE_THRESHOLD;
+}
+
+function shouldUseFtsSearch(database: SqliteDatabase, term: string): boolean {
+  const tokens = ftsTokens(term);
+  if (tokens.length === 0) return false;
+  if (tokens.length > 1) return true;
+  return indexedFileCount(database) >= SMALL_REPO_FILE_THRESHOLD;
 }
 
 function stringValue(row: Record<string, unknown>, key: string): string {
@@ -58,7 +82,7 @@ export function searchFiles(database: SqliteDatabase, term: string, limit = 25):
   const prefixRows = database.prepare("SELECT path, language, profile, lines, bytes FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT ?").all(prefix, limit);
   prefixRows.forEach((row) => addRankedRow(rowsByKey, row, stringValue(row, "path"), 750));
 
-  const ftsQuery = ftsPrefixQuery(normalized);
+  const ftsQuery = shouldUseFtsSearch(database, normalized) ? ftsPrefixQuery(normalized) : "";
   if (ftsQuery) {
     const ftsRows = database.prepare(`
       SELECT files.path, files.language, files.profile, files.lines, files.bytes
@@ -110,7 +134,7 @@ export function searchSymbols(database: SqliteDatabase, term: string, limit = 50
   `).all(prefix, prefix, limit);
   prefixRows.forEach((row) => addRankedRow(rowsByKey, row, symbolKey(row), 850));
 
-  const ftsQuery = ftsPrefixQuery(normalized);
+  const ftsQuery = shouldUseFtsSearch(database, normalized) ? ftsPrefixQuery(normalized) : "";
   if (ftsQuery) {
     const ftsRows = database.prepare(`
       SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature

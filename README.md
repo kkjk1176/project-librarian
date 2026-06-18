@@ -374,6 +374,15 @@ When editing TypeScript under `src/`, rebuild before committing so `dist/` stays
 
 Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.md). They are for release evidence and public claim validation, not normal end-user setup.
 
+For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generates 3k/10k/50k fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks; the `query_groups` section reports direct DB timings for representative file/symbol/route/import/edge queries.
+
+Old ignored LLM benchmark raw output can be audited with the dry-run-first helper before deleting retained isolated Codex homes:
+
+```bash
+npm run benchmark:llm:prune-raw -- --older-than-days 14
+npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
+```
+
 ## Inspiration
 
 This project is inspired by Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: keep persistent markdown context close to the work instead of reconstructing project state from long chat history.

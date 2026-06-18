@@ -11,7 +11,7 @@ exports.indexedParserMode = indexedParserMode;
 exports.incrementalCompatibility = incrementalCompatibility;
 exports.codeIndexSnapshot = codeIndexSnapshot;
 const workspace_1 = require("../workspace");
-exports.codeIndexSchemaVersion = "3";
+exports.codeIndexSchemaVersion = "4";
 function setupDatabase(database) {
     database.exec(`
     PRAGMA journal_mode = WAL;
@@ -23,7 +23,9 @@ function setupDatabase(database) {
       kind TEXT NOT NULL,
       bytes INTEGER NOT NULL,
       lines INTEGER NOT NULL,
-      hash TEXT NOT NULL
+      hash TEXT NOT NULL,
+      mtime_ms REAL NOT NULL,
+      size INTEGER NOT NULL
     );
     CREATE TABLE symbols (
       id INTEGER PRIMARY KEY,
@@ -91,7 +93,7 @@ function createIndexStatements(database) {
         deleteSymbolFts: database.prepare("DELETE FROM symbols_fts WHERE file_path = ?"),
         insertConfig: database.prepare("INSERT INTO configs (key, value, file_path, line) VALUES (?, ?, ?, ?)"),
         insertEdge: database.prepare("INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
-        insertFile: database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+        insertFile: database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
         insertFileFts: database.prepare("INSERT INTO files_fts (path, language, profile, content) VALUES (?, ?, ?, ?)"),
         insertImport: database.prepare("INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES (?, ?, ?, ?, ?)"),
         insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),

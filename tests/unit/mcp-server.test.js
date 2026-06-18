@@ -351,7 +351,37 @@ test("an unknown tool name returns an isError result (not a protocol error)", ()
   }
 });
 
-test("MCP code context and impact tools reuse one staleness calculation per call", () => {
+function fakeCacheableDatabase({ metaOverrides = {} } = {}) {
+  const meta = {
+    parser_mode: "default",
+    schema_version: "4",
+    scopes_json: JSON.stringify(["__missing_mcp_cache_scope__"]),
+    updated_at: "2026-06-17T00:00:00.000Z",
+    ...metaOverrides,
+  };
+  return {
+    closeCalls: 0,
+    meta,
+    close() {
+      this.closeCalls += 1;
+    },
+    prepare(sql) {
+      return {
+        all: (key) => {
+          if (/SELECT value FROM meta WHERE key = \?/.test(sql)) {
+            return Object.hasOwn(meta, key) ? [{ value: meta[key] }] : [];
+          }
+          if (/SELECT path, hash, mtime_ms, size FROM files ORDER BY path/.test(sql)) {
+            return [{ path: "src/app.js", hash: "hash-1", mtime_ms: 1, size: 12 }];
+          }
+          throw new Error(`unexpected fake database query: ${sql}`);
+        },
+      };
+    },
+  };
+}
+
+test("MCP code context and impact tools reuse one staleness calculation across unchanged sequential calls", () => {
   const originals = {
     openCodeEvidenceDatabaseForServing: codeIndex.openCodeEvidenceDatabaseForServing,
     codeIndexStaleness: codeIndex.codeIndexStaleness,
@@ -359,7 +389,7 @@ test("MCP code context and impact tools reuse one staleness calculation per call
     codeImpact: codeIndex.codeImpact,
   };
   const staleness = { stale: false, changed: 0, added: 0, deleted: 0 };
-  const database = { closeCalls: 0, close() { this.closeCalls += 1; } };
+  const database = fakeCacheableDatabase({ metaOverrides: { updated_at: "2026-06-17T00:00:02.000Z" } });
   let stalenessCalls = 0;
   let contextCalls = 0;
   let impactCalls = 0;
@@ -409,9 +439,49 @@ test("MCP code context and impact tools reuse one staleness calculation per call
     assert.equal(toolResultText(contextResponse), "context body");
     assert.equal(impactResponse.id, 2);
     assert.match(toolResultText(impactResponse).split("\n")[0], /^Impact of "healthHandler": 0 files/);
-    assert.equal(stalenessCalls, 2);
+    assert.equal(stalenessCalls, 1);
     assert.equal(contextCalls, 1);
     assert.equal(impactCalls, 1);
+    assert.equal(database.closeCalls, 2);
+  } finally {
+    Object.assign(codeIndex, originals);
+  }
+});
+
+test("MCP staleness cache invalidates when tracked freshness metadata changes", () => {
+  const originals = {
+    openCodeEvidenceDatabaseForServing: codeIndex.openCodeEvidenceDatabaseForServing,
+    codeIndexStaleness: codeIndex.codeIndexStaleness,
+    codeContextPack: codeIndex.codeContextPack,
+  };
+  const database = fakeCacheableDatabase();
+  let stalenessCalls = 0;
+  try {
+    codeIndex.openCodeEvidenceDatabaseForServing = () => ({
+      database,
+      relativePath: ".project-wiki/code-evidence.sqlite",
+    });
+    codeIndex.codeIndexStaleness = () => {
+      stalenessCalls += 1;
+      return { stale: false, changed: stalenessCalls, added: 0, deleted: 0 };
+    };
+    codeIndex.codeContextPack = () => "context body";
+
+    JSON.parse(handleLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "code_context_pack", arguments: { term: "healthHandler" } },
+    })));
+    database.meta.updated_at = "2026-06-17T00:00:03.000Z";
+    JSON.parse(handleLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "code_context_pack", arguments: { term: "healthHandler" } },
+    })));
+
+    assert.equal(stalenessCalls, 2);
     assert.equal(database.closeCalls, 2);
   } finally {
     Object.assign(codeIndex, originals);

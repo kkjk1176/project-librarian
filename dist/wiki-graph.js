@@ -124,8 +124,7 @@ function wikiQueryGraphEvidence(graph, file, depths = wikiRouterDepths(graph), l
         parts.push(`decision_ref-by ${incomingRefs.length}: ${sampled(incomingRefs, listCap)}`);
     return parts.join("; ");
 }
-function wikiImpactAnswer(pages, term) {
-    const graph = buildWikiGraph(pages);
+function wikiImpactAnswer(pages, term, graph = buildWikiGraph(pages)) {
     const depths = wikiRouterDepths(graph);
     const textByFile = new Map(pages.map((page) => [page.file, page.text]));
     const lowered = term.toLowerCase();

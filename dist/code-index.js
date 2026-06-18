@@ -57,7 +57,6 @@ const code_index_file_policy_1 = require("./code-index-file-policy");
 const evidence_1 = require("./code-index/evidence");
 const registry_1 = require("./code-index/extractors/registry");
 const shared_1 = require("./code-index/extractors/shared");
-const incremental_1 = require("./code-index/incremental");
 const modes_1 = require("./code-index/modes");
 const ownership_1 = require("./code-index/ownership");
 Object.defineProperty(exports, "codeownerRules", { enumerable: true, get: function () { return ownership_1.codeownerRules; } });
@@ -108,16 +107,30 @@ function selectedCodeParserMode() {
         return "tree-sitter";
     fail(`invalid --code-parser: ${args_1.codeParser}; expected one of: default, tree-sitter`);
 }
+function normalizedMtimeMs(stat) {
+    return Number(stat.mtimeMs.toFixed(3));
+}
+function readCodeFileFingerprint(relativePath) {
+    const stat = fs.statSync((0, workspace_1.abs)(relativePath));
+    return {
+        mtimeMs: normalizedMtimeMs(stat),
+        path: relativePath,
+        size: stat.size,
+    };
+}
 function readCodeFile(relativePath, parserMode = "default") {
     const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
+    const fingerprint = readCodeFileFingerprint(relativePath);
     const language = (0, code_index_file_policy_1.fileLanguage)(relativePath) || "config";
     return {
-        bytes: Buffer.byteLength(text),
+        bytes: fingerprint.size,
         hash: crypto.createHash("sha256").update(text).digest("hex"),
         language,
         lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
+        mtimeMs: fingerprint.mtimeMs,
         path: relativePath,
         profile: (0, registry_1.extractionProfile)(relativePath, language, parserMode),
+        size: fingerprint.size,
         text,
     };
 }
@@ -126,7 +139,7 @@ function extractionBackendForProfile(profile) {
     return extractionBackendRegistry.backendForProfile(profile);
 }
 function indexCodeFile(file, statements) {
-    statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash);
+    statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
     statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
     extractionBackendForProfile(file.profile).index(file, statements);
 }
@@ -159,14 +172,33 @@ function removeDatabaseFiles(databasePath) {
 function codeIndexStaleness(database) {
     const scopes = (0, schema_1.indexedScopes)(database);
     const parserMode = (0, schema_1.indexedParserMode)(database);
-    const currentFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]).map((file) => readCodeFile(file, parserMode));
-    const indexed = new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)]));
-    const plan = (0, incremental_1.planIndexUpdate)(currentFiles, indexed);
+    const currentFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]).map(readCodeFileFingerprint);
+    const currentPaths = new Set(currentFiles.map((file) => file.path));
+    const indexedRows = database.prepare("SELECT path, hash, mtime_ms, size FROM files").all();
+    const indexed = new Map(indexedRows.map((row) => [String(row.path), {
+            hash: String(row.hash),
+            mtimeMs: Number(row.mtime_ms),
+            size: Number(row.size),
+        }]));
+    let added = 0;
+    let changed = 0;
+    for (const file of currentFiles) {
+        const existing = indexed.get(file.path);
+        if (!existing) {
+            added += 1;
+            continue;
+        }
+        if (existing.mtimeMs === file.mtimeMs && existing.size === file.size)
+            continue;
+        if (readCodeFile(file.path, parserMode).hash !== existing.hash)
+            changed += 1;
+    }
+    const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
     return {
-        added: plan.addedFiles.length,
-        changed: plan.changedFiles.length,
-        deleted: plan.deletedPaths.length,
-        stale: plan.addedFiles.length > 0 || plan.changedFiles.length > 0 || plan.deletedPaths.length > 0,
+        added,
+        changed,
+        deleted,
+        stale: added > 0 || changed > 0 || deleted > 0,
     };
 }
 function warnIfCodeIndexStale(database, staleness = codeIndexStaleness(database)) {
@@ -350,6 +382,7 @@ function codeIndexModeRuntime() {
         indexCodeFile,
         openDatabase,
         prepareOutputPath,
+        readCodeFileFingerprint,
         readCodeFile,
         removeDatabaseFiles,
         requireExistingIndex,

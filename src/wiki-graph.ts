@@ -139,8 +139,7 @@ export function wikiQueryGraphEvidence(graph: WikiGraph, file: string, depths: M
   return parts.join("; ");
 }
 
-export function wikiImpactAnswer(pages: WikiPageInput[], term: string): string {
-  const graph = buildWikiGraph(pages);
+export function wikiImpactAnswer(pages: WikiPageInput[], term: string, graph: WikiGraph = buildWikiGraph(pages)): string {
   const depths = wikiRouterDepths(graph);
   const textByFile = new Map(pages.map((page) => [page.file, page.text]));
   const lowered = term.toLowerCase();

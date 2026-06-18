@@ -123,17 +123,19 @@ test("changed startup TL;DR re-syncs into AGENTS.md on the next run", () => {
   }
 });
 
-test("--refresh-index re-syncs the startup TL;DR into AGENTS.md", () => {
+test("--refresh-index leaves the AGENTS.md startup TL;DR sync untouched", () => {
   const root = makeTmpDir("p5-sync-refresh-");
   try {
     runCli(root);
+    const agentsBefore = readFile(root, "AGENTS.md");
     const startupPath = path.join(root, "wiki", "startup.md");
     fs.writeFileSync(startupPath, fs.readFileSync(startupPath, "utf8").replace(
       FIRST_TEMPLATE_TLDR_BULLET,
-      "REFRESH-TLDR-FACT: synced during --refresh-index.",
+      "REFRESH-TLDR-FACT: refresh-index must not sync this into AGENTS.md.",
     ));
     runCli(root, ["--refresh-index"]);
-    assert(managedAgentsBlock(root).includes("REFRESH-TLDR-FACT: synced during --refresh-index."), "refresh-index did not re-sync the TL;DR");
+    assert.equal(readFile(root, "AGENTS.md"), agentsBefore, "refresh-index must not touch AGENTS.md");
+    assert(!managedAgentsBlock(root).includes("REFRESH-TLDR-FACT"), "refresh-index unexpectedly re-synced the TL;DR");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

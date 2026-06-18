@@ -47,7 +47,6 @@ const fs = __importStar(require("node:fs"));
 const args_1 = require("../args");
 const code_index_file_policy_1 = require("../code-index-file-policy");
 const code_index_sql_1 = require("../code-index-sql");
-const incremental_1 = require("./incremental");
 const reports_1 = require("./reports");
 const schema_1 = require("./schema");
 const search_1 = require("./search");
@@ -56,6 +55,12 @@ function printRows(rows) {
 }
 function printJson(value) {
     console.log(JSON.stringify(value, null, 2));
+}
+function requireCompatibleDatabase(database, runtime) {
+    const schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
+    if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
+        runtime.fail(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${schema_1.codeIndexSchemaVersion}; rebuild with --code-index`);
+    }
 }
 function runCodeIndexMode(runtime) {
     const databasePath = runtime.codeEvidenceDatabasePath();
@@ -94,12 +99,35 @@ function runCodeIndexMode(runtime) {
         if (!incremental)
             (0, schema_1.setupDatabase)(database);
         const statements = (0, schema_1.createIndexStatements)(database);
-        const currentFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
-        const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)])) : new Map();
-        const updatePlan = (0, incremental_1.planIndexUpdate)(currentFiles, indexed);
-        const deletedPaths = incremental ? updatePlan.deletedPaths : [];
-        const reindexedFiles = incremental ? updatePlan.reindexedFiles : currentFiles;
-        const unchangedFiles = incremental ? updatePlan.unchangedFiles : 0;
+        const currentFingerprints = discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath));
+        let reindexedFiles;
+        let deletedPaths;
+        let indexedPaths = new Set();
+        let unchangedFiles = 0;
+        if (incremental) {
+            const indexedRows = database.prepare("SELECT path, hash, mtime_ms, size FROM files").all();
+            indexedPaths = new Set(indexedRows.map((row) => String(row.path)));
+            const indexed = new Map(indexedRows.map((row) => [String(row.path), {
+                    hash: String(row.hash),
+                    mtimeMs: Number(row.mtime_ms),
+                    size: Number(row.size),
+                }]));
+            const currentPaths = new Set(currentFingerprints.map((file) => file.path));
+            deletedPaths = indexedRows.map((row) => String(row.path)).filter((filePath) => !currentPaths.has(filePath));
+            reindexedFiles = [];
+            for (const file of currentFingerprints) {
+                const existing = indexed.get(file.path);
+                if (existing && existing.mtimeMs === file.mtimeMs && existing.size === file.size) {
+                    unchangedFiles += 1;
+                    continue;
+                }
+                reindexedFiles.push(runtime.readCodeFile(file.path, parserMode));
+            }
+        }
+        else {
+            deletedPaths = [];
+            reindexedFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
+        }
         database.exec("BEGIN");
         if (!incremental)
             statements.insertMeta.run("created_at", new Date().toISOString());
@@ -107,7 +135,7 @@ function runCodeIndexMode(runtime) {
         for (const filePath of deletedPaths)
             (0, schema_1.removeIndexedFile)(filePath, statements);
         for (const file of reindexedFiles) {
-            if (incremental && indexed.has(file.path))
+            if (incremental && indexedPaths.has(file.path))
                 (0, schema_1.removeIndexedFile)(file.path, statements);
             runtime.indexCodeFile(file, statements);
         }
@@ -117,7 +145,7 @@ function runCodeIndexMode(runtime) {
         console.log(`mode: ${incremental ? "incremental" : "full"}`);
         console.log(`parser_mode: ${parserMode}`);
         console.log(`scopes: ${scopes.join(", ")}`);
-        console.log(`files: ${currentFiles.length}`);
+        console.log(`files: ${currentFingerprints.length}`);
         console.log(`reindexed_files: ${reindexedFiles.length}`);
         console.log(`deleted_files: ${deletedPaths.length}`);
         console.log(`unchanged_files: ${unchangedFiles}`);
@@ -148,6 +176,7 @@ function runCodeQueryMode(runtime) {
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
         database.exec("PRAGMA query_only = ON");
+        requireCompatibleDatabase(database, runtime);
         runtime.warnIfCodeIndexStale(database);
         printRows(database.prepare(args_1.codeQuerySql).all());
     }
@@ -159,6 +188,7 @@ function runCodeReportMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         const staleness = runtime.codeIndexStaleness(database);
         runtime.warnIfCodeIndexStale(database, staleness);
         const report = runtime.codeReportForRequestedSection(database, args_1.codeReportSection, { staleness });
@@ -174,6 +204,7 @@ function runCodeStatusMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         const rows = database.prepare(`
       SELECT 'files' AS metric, count(*) AS value FROM files
       UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -194,6 +225,7 @@ function runCodeFilesMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         runtime.warnIfCodeIndexStale(database);
         printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
     }
@@ -209,6 +241,7 @@ function runCodeImpactMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         const staleness = runtime.codeIndexStaleness(database);
         runtime.warnIfCodeIndexStale(database, staleness);
         printJson(runtime.codeImpact(database, args_1.codeImpactTarget.trim(), { staleness }));
@@ -225,6 +258,7 @@ function runCodeContextPackMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         const staleness = runtime.codeIndexStaleness(database);
         runtime.warnIfCodeIndexStale(database, staleness);
         console.log(runtime.codeContextPack(database, args_1.codeContextPackTarget.trim(), { staleness }));
@@ -241,6 +275,7 @@ function runCodeSearchSymbolMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
     try {
+        requireCompatibleDatabase(database, runtime);
         runtime.warnIfCodeIndexStale(database);
         printRows((0, search_1.searchSymbols)(database, args_1.codeSearchSymbol.trim()));
     }

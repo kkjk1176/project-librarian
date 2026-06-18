@@ -11,9 +11,28 @@ function unused(name) {
   };
 }
 
+function fakeCompatibleDatabase() {
+  return {
+    closeCalls: 0,
+    close() {
+      this.closeCalls += 1;
+    },
+    prepare(sql) {
+      return {
+        all(key) {
+          if (/SELECT value FROM meta WHERE key = \?/.test(sql) && key === "schema_version") {
+            return [{ value: "4" }];
+          }
+          throw new Error(`unexpected fake database query: ${sql}`);
+        },
+      };
+    },
+  };
+}
+
 test("code report mode reuses one staleness calculation for warning and metadata", () => {
   const staleness = { stale: false, changed: 0, added: 0, deleted: 0 };
-  const database = { closeCalls: 0, close() { this.closeCalls += 1; } };
+  const database = fakeCompatibleDatabase();
   let stalenessCalls = 0;
   let warningCalls = 0;
   let reportCalls = 0;

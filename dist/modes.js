@@ -188,6 +188,27 @@ function scoreQueryBlock(block, terms) {
     const occurrences = termOccurrences(`${block.headingPath.join(" ")}\n${block.text}`, terms);
     return occurrences > 0 ? occurrences + blockKindBoost(block) : 0;
 }
+function hasMigrationQueryIntent(terms) {
+    return terms.some((term) => /^(migrat|legacy|coverage|unit|ledger|review)/.test(term));
+}
+function isMigrationSurface(file, meta) {
+    return file.startsWith("wiki/migration/")
+        || /(?:^|-)migration(?:-|$)/.test(file)
+        || /migration|legacy/.test(meta.scope);
+}
+function querySurfaceScore(file, meta, rawScore, terms) {
+    if (rawScore <= 0)
+        return 0;
+    if (isMigrationSurface(file, meta) && !hasMigrationQueryIntent(terms)) {
+        return Math.max(1, Math.floor(rawScore * 0.25) - 20);
+    }
+    let score = rawScore;
+    if (file.startsWith("wiki/canonical/") && meta.status === "active")
+        score += 12;
+    else if (meta.status === "active")
+        score += 2;
+    return score;
+}
 // Answer-shaped query output (2026-06-12 method-transfer decision): first line is
 // the answer, each result carries the page's TL;DR first bullet and the strongest
 // matching block so the agent can pick a page without opening it, and the whole
@@ -198,8 +219,9 @@ function runQueryMode() {
         process.exit(1);
     }
     const terms = args_1.queryTerm.toLowerCase().split(/\s+/).filter(Boolean);
-    const pages = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => ({ file, text: (0, workspace_1.read)(file) }));
-    const graph = (0, wiki_graph_1.buildWikiGraph)(pages);
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    const pages = corpus.pages;
+    const graph = (0, wiki_corpus_1.wikiCorpusGraph)(corpus);
     const routerDepths = (0, wiki_graph_1.wikiRouterDepths)(graph);
     const matches = pages.map(({ file, text }) => {
         const body = (0, workspace_1.stripMetadataHeader)(text);
@@ -213,7 +235,7 @@ function runQueryMode() {
             .sort((left, right) => right.score - left.score || left.block.line - right.block.line || left.block.id.localeCompare(right.block.id));
         const topBlock = blocks[0]?.block;
         const blockScore = blocks.slice(0, 5).reduce((sum, item) => sum + item.score, 0);
-        const score = metadataScore + blockScore;
+        const score = querySurfaceScore(file, meta, metadataScore + blockScore, terms);
         return {
             blockKind: topBlock?.kind ?? "",
             blockLine: topBlock?.line ?? 0,
@@ -263,8 +285,8 @@ function runWikiImpactMode() {
         console.error("missing wiki impact target: use --wiki-impact \"page-or-term\"");
         process.exit(1);
     }
-    const pages = (0, wiki_files_1.wikiMarkdownFiles)().map((file) => ({ file, text: (0, workspace_1.read)(file) }));
-    console.log((0, wiki_graph_1.wikiImpactAnswer)(pages, args_1.wikiImpactTarget.trim()));
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    console.log((0, wiki_graph_1.wikiImpactAnswer)(corpus.pages, args_1.wikiImpactTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
 }
 function projectCandidatesContent() {
     return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
