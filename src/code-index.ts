@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase } from "./code-index-db";
 import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
@@ -9,7 +9,8 @@ import { collectCodeEvidence } from "./code-index/evidence";
 import { createExtractionBackendRegistry, extractionProfile } from "./code-index/extractors/registry";
 import { oneLine } from "./code-index/extractors/shared";
 import type { CodeFile, CodeFileFingerprint } from "./code-index/extractors/types";
-import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexModeRuntime } from "./code-index/modes";
+import { formatCodeIndexHealthRemediation, inspectCodeIndexHealth, type CodeIndexHealth } from "./code-index/index-health";
+import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexHealthMode as runCodeIndexHealthModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexModeRuntime } from "./code-index/modes";
 import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
 import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
@@ -19,6 +20,7 @@ import { abs, mkdirp, normalizePath, root } from "./workspace";
 export { codeownerRules, evidenceCoverage, matchedCodeownerRules, ownershipContext, ownershipInfo, searchSymbols, workspaceDependencyGraph, workspaceSummary };
 export { codeIndexSnapshot };
 export type { CodeIndexSnapshot, CodeIndexSnapshotRow } from "./code-index/schema";
+export type { CodeIndexHealth };
 export type { MatchedCodeownerRule, OwnershipContext, OwnershipInfo };
 
 export interface CodeIndexStaleness {
@@ -40,6 +42,7 @@ interface CodeEvidenceModeFlags {
   codeContextPackTarget: string;
   codeFilesMode: boolean;
   codeImpactMode: boolean;
+  codeIndexHealthMode?: boolean;
   codeIndexMode: boolean;
   codeQuerySql: string;
   codeReportMode: boolean;
@@ -188,6 +191,19 @@ export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness
     deleted,
     stale: added > 0 || changed > 0 || deleted > 0,
   };
+}
+
+export function codeIndexHealth(): CodeIndexHealth {
+  const databasePath = codeEvidenceDatabasePath();
+  return inspectCodeIndexHealth({
+    absolutePath: databasePath.absolutePath,
+    defaultScopes: codeScopes(),
+    discoverCodeFiles,
+    expectedSchemaVersion: codeIndexSchemaVersion,
+    openDatabase,
+    relativePath: databasePath.relativePath,
+    smallRepoThreshold: SMALL_REPO_FILE_THRESHOLD,
+  });
 }
 
 function warnIfCodeIndexStale(database: SqliteDatabase, staleness = codeIndexStaleness(database)): void {
@@ -351,7 +367,7 @@ export function openCodeEvidenceDatabaseForServing(): { database: SqliteDatabase
   }
   if (schemaVersion !== codeIndexSchemaVersion) {
     database.close();
-    throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+    throw new CodeEvidenceIndexUnavailableError(formatCodeIndexHealthRemediation(codeIndexHealth()));
   }
   database.exec("PRAGMA query_only = ON");
   return { database, relativePath: databasePath.relativePath };
@@ -369,6 +385,7 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     codeContextPack,
     codeEvidenceDatabasePath,
     codeImpact,
+    codeIndexHealth,
     codeIndexStaleness,
     codeReportForRequestedSection: (database, requestedSection, options) => codeReportForRequestedSection(database, requestedSection, codeReportRuntime(database, options)),
     codeScopes,
@@ -399,6 +416,10 @@ export function runCodeReportMode(): void {
 
 export function runCodeStatusMode(): void {
   runCodeStatusModeImpl(codeIndexModeRuntime());
+}
+
+export function runCodeIndexHealthMode(): void {
+  runCodeIndexHealthModeImpl(codeIndexModeRuntime());
 }
 
 export function runCodeFilesMode(): void {

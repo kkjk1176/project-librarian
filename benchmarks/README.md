@@ -4,7 +4,11 @@ Project Librarian benchmark evidence is based on actual Codex JSONL usage and lo
 
 ## Code performance efficiency harness
 
-`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated.
+`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes a `sample_corpora` section for checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, and `python-cli`) so synthetic scale evidence and mixed sample evidence stay separate.
+
+## Claim ledger
+
+`npm run benchmark:claim-ledger` summarizes measured reports and payload previews into `release_claimable`, `diagnostic_only`, or `failed` rows per track and corpus. A passing claim gate is not enough for `release_claimable`; the report also needs a clean source-control provenance, explicit model, sanitized pack, `--require-clean`, `--require-claimable`, and enough runs for `min_runs_for_claim`. Payload previews are always `diagnostic_only` because they do not measure Codex output.
 
 ## Dual-track benchmark
 

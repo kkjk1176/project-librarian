@@ -43,6 +43,7 @@ Options:
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
+  --code-index-health              Inspect code evidence cache compatibility and print rebuild guidance without writing.
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
@@ -77,6 +78,7 @@ function activeCodeEvidenceCliModes() {
         { active: args_1.codeImpactMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeImpactMode() },
         { active: args_1.codeContextPackMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeContextPackMode() },
         { active: args_1.codeSearchSymbolMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeSearchSymbolMode() },
+        { active: args_1.codeIndexHealthMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeIndexHealthMode() },
         { active: args_1.codeIndexMode, drainStdout: false, run: (codeIndexModule) => codeIndexModule.runCodeIndexMode() },
     ];
     return modes.filter((mode) => mode.active);
@@ -162,7 +164,7 @@ else {
 function runInitCommand() {
     const activeCodeModes = activeCodeEvidenceCliModes();
     if (activeCodeModes.length > 1) {
-        console.error("Use one code evidence mode at a time: --code-index, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
+        console.error("Use one code evidence mode at a time: --code-index, --code-index-health, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
         process.exit(1);
     }
     const activeCodeMode = activeCodeModes[0];

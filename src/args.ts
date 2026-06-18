@@ -11,6 +11,7 @@ export interface ParsedArgs {
   codeImpactMode: boolean;
   codeImpactTarget: string;
   codeIndexFullMode: boolean;
+  codeIndexHealthMode: boolean;
   codeIndexIncrementalMode: boolean;
   codeIndexMode: boolean;
   codeIndexOutput: string;
@@ -71,6 +72,7 @@ const flagsWithoutValues: Set<string> = new Set([
   "--code-incremental",
   "--code-index",
   "--code-index-full",
+  "--code-index-health",
   "--code-index-incremental",
   "--code-evidence-index-full",
   "--code-evidence-index-incremental",
@@ -204,6 +206,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     codeImpactMode: hasFlag("--code-impact") || hasFlag("--code-evidence-impact"),
     codeImpactTarget,
     codeIndexFullMode: args.has("--code-index-full") || args.has("--code-evidence-index-full"),
+    codeIndexHealthMode: args.has("--code-index-health"),
     codeIndexIncrementalMode: args.has("--incremental") || args.has("--code-incremental") || args.has("--code-index-incremental") || args.has("--code-evidence-index-incremental"),
     codeIndexMode: args.has("--code-index") || args.has("--code-evidence-index"),
     codeIndexOutput: argValue("--code-index-out") || argValue("--code-evidence-out") || ".project-wiki/code-evidence.sqlite",
@@ -287,6 +290,7 @@ export const acknowledgeSmallRepoMode = parsedArgs.acknowledgeSmallRepoMode;
 export const codeIndexMode = parsedArgs.codeIndexMode;
 export const codeIndexIncrementalMode = parsedArgs.codeIndexIncrementalMode;
 export const codeIndexFullMode = parsedArgs.codeIndexFullMode;
+export const codeIndexHealthMode = parsedArgs.codeIndexHealthMode;
 export const codeReportMode = parsedArgs.codeReportMode;
 export const codeStatusMode = parsedArgs.codeStatusMode;
 export const codeFilesMode = parsedArgs.codeFilesMode;

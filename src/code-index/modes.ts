@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexIncrementalMode, codeIndexMode, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "../args";
+import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "../args";
 import type { SqliteDatabase } from "../code-index-db";
 import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-policy";
 import { isReadOnlySql } from "../code-index-sql";
@@ -18,6 +18,7 @@ export interface CodeIndexModeRuntime {
   codeContextPack(database: SqliteDatabase, query: string, options?: CodeContextPackOptions): string;
   codeEvidenceDatabasePath(): CodeEvidenceDatabasePath;
   codeImpact(database: SqliteDatabase, target: string, options?: CodeEvidenceRenderOptions): Record<string, unknown>;
+  codeIndexHealth(): unknown;
   codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness;
   codeReportForRequestedSection(database: SqliteDatabase, requestedSection: string, options?: CodeEvidenceRenderOptions): Record<string, unknown> | undefined;
   codeScopes(): string[];
@@ -201,6 +202,10 @@ export function runCodeStatusMode(runtime: CodeIndexModeRuntime): void {
   }
 }
 
+export function runCodeIndexHealthMode(runtime: CodeIndexModeRuntime): void {
+  printJson(runtime.codeIndexHealth());
+}
+
 export function runCodeFilesMode(runtime: CodeIndexModeRuntime): void {
   runtime.requireExistingIndex();
   const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
@@ -263,8 +268,9 @@ export function runCodeSearchSymbolMode(runtime: CodeIndexModeRuntime): void {
   }
 }
 
-export function isCodeEvidenceModeFor(flags: { codeContextPackTarget: string; codeFilesMode: boolean; codeImpactMode: boolean; codeIndexMode: boolean; codeQuerySql: string; codeReportMode: boolean; codeSearchSymbol: string; codeStatusMode: boolean }): boolean {
+export function isCodeEvidenceModeFor(flags: { codeContextPackTarget: string; codeFilesMode: boolean; codeImpactMode: boolean; codeIndexHealthMode?: boolean; codeIndexMode: boolean; codeQuerySql: string; codeReportMode: boolean; codeSearchSymbol: string; codeStatusMode: boolean }): boolean {
   return Boolean(flags.codeContextPackTarget)
+    || Boolean(flags.codeIndexHealthMode)
     || flags.codeIndexMode
     || Boolean(flags.codeQuerySql)
     || flags.codeReportMode
@@ -275,5 +281,5 @@ export function isCodeEvidenceModeFor(flags: { codeContextPackTarget: string; co
 }
 
 export function isCodeEvidenceMode(): boolean {
-  return isCodeEvidenceModeFor({ codeContextPackTarget, codeFilesMode, codeImpactMode, codeIndexMode, codeQuerySql, codeReportMode, codeSearchSymbol, codeStatusMode });
+  return isCodeEvidenceModeFor({ codeContextPackTarget, codeFilesMode, codeImpactMode, codeIndexHealthMode, codeIndexMode, codeQuerySql, codeReportMode, codeSearchSymbol, codeStatusMode });
 }

@@ -29,6 +29,7 @@ const {
   handleLine,
 } = require("../../dist/mcp-server.js");
 const codeIndex = require("../../dist/code-index.js");
+const { openDatabase } = require("../../dist/code-index-db.js");
 const distTemplates = require("../../dist/templates.js");
 
 function makeTmpDir(prefix) {
@@ -300,6 +301,37 @@ test("tools/list works even without an index (only tools/call reports the missin
     assert.equal(responses[0].result.tools.length, 6);
     assert.equal(responses[1].result.isError, true);
     assert.match(toolResultText(responses[1]), /run `project-librarian --code-index`/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("tools/call reports incompatible index schema with health-style rebuild guidance", () => {
+  const cwd = makeTmpDir("mcp-old-schema-");
+  try {
+    fs.mkdirSync(path.join(cwd, ".project-wiki"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "fixture.js"), "export const fixture = true;\n");
+    const database = openDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"), (message) => {
+      throw new Error(message);
+    });
+    try {
+      database.exec(`
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO meta (key, value) VALUES ('schema_version', '3');
+        INSERT INTO meta (key, value) VALUES ('scopes_json', '["."]');
+      `);
+    } finally {
+      database.close();
+    }
+
+    const [response] = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "code_status", arguments: {} } },
+    ]);
+    assert.equal(response.result.isError, true);
+    const text = toolResultText(response);
+    assert.match(text, /schema version 3 is incompatible with 4/);
+    assert.match(text, /status: incompatible_schema/);
+    assert.match(text, /rebuild: project-librarian --code-index --code-index-full --acknowledge-small-repo/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

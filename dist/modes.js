@@ -64,6 +64,7 @@ const migration_1 = require("./migration");
 const wiki_files_1 = require("./wiki-files");
 const wiki_graph_1 = require("./wiki-graph");
 const wiki_corpus_1 = require("./wiki-corpus");
+const wiki_diagnostics_1 = require("./wiki-diagnostics");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
 function isScopedAutoIndex(file) {
@@ -694,8 +695,9 @@ function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)())
         if (tldrExpected && !/##\s+TL;DR/.test(body)) {
             diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
         }
-        if (status === "active" && updated && updated < workspace_1.today && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
-            diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated before today: ${updated}` });
+        const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, workspace_1.today) : null;
+        if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
+            diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
         }
         if (status === "active" && !/inbox|migration-inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
             diagnostics.push({ code: "unresolved-signal", severity: "warn", file, message: "contains pending/proposed/undecided language" });

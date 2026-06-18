@@ -188,6 +188,7 @@ npx project-librarian install-skill --scope project --agents all
 | 증분 갱신 요구 | "Project Librarian 코드 근거 인덱스를 증분 갱신해줘." | `--code-index --incremental` |
 | 전체 재생성 강제 | "Project Librarian 코드 근거 인덱스를 전체 재생성해줘." | `--code-index --code-index-full` |
 | 선택적 Tree-sitter 백엔드 사용 | "Tree-sitter 파서로 Project Librarian 코드 근거를 만들어줘." | `--code-index --code-parser tree-sitter` |
+| 캐시 호환성 진단 | "Project Librarian 코드 근거 캐시 health를 확인해줘." | `--code-index-health` |
 | 캐시 상태 보기 | "Project Librarian 코드 근거 상태를 보여줘." | `--code-status` |
 | 인덱싱된 파일 목록 | "Project Librarian 코드 근거에 인덱싱된 파일을 보여줘." | `--code-files` |
 | 아키텍처/소유권 보고서 출력 | "Project Librarian 코드 보고서를 보여줘." | `--code-report` |
@@ -351,6 +352,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--
 | `--review-migration`, `--semantic-migrate` | 마이그레이션 coverage와 수신함 상태를 마이그레이션 검토 파일에 동기화합니다. |
 | `--no-git-config` | `git core.hooksPath`를 바꾸지 않고 훅 파일을 설치합니다. |
 | `--code-index` | 폐기 가능한 코드 근거 인덱스를 빌드합니다. |
+| `--code-index-health` | 코드 근거 캐시 호환성을 검사하고 쓰기 없이 재빌드 안내를 출력합니다. |
 | `--code-report` | 근거 인덱스에서 아키텍처/소유권 요약을 출력합니다. |
 | `--code-report-section <section>` | 한 섹션만 출력: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, `edges`. |
 | `--code-impact <term>` | 파일, 심볼, route, import, edge, 소유자 영향 근거를 보여줍니다. |
@@ -367,14 +369,18 @@ npm install
 npm run typecheck
 npm run build
 npm test
+npm run benchmark:claim-ledger
+npm run release:check
 npm pack --dry-run
 ```
 
 `src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요.
 
+`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, 벤치마크 파서 smoke, 벤치마크 release preview, 벤치마크 claim ledger 분류, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 measured Codex 벤치마크도 실행하지 않습니다.
+
 관리자 벤치마크 명령은 [benchmarks/README.md](benchmarks/README.md)에 있습니다. 이 명령은 릴리스 근거와 공개 주장 검증을 위한 것이며, 일반 사용자 설정 절차가 아닙니다.
 
-코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다.
+코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서에는 `mixed-monorepo`를 포함한 체크인 샘플 corpus도 합성 scale fixture와 분리해 포함됩니다.
 
 무시된 오래된 LLM 벤치마크 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 먼저 감사할 수 있습니다.
 

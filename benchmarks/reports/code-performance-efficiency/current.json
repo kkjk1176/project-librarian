@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-06-17T23:49:23.813Z",
-  "node": "v22.19.0",
+  "generated_at": "2026-06-18T00:56:21.186Z",
+  "node": "v22.17.1",
   "runs_per_command": 3,
   "scales": [
     {
       "file_count": 3000,
-      "index_time_ms": 401.245833,
+      "index_time_ms": 397.366083,
       "current_db": {
         "file_bytes": 6049792,
         "page_count": 1477,
@@ -36,80 +36,80 @@
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 147.882333,
-          "median_ms": 149.22625,
-          "p95_ms": 151.881667,
-          "max_ms": 151.881667
+          "min_ms": 142.805458,
+          "median_ms": 143.663084,
+          "p95_ms": 144.129833,
+          "max_ms": 144.129833
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 150.210125,
-          "median_ms": 154.267708,
-          "p95_ms": 156.637583,
-          "max_ms": 156.637583
+          "min_ms": 146.69425,
+          "median_ms": 146.953375,
+          "p95_ms": 153.030583,
+          "max_ms": 153.030583
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 156.949875,
-          "median_ms": 161.051666,
-          "p95_ms": 163.326833,
-          "max_ms": 163.326833
+          "min_ms": 151.296542,
+          "median_ms": 151.578875,
+          "p95_ms": 151.809625,
+          "max_ms": 151.809625
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 145.636958,
-          "median_ms": 146.82425,
-          "p95_ms": 147.652667,
-          "max_ms": 147.652667
+          "min_ms": 142.173792,
+          "median_ms": 142.693958,
+          "p95_ms": 144.289667,
+          "max_ms": 144.289667
         }
       },
       "query_groups": {
         "file_search_path": {
           "runs": 3,
-          "min_ms": 0.959209,
-          "median_ms": 1.128542,
-          "p95_ms": 1.582667,
-          "max_ms": 1.582667,
+          "min_ms": 0.969542,
+          "median_ms": 1.03325,
+          "p95_ms": 1.433708,
+          "max_ms": 1.433708,
           "rows": 1
         },
         "symbol_search_single_token": {
           "runs": 3,
-          "min_ms": 2.00075,
-          "median_ms": 2.183625,
-          "p95_ms": 2.378625,
-          "max_ms": 2.378625,
+          "min_ms": 1.880125,
+          "median_ms": 2.061708,
+          "p95_ms": 2.188625,
+          "max_ms": 2.188625,
           "rows": 1
         },
         "symbol_search_multi_token": {
           "runs": 3,
-          "min_ms": 2.070709,
-          "median_ms": 2.286708,
-          "p95_ms": 2.435375,
-          "max_ms": 2.435375,
+          "min_ms": 2.487542,
+          "median_ms": 2.55425,
+          "p95_ms": 2.647084,
+          "max_ms": 2.647084,
           "rows": 1
         },
         "route_contains": {
           "runs": 3,
-          "min_ms": 0.347083,
-          "median_ms": 0.407,
-          "p95_ms": 0.468459,
-          "max_ms": 0.468459,
+          "min_ms": 0.371166,
+          "median_ms": 0.382833,
+          "p95_ms": 0.394834,
+          "max_ms": 0.394834,
           "rows": 0
         },
         "import_contains": {
           "runs": 3,
-          "min_ms": 0.418291,
-          "median_ms": 0.486459,
-          "p95_ms": 0.501084,
-          "max_ms": 0.501084,
+          "min_ms": 0.32775,
+          "median_ms": 0.341625,
+          "p95_ms": 0.396042,
+          "max_ms": 0.396042,
           "rows": 75
         },
         "edge_contains": {
           "runs": 3,
-          "min_ms": 1.240125,
-          "median_ms": 1.3135,
-          "p95_ms": 1.330041,
-          "max_ms": 1.330041,
+          "min_ms": 1.160875,
+          "median_ms": 1.225333,
+          "p95_ms": 1.276917,
+          "max_ms": 1.276917,
           "rows": 100
         }
       },
@@ -136,7 +136,7 @@
     },
     {
       "file_count": 10000,
-      "index_time_ms": 951.593167,
+      "index_time_ms": 939.321875,
       "current_db": {
         "file_bytes": 20336640,
         "page_count": 4965,
@@ -167,80 +167,80 @@
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 215.898625,
-          "median_ms": 216.068083,
-          "p95_ms": 218.436958,
-          "max_ms": 218.436958
+          "min_ms": 204.271,
+          "median_ms": 205.103792,
+          "p95_ms": 207.862708,
+          "max_ms": 207.862708
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 220.819125,
-          "median_ms": 231.953708,
-          "p95_ms": 235.533334,
-          "max_ms": 235.533334
+          "min_ms": 222.790125,
+          "median_ms": 223.158666,
+          "p95_ms": 223.89,
+          "max_ms": 223.89
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 241.91175,
-          "median_ms": 251.687291,
-          "p95_ms": 253.274666,
-          "max_ms": 253.274666
+          "min_ms": 236.5255,
+          "median_ms": 236.543542,
+          "p95_ms": 237.41875,
+          "max_ms": 237.41875
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 203.18025,
-          "median_ms": 203.285833,
-          "p95_ms": 206.244875,
-          "max_ms": 206.244875
+          "min_ms": 204.558875,
+          "median_ms": 206.0445,
+          "p95_ms": 206.9475,
+          "max_ms": 206.9475
         }
       },
       "query_groups": {
         "file_search_path": {
           "runs": 3,
-          "min_ms": 2.385417,
-          "median_ms": 2.586666,
-          "p95_ms": 2.610875,
-          "max_ms": 2.610875,
+          "min_ms": 2.491375,
+          "median_ms": 2.518208,
+          "p95_ms": 2.595791,
+          "max_ms": 2.595791,
           "rows": 1
         },
         "symbol_search_single_token": {
           "runs": 3,
-          "min_ms": 6.290875,
-          "median_ms": 6.454917,
-          "p95_ms": 7.053834,
-          "max_ms": 7.053834,
+          "min_ms": 6.486042,
+          "median_ms": 6.643583,
+          "p95_ms": 6.78,
+          "max_ms": 6.78,
           "rows": 1
         },
         "symbol_search_multi_token": {
           "runs": 3,
-          "min_ms": 6.585334,
-          "median_ms": 6.815792,
-          "p95_ms": 6.984792,
-          "max_ms": 6.984792,
+          "min_ms": 8.172583,
+          "median_ms": 8.29175,
+          "p95_ms": 8.532792,
+          "max_ms": 8.532792,
           "rows": 1
         },
         "route_contains": {
           "runs": 3,
-          "min_ms": 0.323208,
-          "median_ms": 0.362833,
-          "p95_ms": 0.497625,
-          "max_ms": 0.497625,
+          "min_ms": 0.273833,
+          "median_ms": 0.327875,
+          "p95_ms": 0.342542,
+          "max_ms": 0.342542,
           "rows": 0
         },
         "import_contains": {
           "runs": 3,
-          "min_ms": 0.354042,
-          "median_ms": 0.358833,
-          "p95_ms": 0.51725,
-          "max_ms": 0.51725,
+          "min_ms": 0.327375,
+          "median_ms": 0.383458,
+          "p95_ms": 0.41175,
+          "max_ms": 0.41175,
           "rows": 75
         },
         "edge_contains": {
           "runs": 3,
-          "min_ms": 3.200666,
-          "median_ms": 3.233958,
-          "p95_ms": 3.474,
-          "max_ms": 3.474,
+          "min_ms": 3.012708,
+          "median_ms": 3.024083,
+          "p95_ms": 3.145875,
+          "max_ms": 3.145875,
           "rows": 100
         }
       },
@@ -267,7 +267,7 @@
     },
     {
       "file_count": 50000,
-      "index_time_ms": 4450.510958,
+      "index_time_ms": 6201.559792,
       "current_db": {
         "file_bytes": 102354944,
         "page_count": 24989,
@@ -298,80 +298,80 @@
       "commands": {
         "code_status": {
           "runs": 3,
-          "min_ms": 626.872042,
-          "median_ms": 632.727792,
-          "p95_ms": 632.905792,
-          "max_ms": 632.905792
+          "min_ms": 627.123,
+          "median_ms": 629.215333,
+          "p95_ms": 635.230083,
+          "max_ms": 635.230083
         },
         "code_context_pack": {
           "runs": 3,
-          "min_ms": 717.249083,
-          "median_ms": 721.204417,
-          "p95_ms": 724.791709,
-          "max_ms": 724.791709
+          "min_ms": 701.346125,
+          "median_ms": 705.934375,
+          "p95_ms": 725.609541,
+          "max_ms": 725.609541
         },
         "code_impact": {
           "runs": 3,
-          "min_ms": 770.416625,
-          "median_ms": 784.005833,
-          "p95_ms": 787.679709,
-          "max_ms": 787.679709
+          "min_ms": 760.994583,
+          "median_ms": 771.573458,
+          "p95_ms": 916.39625,
+          "max_ms": 916.39625
         },
         "code_report_coverage": {
           "runs": 3,
-          "min_ms": 624.742042,
-          "median_ms": 633.171584,
-          "p95_ms": 637.776,
-          "max_ms": 637.776
+          "min_ms": 620.118417,
+          "median_ms": 623.014209,
+          "p95_ms": 626.081583,
+          "max_ms": 626.081583
         }
       },
       "query_groups": {
         "file_search_path": {
           "runs": 3,
-          "min_ms": 12.169875,
-          "median_ms": 12.337375,
-          "p95_ms": 12.37525,
-          "max_ms": 12.37525,
+          "min_ms": 11.4825,
+          "median_ms": 11.649125,
+          "p95_ms": 16.665833,
+          "max_ms": 16.665833,
           "rows": 1
         },
         "symbol_search_single_token": {
           "runs": 3,
-          "min_ms": 34.77475,
-          "median_ms": 36.077917,
-          "p95_ms": 36.287584,
-          "max_ms": 36.287584,
+          "min_ms": 34.071,
+          "median_ms": 34.736333,
+          "p95_ms": 36.340583,
+          "max_ms": 36.340583,
           "rows": 1
         },
         "symbol_search_multi_token": {
           "runs": 3,
-          "min_ms": 36.364542,
-          "median_ms": 36.567083,
-          "p95_ms": 36.943375,
-          "max_ms": 36.943375,
+          "min_ms": 43.76425,
+          "median_ms": 44.289208,
+          "p95_ms": 59.117166,
+          "max_ms": 59.117166,
           "rows": 1
         },
         "route_contains": {
           "runs": 3,
-          "min_ms": 0.51425,
-          "median_ms": 0.519666,
-          "p95_ms": 0.620375,
-          "max_ms": 0.620375,
+          "min_ms": 0.3465,
+          "median_ms": 0.346583,
+          "p95_ms": 0.497459,
+          "max_ms": 0.497459,
           "rows": 0
         },
         "import_contains": {
           "runs": 3,
-          "min_ms": 0.450041,
-          "median_ms": 0.457667,
-          "p95_ms": 0.48575,
-          "max_ms": 0.48575,
+          "min_ms": 0.364333,
+          "median_ms": 0.372292,
+          "p95_ms": 0.448541,
+          "max_ms": 0.448541,
           "rows": 75
         },
         "edge_contains": {
           "runs": 3,
-          "min_ms": 16.008,
-          "median_ms": 16.07325,
-          "p95_ms": 16.13125,
-          "max_ms": 16.13125,
+          "min_ms": 15.330416,
+          "median_ms": 15.633083,
+          "p95_ms": 15.700667,
+          "max_ms": 15.700667,
           "rows": 100
         }
       },
@@ -397,20 +397,316 @@
       }
     }
   ],
+  "sample_corpora": [
+    {
+      "name": "mixed-monorepo",
+      "corpus_kind": "mixed",
+      "index_time_ms": 121.775292,
+      "current_db": {
+        "file_bytes": 114688,
+        "page_count": 28,
+        "page_size": 4096,
+        "page_bytes": 114688,
+        "rows": {
+          "files": 7,
+          "symbols": 7,
+          "imports": 3,
+          "routes": 2,
+          "edges": 7
+        }
+      },
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 111.093833,
+          "median_ms": 111.1635,
+          "p95_ms": 111.634709,
+          "max_ms": 111.634709
+        },
+        "code_files": {
+          "runs": 3,
+          "min_ms": 110.851,
+          "median_ms": 111.055208,
+          "p95_ms": 113.289291,
+          "max_ms": 113.289291
+        },
+        "code_search_symbol": {
+          "runs": 3,
+          "min_ms": 110.739667,
+          "median_ms": 111.459208,
+          "p95_ms": 111.723,
+          "max_ms": 111.723
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 116.166834,
+          "median_ms": 117.236667,
+          "p95_ms": 118.104625,
+          "max_ms": 118.104625
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 0.348292,
+          "median_ms": 0.366625,
+          "p95_ms": 5.200292,
+          "max_ms": 5.200292,
+          "rows": 2
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 0.423041,
+          "median_ms": 0.430458,
+          "p95_ms": 0.609125,
+          "max_ms": 0.609125,
+          "rows": 2
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 0.487542,
+          "median_ms": 0.507458,
+          "p95_ms": 0.550125,
+          "max_ms": 0.550125,
+          "rows": 1
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.316,
+          "median_ms": 0.352125,
+          "p95_ms": 0.380083,
+          "max_ms": 0.380083,
+          "rows": 2
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.309709,
+          "median_ms": 0.32775,
+          "p95_ms": 0.361667,
+          "max_ms": 0.361667,
+          "rows": 2
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 0.293667,
+          "median_ms": 0.406,
+          "p95_ms": 0.427125,
+          "max_ms": 0.427125,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "web-service",
+      "corpus_kind": "service",
+      "index_time_ms": 119.345209,
+      "current_db": {
+        "file_bytes": 114688,
+        "page_count": 28,
+        "page_size": 4096,
+        "page_bytes": 114688,
+        "rows": {
+          "files": 4,
+          "symbols": 6,
+          "imports": 1,
+          "routes": 2,
+          "edges": 7
+        }
+      },
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 110.865417,
+          "median_ms": 110.906666,
+          "p95_ms": 111.283333,
+          "max_ms": 111.283333
+        },
+        "code_files": {
+          "runs": 3,
+          "min_ms": 109.193625,
+          "median_ms": 110.226291,
+          "p95_ms": 111.806583,
+          "max_ms": 111.806583
+        },
+        "code_search_symbol": {
+          "runs": 3,
+          "min_ms": 109.477791,
+          "median_ms": 109.93075,
+          "p95_ms": 109.997666,
+          "max_ms": 109.997666
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 110.446208,
+          "median_ms": 111.225458,
+          "p95_ms": 112.933958,
+          "max_ms": 112.933958
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 0.339209,
+          "median_ms": 0.372833,
+          "p95_ms": 0.392,
+          "max_ms": 0.392,
+          "rows": 1
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 0.35525,
+          "median_ms": 0.440375,
+          "p95_ms": 0.447416,
+          "max_ms": 0.447416,
+          "rows": 2
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 0.372167,
+          "median_ms": 0.51975,
+          "p95_ms": 0.544666,
+          "max_ms": 0.544666,
+          "rows": 2
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.314958,
+          "median_ms": 0.401917,
+          "p95_ms": 0.426208,
+          "max_ms": 0.426208,
+          "rows": 2
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.34425,
+          "median_ms": 0.3945,
+          "p95_ms": 0.46475,
+          "max_ms": 0.46475,
+          "rows": 1
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 0.287791,
+          "median_ms": 0.304333,
+          "p95_ms": 0.421,
+          "max_ms": 0.421,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "python-cli",
+      "corpus_kind": "single-language",
+      "index_time_ms": 115.409542,
+      "current_db": {
+        "file_bytes": 114688,
+        "page_count": 28,
+        "page_size": 4096,
+        "page_bytes": 114688,
+        "rows": {
+          "files": 2,
+          "symbols": 3,
+          "imports": 1,
+          "routes": 0,
+          "edges": 1
+        }
+      },
+      "commands": {
+        "code_status": {
+          "runs": 3,
+          "min_ms": 109.456625,
+          "median_ms": 109.754875,
+          "p95_ms": 109.985084,
+          "max_ms": 109.985084
+        },
+        "code_files": {
+          "runs": 3,
+          "min_ms": 109.852625,
+          "median_ms": 110.238334,
+          "p95_ms": 110.666458,
+          "max_ms": 110.666458
+        },
+        "code_search_symbol": {
+          "runs": 3,
+          "min_ms": 109.249541,
+          "median_ms": 112.215875,
+          "p95_ms": 123.878166,
+          "max_ms": 123.878166
+        },
+        "code_context_pack": {
+          "runs": 3,
+          "min_ms": 111.45,
+          "median_ms": 113.140875,
+          "p95_ms": 113.226959,
+          "max_ms": 113.226959
+        }
+      },
+      "query_groups": {
+        "file_search_path": {
+          "runs": 3,
+          "min_ms": 0.370667,
+          "median_ms": 0.393541,
+          "p95_ms": 0.457333,
+          "max_ms": 0.457333,
+          "rows": 1
+        },
+        "symbol_search_single_token": {
+          "runs": 3,
+          "min_ms": 0.549542,
+          "median_ms": 0.60775,
+          "p95_ms": 0.693667,
+          "max_ms": 0.693667,
+          "rows": 1
+        },
+        "symbol_search_multi_token": {
+          "runs": 3,
+          "min_ms": 0.527292,
+          "median_ms": 0.579959,
+          "p95_ms": 0.658958,
+          "max_ms": 0.658958,
+          "rows": 1
+        },
+        "route_contains": {
+          "runs": 3,
+          "min_ms": 0.323375,
+          "median_ms": 0.370708,
+          "p95_ms": 0.472,
+          "max_ms": 0.472,
+          "rows": 0
+        },
+        "import_contains": {
+          "runs": 3,
+          "min_ms": 0.29525,
+          "median_ms": 0.315708,
+          "p95_ms": 0.362,
+          "max_ms": 0.362,
+          "rows": 1
+        },
+        "edge_contains": {
+          "runs": 3,
+          "min_ms": 0.286459,
+          "median_ms": 0.344666,
+          "p95_ms": 0.385,
+          "max_ms": 0.385,
+          "rows": 0
+        }
+      }
+    }
+  ],
   "build_commands": {
     "build": {
       "runs": 1,
-      "min_ms": 1131.595166,
-      "median_ms": 1131.595166,
-      "p95_ms": 1131.595166,
-      "max_ms": 1131.595166
+      "min_ms": 1128.09675,
+      "median_ms": 1128.09675,
+      "p95_ms": 1128.09675,
+      "max_ms": 1128.09675
     },
     "typecheck": {
       "runs": 1,
-      "min_ms": 977.202292,
-      "median_ms": 977.202292,
-      "p95_ms": 977.202292,
-      "max_ms": 977.202292
+      "min_ms": 970.557333,
+      "median_ms": 970.557333,
+      "p95_ms": 970.557333,
+      "max_ms": 970.557333
     }
   },
   "decisions": {

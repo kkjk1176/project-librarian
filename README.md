@@ -351,6 +351,7 @@ Important options:
 | `--review-migration`, `--semantic-migrate` | Sync migration coverage and inbox statuses into migration review files. |
 | `--no-git-config` | Install hook files without changing `git core.hooksPath`. |
 | `--code-index` | Build the disposable code evidence index. |
+| `--code-index-health` | Inspect code evidence cache compatibility and print rebuild guidance without writing. |
 | `--code-report` | Print architecture and ownership summaries from the evidence index. |
 | `--code-report-section <section>` | Print one section: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, or `edges`. |
 | `--code-impact <term>` | Show file, symbol, route, import, edge, and owner impact evidence. |
@@ -367,14 +368,18 @@ npm install
 npm run typecheck
 npm run build
 npm test
+npm run benchmark:claim-ledger
+npm run release:check
 npm pack --dry-run
 ```
 
 When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current.
 
+`npm run release:check` is a local-only maintainer gate: it runs tests, benchmark parser smoke, benchmark release preview, benchmark claim-ledger classification, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes and never launches a measured Codex benchmark.
+
 Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.md). They are for release evidence and public claim validation, not normal end-user setup.
 
-For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generates 3k/10k/50k fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks; the `query_groups` section reports direct DB timings for representative file/symbol/route/import/edge queries.
+For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generates 3k/10k/50k fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks; the `query_groups` section reports direct DB timings for representative file/symbol/route/import/edge queries. The report also includes checked-in sample corpora, including `mixed-monorepo`, separately from synthetic scale fixtures.
 
 Old ignored LLM benchmark raw output can be audited with the dry-run-first helper before deleting retained isolated Codex homes:
 
