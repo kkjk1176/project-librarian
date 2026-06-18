@@ -15,6 +15,7 @@ import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from
 import { staleReviewAge } from "./wiki-diagnostics";
 
 const scopedAutoIndexThreshold = 40;
+const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
 
 function isScopedAutoIndex(file: string): boolean {
@@ -40,17 +41,19 @@ function routeAreaForWikiFile(file: string): string {
   return "misc";
 }
 
-function scopedIndexPath(area: string): string {
-  return `wiki/indexes/auto-${slugPart(area)}.md`;
+function scopedIndexPath(area: string, partIndex = 0, partCount = 1): string {
+  const slug = slugPart(area);
+  return partCount <= 1 ? `wiki/indexes/auto-${slug}.md` : `wiki/indexes/auto-${slug}-${partIndex + 1}.md`;
 }
 
-function scopedIndexContent(area: string, files: string[]): string {
+function scopedIndexContent(area: string, files: string[], partIndex = 0, partCount = 1): string {
+  const title = partCount <= 1 ? area : `${area} (${partIndex + 1}/${partCount})`;
   const rows = files.map((file) => {
     const meta = metadataSummary(file, read(file));
     return `| ${wikiLinkForFile(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
   }).join("\n");
   return `${metadata("wiki-router", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "auto-discovered scoped routes change")}${scopedAutoIndexMarker}
-# Auto Index: ${area}
+# Auto Index: ${title}
 
 ## TL;DR
 
@@ -61,6 +64,22 @@ function scopedIndexContent(area: string, files: string[]): string {
 | --- | --- | --- | --- |
 ${rows}
 `;
+}
+
+function splitScopedIndexFiles(area: string, files: string[]): string[][] {
+  const parts: string[][] = [];
+  let current: string[] = [];
+  for (const file of files) {
+    const candidate = [...current, file];
+    if (current.length > 0 && scopedIndexContent(area, candidate).length > scopedAutoIndexCharLimit) {
+      parts.push(current);
+      current = [file];
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) parts.push(current);
+  return parts;
 }
 
 function removeStaleScopedAutoIndexes(keepPaths: Set<string>): void {
@@ -77,15 +96,22 @@ function syncScopedAutoIndexes(files: string[]): Array<{ area: string; count: nu
     const area = routeAreaForWikiFile(file);
     groups.set(area, [...(groups.get(area) ?? []), file]);
   }
-  const summaries = Array.from(groups.entries()).map(([area, areaFiles]) => ({
-    area,
-    count: areaFiles.length,
-    file: scopedIndexPath(area),
-    files: areaFiles.sort(),
-  })).sort((left, right) => right.count - left.count || left.area.localeCompare(right.area));
+  const summaries = Array.from(groups.entries()).flatMap(([area, areaFiles]) => {
+    const sortedFiles = areaFiles.sort();
+    const parts = splitScopedIndexFiles(area, sortedFiles);
+    return parts.map((files, partIndex) => ({
+      area: parts.length <= 1 ? area : `${area} ${partIndex + 1}`,
+      baseArea: area,
+      count: files.length,
+      file: scopedIndexPath(area, partIndex, parts.length),
+      files,
+      partIndex,
+      partCount: parts.length,
+    }));
+  }).sort((left, right) => right.count - left.count || left.area.localeCompare(right.area));
   const keepPaths = new Set(summaries.map((summary) => summary.file));
   removeStaleScopedAutoIndexes(keepPaths);
-  for (const summary of summaries) write(summary.file, scopedIndexContent(summary.area, summary.files));
+  for (const summary of summaries) write(summary.file, scopedIndexContent(summary.baseArea, summary.files, summary.partIndex, summary.partCount));
   return summaries.map(({ area, count, file }) => ({ area, count, file }));
 }
 
@@ -99,8 +125,6 @@ export function buildRefreshIndexBlock(): string {
     const rows = summaries.map((summary) => `| ${wikiLinkForFile(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
     return `<!-- PROJECT-WIKI-AUTO-INDEX:START -->
 ## Auto-Discovered Pages
-
-This block is managed by \`--refresh-index\`. Large route sets are split into scoped generated routers to keep \`wiki/index.md\` within startup-hook budget.
 
 | Scoped Router | Area | Pages |
 | --- | --- | ---: |

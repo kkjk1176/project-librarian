@@ -67,6 +67,7 @@ const wiki_graph_1 = require("./wiki-graph");
 const wiki_corpus_1 = require("./wiki-corpus");
 const wiki_diagnostics_1 = require("./wiki-diagnostics");
 const scopedAutoIndexThreshold = 40;
+const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
 function isScopedAutoIndex(file) {
     return /^wiki\/indexes\/auto-[a-z0-9-]+\.md$/.test(file);
@@ -90,16 +91,18 @@ function routeAreaForWikiFile(file) {
         return slugPart(directory);
     return "misc";
 }
-function scopedIndexPath(area) {
-    return `wiki/indexes/auto-${slugPart(area)}.md`;
+function scopedIndexPath(area, partIndex = 0, partCount = 1) {
+    const slug = slugPart(area);
+    return partCount <= 1 ? `wiki/indexes/auto-${slug}.md` : `wiki/indexes/auto-${slug}-${partIndex + 1}.md`;
 }
-function scopedIndexContent(area, files) {
+function scopedIndexContent(area, files, partIndex = 0, partCount = 1) {
+    const title = partCount <= 1 ? area : `${area} (${partIndex + 1}/${partCount})`;
     const rows = files.map((file) => {
         const meta = (0, wiki_files_1.metadataSummary)(file, (0, workspace_1.read)(file));
         return `| ${(0, wiki_files_1.wikiLinkForFile)(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
     }).join("\n");
     return `${(0, templates_1.metadata)("wiki-router", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "auto-discovered scoped routes change")}${scopedAutoIndexMarker}
-# Auto Index: ${area}
+# Auto Index: ${title}
 
 ## TL;DR
 
@@ -110,6 +113,23 @@ function scopedIndexContent(area, files) {
 | --- | --- | --- | --- |
 ${rows}
 `;
+}
+function splitScopedIndexFiles(area, files) {
+    const parts = [];
+    let current = [];
+    for (const file of files) {
+        const candidate = [...current, file];
+        if (current.length > 0 && scopedIndexContent(area, candidate).length > scopedAutoIndexCharLimit) {
+            parts.push(current);
+            current = [file];
+        }
+        else {
+            current = candidate;
+        }
+    }
+    if (current.length > 0)
+        parts.push(current);
+    return parts;
 }
 function removeStaleScopedAutoIndexes(keepPaths) {
     if (!(0, workspace_1.exists)("wiki/indexes"))
@@ -127,16 +147,23 @@ function syncScopedAutoIndexes(files) {
         const area = routeAreaForWikiFile(file);
         groups.set(area, [...(groups.get(area) ?? []), file]);
     }
-    const summaries = Array.from(groups.entries()).map(([area, areaFiles]) => ({
-        area,
-        count: areaFiles.length,
-        file: scopedIndexPath(area),
-        files: areaFiles.sort(),
-    })).sort((left, right) => right.count - left.count || left.area.localeCompare(right.area));
+    const summaries = Array.from(groups.entries()).flatMap(([area, areaFiles]) => {
+        const sortedFiles = areaFiles.sort();
+        const parts = splitScopedIndexFiles(area, sortedFiles);
+        return parts.map((files, partIndex) => ({
+            area: parts.length <= 1 ? area : `${area} ${partIndex + 1}`,
+            baseArea: area,
+            count: files.length,
+            file: scopedIndexPath(area, partIndex, parts.length),
+            files,
+            partIndex,
+            partCount: parts.length,
+        }));
+    }).sort((left, right) => right.count - left.count || left.area.localeCompare(right.area));
     const keepPaths = new Set(summaries.map((summary) => summary.file));
     removeStaleScopedAutoIndexes(keepPaths);
     for (const summary of summaries)
-        (0, workspace_1.write)(summary.file, scopedIndexContent(summary.area, summary.files));
+        (0, workspace_1.write)(summary.file, scopedIndexContent(summary.baseArea, summary.files, summary.partIndex, summary.partCount));
     return summaries.map(({ area, count, file }) => ({ area, count, file }));
 }
 function buildRefreshIndexBlock() {
@@ -149,8 +176,6 @@ function buildRefreshIndexBlock() {
         const rows = summaries.map((summary) => `| ${(0, wiki_files_1.wikiLinkForFile)(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
         return `<!-- PROJECT-WIKI-AUTO-INDEX:START -->
 ## Auto-Discovered Pages
-
-This block is managed by \`--refresh-index\`. Large route sets are split into scoped generated routers to keep \`wiki/index.md\` within startup-hook budget.
 
 | Scoped Router | Area | Pages |
 | --- | --- | ---: |

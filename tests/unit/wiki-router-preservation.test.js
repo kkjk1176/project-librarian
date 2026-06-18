@@ -139,6 +139,49 @@ test("--refresh-index preserves customized routers while updating the auto-index
   }
 });
 
+test("--refresh-index splits oversized scoped auto routers", () => {
+  const root = makeTmpDir("router-split-");
+  try {
+    runCli(root);
+    for (let index = 1; index <= 120; index += 1) {
+      const suffix = String(index).padStart(3, "0");
+      fs.writeFileSync(path.join(root, "wiki", "canonical", `generated-budget-route-${suffix}.md`), [
+        "---",
+        "status: active",
+        "updated: 2026-06-18",
+        "scope: project-canonical",
+        "read_budget: medium",
+        "decision_ref: none",
+        "review_trigger: regression fixture",
+        "---",
+        "",
+        `# Generated Budget Route ${suffix}`,
+        "",
+        "## TL;DR",
+        "",
+        "- Regression fixture page for scoped auto-index splitting.",
+        "",
+      ].join("\n"));
+    }
+
+    runCli(root, ["--refresh-index"]);
+
+    const indexText = readFile(root, "wiki/index.md");
+    const scopedRouters = fs.readdirSync(path.join(root, "wiki", "indexes"))
+      .filter((file) => /^auto-canonical-\d+\.md$/.test(file))
+      .sort();
+    assert(scopedRouters.length > 1, "expected canonical scoped router to split into multiple files");
+    for (const router of scopedRouters) {
+      const relativePath = `wiki/indexes/${router}`;
+      const linkTarget = relativePath.replace(/^wiki\//, "").replace(/\.md$/, "");
+      assert(indexText.includes(`[[${linkTarget}]]`), `${relativePath} missing from wiki/index.md`);
+      assert(readFile(root, relativePath).length <= 8000, `${relativePath} exceeds medium read_budget`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("re-bootstrap preserves user-created canonical pages", () => {
   const root = makeTmpDir("starter-preserve-");
   try {
