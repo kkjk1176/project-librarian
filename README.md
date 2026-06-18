@@ -145,7 +145,7 @@ npx project-librarian install-skill --scope project --agents all
 
 `--agents` also accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent. `--scope` accepts `user` or `project`.
 
-The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces. Existing non-migration updates preserve the agent surfaces already present in the repository, so a repo that has only Codex and Claude files will not gain Cursor or Gemini files on a plain update. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
+The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces only when no project-scoped Project Librarian skill install is present. If the repository already has project-scoped skills such as `.codex/skills/project-librarian/` and `.claude/skills/project-librarian/`, the first setup uses that installed agent set by default. Existing non-migration updates preserve the agent surfaces already present in the repository, so a repo that has only Codex and Claude files will not gain Cursor or Gemini files on a plain update. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
 
 ## Runner Paths
 
@@ -206,7 +206,7 @@ Only one code evidence mode can run at a time. `--incremental`, `--code-index-fu
 
 ## What Gets Installed
 
-Fresh setup installs the supported agent surfaces below unless you pass `--agents`. Existing non-migration updates preserve the detected surface set by default and update only those selected surfaces plus the common wiki/git-hook files.
+Fresh setup installs the supported agent surfaces below unless you pass `--agents` or the repository already has project-scoped Project Librarian skills for a narrower agent set. Existing non-migration updates preserve the detected surface set by default and update only those selected surfaces plus the common wiki/git-hook files.
 
 Project instruction files:
 

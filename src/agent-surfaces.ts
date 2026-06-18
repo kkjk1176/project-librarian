@@ -9,6 +9,13 @@ export const agentSurfaceRequiredFiles: Record<AgentSurface, readonly string[]> 
   gemini: ["GEMINI.md", ".gemini/hooks/wiki-session-start.js", ".gemini/settings.json"],
 };
 
+const agentSurfaceProjectSkillFiles: Record<AgentSurface, readonly string[]> = {
+  codex: [".codex/skills/project-librarian/SKILL.md"],
+  claude: [".claude/skills/project-librarian/SKILL.md"],
+  cursor: [".cursor/skills/project-librarian/SKILL.md"],
+  gemini: [".gemini/skills/project-librarian/SKILL.md"],
+};
+
 const projectLibrarianCommonInstallFiles = [
   "wiki/startup.md",
   "wiki/index.md",
@@ -37,6 +44,7 @@ export function parseAgentSurfaceValues(values: string[]): ParsedAgentSurfaces {
 
 export function hasProjectLibrarianInstall(fileExists: (relativePath: string) => boolean, readFile?: (relativePath: string) => string): boolean {
   if (projectLibrarianCommonInstallFiles.some((file) => fileExists(file))) return true;
+  if (allAgentSurfaces.some((surface) => agentSurfaceProjectSkillFiles[surface].some((file) => fileExists(file)))) return true;
   if (fileExists("AGENTS.md") && readFile) {
     return readFile("AGENTS.md").includes("PROJECT-WIKI-FIRST:START");
   }
@@ -44,7 +52,10 @@ export function hasProjectLibrarianInstall(fileExists: (relativePath: string) =>
 }
 
 export function activeAgentSurfaces(fileExists: (relativePath: string) => boolean): AgentSurface[] {
-  return allAgentSurfaces.filter((surface) => agentSurfaceRequiredFiles[surface].some((file) => fileExists(file)));
+  return allAgentSurfaces.filter((surface) => (
+    agentSurfaceRequiredFiles[surface].some((file) => fileExists(file))
+    || agentSurfaceProjectSkillFiles[surface].some((file) => fileExists(file))
+  ));
 }
 
 export function resolveBootstrapAgentSurfaces(
