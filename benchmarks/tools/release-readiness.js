@@ -48,6 +48,7 @@ Runs local-only release checks:
   - benchmark claim ledger classification
   - npm pack --dry-run --json package inspection
   - dist executable and README benchmark-claim labeling checks
+  - trusted publishing workflow safety checks
 
 This script never publishes and never launches a measured Codex benchmark.`);
 }
@@ -143,6 +144,38 @@ function benchmarkClaimStatus(readmeText) {
   return { ok: false, status: "ambiguous", message: "README benchmark section lacks clear diagnostic/release-claim boundary language" };
 }
 
+function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github", "workflows", "publish.yml")) {
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, missing: ["publish workflow"], forbidden: [], message: ".github/workflows/publish.yml is missing" };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const required = [
+    { label: "id-token: write", pattern: /\bid-token:\s*write\b/ },
+    { label: "contents: read", pattern: /\bcontents:\s*read\b/ },
+    { label: "GitHub-hosted runner", pattern: /\bruns-on:\s*ubuntu-latest\b/ },
+    { label: "npm registry setup-node URL", pattern: /\bregistry-url:\s*['"]?https:\/\/registry\.npmjs\.org['"]?/ },
+    { label: "release readiness gate", pattern: /\bnpm\s+run\s+release:check\b/ },
+    { label: "npm publish command", pattern: /\bnpm\s+publish\b/ },
+    { label: "public package access", pattern: /\bnpm\s+publish\b[^\n]*\s--access\s+public\b/ },
+    { label: "release build cache disabled", pattern: /\bpackage-manager-cache:\s*false\b/ },
+  ];
+  const missing = required.filter((item) => !item.pattern.test(text)).map((item) => item.label);
+  const forbidden = [
+    { label: "NODE_AUTH_TOKEN", pattern: /\bNODE_AUTH_TOKEN\b/ },
+    { label: "NPM_TOKEN", pattern: /\bNPM_TOKEN\b/ },
+    { label: "npm token secret", pattern: /\bsecrets\.[A-Z0-9_]*NPM[A-Z0-9_]*\b/i },
+  ].filter((item) => item.pattern.test(text)).map((item) => item.label);
+  const ok = missing.length === 0 && forbidden.length === 0;
+  return {
+    ok,
+    missing,
+    forbidden,
+    message: ok
+      ? "publish workflow uses GitHub OIDC trusted publishing without npm token secrets"
+      : "publish workflow is missing trusted publishing requirements or still references token secrets",
+  };
+}
+
 function printStep(result) {
   const marker = result.ok ? "PASS" : "FAIL";
   console.log(`${marker} ${result.label}: ${result.command}`);
@@ -207,11 +240,19 @@ function main() {
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
 
+  const trustedPublishingStatus = trustedPublishingWorkflowStatus();
+  console.log(`${trustedPublishingStatus.ok ? "PASS" : "FAIL"} trusted publishing workflow: ${trustedPublishingStatus.message}`);
+  if (!trustedPublishingStatus.ok) {
+    console.error(JSON.stringify(trustedPublishingStatus, null, 2));
+    fail("release readiness failed: trusted publishing workflow");
+  }
+
   console.log(JSON.stringify({
     checks: results.map((result) => ({ label: result.label, status: result.status, ok: result.ok })),
     dist: distStatus,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
+    trusted_publishing: trustedPublishingStatus,
   }, null, 2));
 }
 
@@ -228,4 +269,5 @@ module.exports = {
   parsePackJson,
   requiredPackFiles,
   temporaryNpmCacheEnv,
+  trustedPublishingWorkflowStatus,
 };
