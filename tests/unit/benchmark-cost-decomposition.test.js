@@ -373,6 +373,37 @@ test("measured benchmark reports live progress on stderr without corrupting stdo
   assert.equal(report.scenarios.length, 2);
 });
 
+test("require-claimable failure prints scenario-level correctness diagnostics", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-claim-diagnostics-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--min-runs-for-claim", "1",
+    "--require-claimable",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 1, "failed correctness must fail the release claim gate");
+  assert.match(result.stderr, /claim gate failed:/);
+  assert.match(result.stderr, /claim gate failure diagnostics:/);
+  assert.match(result.stderr, /scenario: decision_lookup-small-with_project_librarian/);
+  assert.match(result.stderr, /failed correctness checks:/);
+  assert.match(result.stderr, /required term: 2026-06-10/);
+  assert.match(result.stderr, /expected evidence:/);
+  assert.match(result.stderr, /raw: .*decision_lookup-small-with_project_librarian-run-1\.jsonl/);
+  assert.match(result.stderr, /final text excerpt: fake codex benchmark response/);
+  assert.match(result.stderr, /valid benchmark miss, not a runner execution error/);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.claim_gate.status, "failed");
+});
+
 test("measured benchmark auto-prunes stale prior codex homes before a new run", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-auto-prune-test-"));
   const reportPath = path.join(tmp, "report.json");

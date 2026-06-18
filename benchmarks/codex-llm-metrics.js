@@ -768,6 +768,87 @@ function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot,
   };
 }
 
+function excerpt(value, maxLength = 360) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function failedCheckNames(checks) {
+  if (!Array.isArray(checks)) return [];
+  return checks
+    .filter((check) => !check.passed)
+    .map((check) => check.reason ? `${check.name} (${check.reason})` : check.name);
+}
+
+function scenarioHasClaimGateFailure(scenario, minRunsForClaim) {
+  const runs = Array.isArray(scenario.runs) ? scenario.runs : [];
+  if (runs.length === 0) return true;
+  if (scenario.claimable_run_count !== runs.length) return true;
+  if (scenario.claimable_run_count < minRunsForClaim) return true;
+  if (!scenario.median) return true;
+  return runs.some((run) => {
+    if (run.execution?.status && run.execution.status !== "completed") return true;
+    if (run.measurement?.status && run.measurement.status !== "claimable") return true;
+    if (run.correctness?.status && run.correctness.status !== "passed") return true;
+    return false;
+  });
+}
+
+function renderClaimGateFailureDiagnostics(report) {
+  const lines = [];
+  const configuration = report.configuration || {};
+  const minRunsForClaim = configuration.min_runs_for_claim || 1;
+  lines.push("claim gate failure diagnostics:");
+  lines.push(`  report: scenarios=${report.summary?.scenario_count ?? "n/a"} claimable=${report.summary?.claimable_scenario_count ?? "n/a"} unclaimable=${report.summary?.unclaimable_scenario_count ?? "n/a"} min_runs_for_claim=${minRunsForClaim}`);
+  lines.push(`  source: branch=${report.source_control?.branch || "n/a"} commit=${report.source_control?.short_commit || "n/a"} dirty=${report.source_control?.dirty === true ? "true" : "false"}`);
+  for (const issue of report.claim_gate?.issues || []) {
+    lines.push(`  gate-issue: ${issue}`);
+  }
+
+  const failingScenarios = (report.scenarios || [])
+    .filter((scenario) => scenarioHasClaimGateFailure(scenario, minRunsForClaim));
+  const scenarioLimit = 12;
+  for (const scenario of failingScenarios.slice(0, scenarioLimit)) {
+    const runs = Array.isArray(scenario.runs) ? scenario.runs : [];
+    lines.push([
+      `  scenario: ${scenario.prompt_id || "unknown"}`,
+      `track=${scenario.benchmark_track || "wiki"}`,
+      `corpus=${scenario.corpus || "synthetic"}`,
+      `scale=${scenario.scale || "n/a"}`,
+      `task=${scenario.task_family || "n/a"}`,
+      `condition=${scenario.condition || "n/a"}`,
+      `claimable=${scenario.claimable_run_count ?? 0}/${runs.length}`,
+      `passed=${scenario.passed_run_count ?? 0}/${runs.length}`,
+    ].join(" "));
+
+    for (const run of runs) {
+      const executionFailed = run.execution?.status && run.execution.status !== "completed";
+      const measurementFailed = run.measurement?.status && run.measurement.status !== "claimable";
+      const correctnessFailed = run.correctness?.status && run.correctness.status !== "passed";
+      if (!executionFailed && !measurementFailed && !correctnessFailed) continue;
+      lines.push(`    run ${run.run_index}: execution=${run.execution?.status || "unknown"} claim=${run.measurement?.status || "unknown"} correctness=${run.correctness?.status || "unknown"}`);
+      if (run.execution?.exit_code !== undefined && run.execution?.exit_code !== null) {
+        lines.push(`      exit_code: ${run.execution.exit_code}`);
+      }
+      if (run.raw_jsonl_path) lines.push(`      raw: ${run.raw_jsonl_path}`);
+      if (run.execution?.stderr_path) lines.push(`      stderr: ${run.execution.stderr_path}`);
+      const failedMeasurement = failedCheckNames(run.measurement?.checks);
+      if (failedMeasurement.length > 0) lines.push(`      failed measurement checks: ${failedMeasurement.join("; ")}`);
+      const failedCorrectness = failedCheckNames(run.correctness?.checks);
+      if (failedCorrectness.length > 0) lines.push(`      failed correctness checks: ${failedCorrectness.join("; ")}`);
+      if (run.correctness?.reason) lines.push(`      correctness reason: ${run.correctness.reason}`);
+      const finalText = excerpt(run.metrics?.final_text);
+      if (finalText) lines.push(`      final text excerpt: ${finalText}`);
+    }
+  }
+  if (failingScenarios.length > scenarioLimit) {
+    lines.push(`  ... ${failingScenarios.length - scenarioLimit} more failing scenario(s) omitted`);
+  }
+  lines.push("  note: non-passing correctness is a valid benchmark miss, not a runner execution error.");
+  return lines.join("\n");
+}
+
 function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   const promptInfo = promptDigest(scenario.prompt);
   const commandPrefix = Array.isArray(scenario.command) && scenario.command.length > 0
@@ -1569,6 +1650,7 @@ function main() {
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
     if (requireClaimable && report.claim_gate.status !== "passed") {
       console.error(`claim gate failed: ${report.claim_gate.issues.join("; ")}`);
+      console.error(renderClaimGateFailureDiagnostics(report));
       process.exit(1);
     }
     console.log(JSON.stringify({
