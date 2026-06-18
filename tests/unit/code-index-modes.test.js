@@ -48,6 +48,9 @@ test("code context pack mode reuses one staleness calculation for warning and ou
       codeImpact() {
         throw new Error("not used");
       },
+      codeIndexHealth() {
+        throw new Error("not used");
+      },
       codeIndexStaleness(actualDatabase) {
         stalenessCalls += 1;
         assert.equal(actualDatabase, database);

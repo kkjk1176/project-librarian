@@ -10,6 +10,7 @@ import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnosti
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
 import { finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
+import { staleReviewAge } from "./wiki-diagnostics";
 
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
@@ -631,8 +632,9 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus())
     if (tldrExpected && !/##\s+TL;DR/.test(body)) {
       diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
     }
-    if (status === "active" && updated && updated < today && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
-      diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated before today: ${updated}` });
+    const reviewAge = updated ? staleReviewAge(updated, today) : null;
+    if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
+      diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
     }
     if (status === "active" && !/inbox|migration-inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
       diagnostics.push({ code: "unresolved-signal", severity: "warn", file, message: "contains pending/proposed/undecided language" });

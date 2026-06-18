@@ -37,6 +37,7 @@ exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
 exports.runCodeStatusMode = runCodeStatusMode;
+exports.runCodeIndexHealthMode = runCodeIndexHealthMode;
 exports.runCodeFilesMode = runCodeFilesMode;
 exports.runCodeImpactMode = runCodeImpactMode;
 exports.runCodeContextPackMode = runCodeContextPackMode;
@@ -221,6 +222,9 @@ function runCodeStatusMode(runtime) {
         database.close();
     }
 }
+function runCodeIndexHealthMode(runtime) {
+    printJson(runtime.codeIndexHealth());
+}
 function runCodeFilesMode(runtime) {
     runtime.requireExistingIndex();
     const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
@@ -285,6 +289,7 @@ function runCodeSearchSymbolMode(runtime) {
 }
 function isCodeEvidenceModeFor(flags) {
     return Boolean(flags.codeContextPackTarget)
+        || Boolean(flags.codeIndexHealthMode)
         || flags.codeIndexMode
         || Boolean(flags.codeQuerySql)
         || flags.codeReportMode
@@ -294,5 +299,5 @@ function isCodeEvidenceModeFor(flags) {
         || Boolean(flags.codeSearchSymbol);
 }
 function isCodeEvidenceMode() {
-    return isCodeEvidenceModeFor({ codeContextPackTarget: args_1.codeContextPackTarget, codeFilesMode: args_1.codeFilesMode, codeImpactMode: args_1.codeImpactMode, codeIndexMode: args_1.codeIndexMode, codeQuerySql: args_1.codeQuerySql, codeReportMode: args_1.codeReportMode, codeSearchSymbol: args_1.codeSearchSymbol, codeStatusMode: args_1.codeStatusMode });
+    return isCodeEvidenceModeFor({ codeContextPackTarget: args_1.codeContextPackTarget, codeFilesMode: args_1.codeFilesMode, codeImpactMode: args_1.codeImpactMode, codeIndexHealthMode: args_1.codeIndexHealthMode, codeIndexMode: args_1.codeIndexMode, codeQuerySql: args_1.codeQuerySql, codeReportMode: args_1.codeReportMode, codeSearchSymbol: args_1.codeSearchSymbol, codeStatusMode: args_1.codeStatusMode });
 }

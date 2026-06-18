@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CodeEvidenceIndexUnavailableError = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
 exports.codeIndexStaleness = codeIndexStaleness;
+exports.codeIndexHealth = codeIndexHealth;
 exports.codeImpact = codeImpact;
 exports.codeContextPack = codeContextPack;
 exports.openCodeEvidenceDatabaseForServing = openCodeEvidenceDatabaseForServing;
@@ -42,6 +43,7 @@ exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
 exports.runCodeStatusMode = runCodeStatusMode;
+exports.runCodeIndexHealthMode = runCodeIndexHealthMode;
 exports.runCodeFilesMode = runCodeFilesMode;
 exports.runCodeImpactMode = runCodeImpactMode;
 exports.runCodeContextPackMode = runCodeContextPackMode;
@@ -57,6 +59,7 @@ const code_index_file_policy_1 = require("./code-index-file-policy");
 const evidence_1 = require("./code-index/evidence");
 const registry_1 = require("./code-index/extractors/registry");
 const shared_1 = require("./code-index/extractors/shared");
+const index_health_1 = require("./code-index/index-health");
 const modes_1 = require("./code-index/modes");
 const ownership_1 = require("./code-index/ownership");
 Object.defineProperty(exports, "codeownerRules", { enumerable: true, get: function () { return ownership_1.codeownerRules; } });
@@ -200,6 +203,18 @@ function codeIndexStaleness(database) {
         deleted,
         stale: added > 0 || changed > 0 || deleted > 0,
     };
+}
+function codeIndexHealth() {
+    const databasePath = codeEvidenceDatabasePath();
+    return (0, index_health_1.inspectCodeIndexHealth)({
+        absolutePath: databasePath.absolutePath,
+        defaultScopes: codeScopes(),
+        discoverCodeFiles: code_index_file_policy_1.discoverCodeFiles,
+        expectedSchemaVersion: schema_1.codeIndexSchemaVersion,
+        openDatabase,
+        relativePath: databasePath.relativePath,
+        smallRepoThreshold: code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD,
+    });
 }
 function warnIfCodeIndexStale(database, staleness = codeIndexStaleness(database)) {
     if (!staleness.stale)
@@ -359,7 +374,7 @@ function openCodeEvidenceDatabaseForServing() {
     }
     if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
         database.close();
-        throw new CodeEvidenceIndexUnavailableError(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${schema_1.codeIndexSchemaVersion}; rebuild with \`project-librarian --code-index\``);
+        throw new CodeEvidenceIndexUnavailableError((0, index_health_1.formatCodeIndexHealthRemediation)(codeIndexHealth()));
     }
     database.exec("PRAGMA query_only = ON");
     return { database, relativePath: databasePath.relativePath };
@@ -375,6 +390,7 @@ function codeIndexModeRuntime() {
         codeContextPack,
         codeEvidenceDatabasePath,
         codeImpact,
+        codeIndexHealth,
         codeIndexStaleness,
         codeReportForRequestedSection: (database, requestedSection, options) => (0, reports_1.codeReportForRequestedSection)(database, requestedSection, codeReportRuntime(database, options)),
         codeScopes,
@@ -401,6 +417,9 @@ function runCodeReportMode() {
 }
 function runCodeStatusMode() {
     (0, modes_1.runCodeStatusMode)(codeIndexModeRuntime());
+}
+function runCodeIndexHealthMode() {
+    (0, modes_1.runCodeIndexHealthMode)(codeIndexModeRuntime());
 }
 function runCodeFilesMode() {
     (0, modes_1.runCodeFilesMode)(codeIndexModeRuntime());

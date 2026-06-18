@@ -17,6 +17,7 @@ const inactiveFlags = {
   codeContextPackTarget: "",
   codeFilesMode: false,
   codeImpactMode: false,
+  codeIndexHealthMode: false,
   codeIndexMode: false,
   codeQuerySql: "",
   codeReportMode: false,
@@ -61,6 +62,7 @@ function initGitRepository(cwd) {
 test("isCodeEvidenceModeFor includes every code evidence mode", () => {
   assert.equal(isCodeEvidenceModeFor(inactiveFlags), false);
   assert.equal(isCodeEvidenceModeFor({ ...inactiveFlags, codeIndexMode: true }), true);
+  assert.equal(isCodeEvidenceModeFor({ ...inactiveFlags, codeIndexHealthMode: true }), true);
   assert.equal(isCodeEvidenceModeFor({ ...inactiveFlags, codeQuerySql: "select * from files" }), true);
   assert.equal(isCodeEvidenceModeFor({ ...inactiveFlags, codeReportMode: true }), true);
   assert.equal(isCodeEvidenceModeFor({ ...inactiveFlags, codeStatusMode: true }), true);
@@ -351,6 +353,36 @@ test("read-only code evidence modes reject old schema indexes with a rebuild mes
     assert.equal(result.status, 1);
     assert.match(result.stderr, /schema version 3 is incompatible with \d+; rebuild with --code-index/);
     assert.doesNotMatch(result.stderr, /no such column|SQLITE_ERROR/i);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code index health reports old schema details without requiring current schema columns", () => {
+  const cwd = makeTmpDir("code-index-health-old-schema-");
+  try {
+    fs.mkdirSync(path.join(cwd, ".project-wiki"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "fixture.js"), "export const fixture = true;\n");
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      database.exec(`
+        CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE files (path TEXT PRIMARY KEY);
+        INSERT INTO meta (key, value) VALUES ('schema_version', '3');
+        INSERT INTO meta (key, value) VALUES ('scopes_json', '["."]');
+        INSERT INTO meta (key, value) VALUES ('parser_mode', 'default');
+        INSERT INTO files (path) VALUES ('fixture.js');
+      `);
+    } finally {
+      database.close();
+    }
+
+    const health = JSON.parse(runCli(cwd, ["--code-index-health"]));
+    assert.equal(health.status, "incompatible_schema");
+    assert.equal(health.found_schema_version, "3");
+    assert.equal(health.expected_schema_version, "4");
+    assert.equal(health.indexed_files, 1);
+    assert.match(health.recommended_rebuild_command, /project-librarian --code-index --code-index-full --acknowledge-small-repo/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

@@ -13,6 +13,47 @@ const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code
 const defaultScales = process.argv.includes("--full") ? [3000, 10000, 50000] : [3000, 10000];
 const runsPerCommand = process.argv.includes("--quick") ? 1 : 3;
 
+function sampleCorpusDefinitions() {
+  return [
+    {
+      name: "mixed-monorepo",
+      corpus_kind: "mixed",
+      source: path.join(repoRoot, "benchmarks", "samples", "mixed-monorepo"),
+      terms: {
+        file: "summary",
+        symbol: "getBillingSummary",
+        route: "admin",
+        import: "billing",
+        edge: "getBillingSummary",
+      },
+    },
+    {
+      name: "web-service",
+      corpus_kind: "service",
+      source: path.join(repoRoot, "benchmarks", "samples", "web-service"),
+      terms: {
+        file: "server",
+        symbol: "sampleHealthHandler",
+        route: "sample",
+        import: "express",
+        edge: "sampleHealthHandler",
+      },
+    },
+    {
+      name: "python-cli",
+      corpus_kind: "single-language",
+      source: path.join(repoRoot, "benchmarks", "samples", "python-cli"),
+      terms: {
+        file: "cli",
+        symbol: "SampleCli",
+        route: "cli",
+        import: "argparse",
+        edge: "SampleCli",
+      },
+    },
+  ];
+}
+
 function mkdirp(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -268,27 +309,43 @@ function measureCommands(cwd, scale) {
   return measured;
 }
 
+function measureSampleCommands(cwd, sample) {
+  const commands = {
+    code_status: ["--code-status"],
+    code_files: ["--code-files"],
+    code_search_symbol: ["--code-search-symbol", sample.terms.symbol],
+    code_context_pack: ["--code-context-pack", sample.terms.symbol],
+  };
+  const measured = {};
+  for (const [name, args] of Object.entries(commands)) {
+    const samples = [];
+    for (let runIndex = 0; runIndex < runsPerCommand; runIndex += 1) {
+      samples.push(run(process.execPath, [cliPath, ...args], { cwd }).elapsedMs);
+    }
+    measured[name] = summarizeTimings(samples);
+  }
+  return measured;
+}
+
 function likePattern(term) {
   return `%${term.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
 }
 
-function measureDatabaseQueryGroups(dbPath, scale) {
-  const width = String(scale).length;
-  const target = `handler${String(scale - 1).padStart(width, "0")}`;
+function measureDatabaseQueryGroupsForTerms(dbPath, terms) {
   const groups = {
-    file_search_path: (db) => searchFiles(db, `handler-${String(scale - 1).padStart(width, "0")}`, 25),
-    symbol_search_single_token: (db) => searchSymbols(db, target, 50),
-    symbol_search_multi_token: (db) => searchSymbols(db, `${target} input`, 50),
+    file_search_path: (db) => searchFiles(db, terms.file, 25),
+    symbol_search_single_token: (db) => searchSymbols(db, terms.symbol, 50),
+    symbol_search_multi_token: (db) => searchSymbols(db, `${terms.symbol} ${terms.file}`, 50),
     route_contains: (db) => {
-      const like = likePattern("api/items");
+      const like = likePattern(terms.route);
       return db.prepare("SELECT method, route, file_path FROM routes WHERE route LIKE ? ESCAPE '\\' OR handler LIKE ? ESCAPE '\\' OR file_path LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 50").all(like, like, like);
     },
     import_contains: (db) => {
-      const like = likePattern("shared");
+      const like = likePattern(terms.import);
       return db.prepare("SELECT from_file, to_ref FROM imports WHERE from_file LIKE ? ESCAPE '\\' OR to_ref LIKE ? ESCAPE '\\' OR imported LIKE ? ESCAPE '\\' ORDER BY from_file, line LIMIT 75").all(like, like, like);
     },
     edge_contains: (db) => {
-      const like = likePattern("handler");
+      const like = likePattern(terms.edge);
       return db.prepare("SELECT kind, source, target, file_path FROM edges WHERE file_path LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' OR evidence LIKE ? ESCAPE '\\' ORDER BY file_path, line LIMIT 100").all(like, like, like, like);
     },
   };
@@ -309,6 +366,24 @@ function measureDatabaseQueryGroups(dbPath, scale) {
     measured[name] = { ...summarizeTimings(samples), rows };
   }
   return measured;
+}
+
+function measureDatabaseQueryGroups(dbPath, scale) {
+  const width = String(scale).length;
+  const target = `handler${String(scale - 1).padStart(width, "0")}`;
+  return measureDatabaseQueryGroupsForTerms(dbPath, {
+    file: `handler-${String(scale - 1).padStart(width, "0")}`,
+    symbol: target,
+    route: "api/items",
+    import: "shared",
+    edge: "handler",
+  });
+}
+
+function materializeSampleCorpus(sample, tmpRoot) {
+  const cwd = path.join(tmpRoot, `sample-${sample.name}`);
+  fs.cpSync(sample.source, cwd, { recursive: true });
+  return cwd;
 }
 
 function measureBuildCommands() {
@@ -368,6 +443,23 @@ function markdownReport(result) {
       lines.push(`- ${name}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
     }
   }
+  lines.push("");
+  lines.push("## Sample Corpora");
+  lines.push("");
+  lines.push("Checked-in sample corpora are measured separately from synthetic scale fixtures.");
+  for (const sample of result.sample_corpora) {
+    lines.push("");
+    lines.push(`### ${sample.name} (${sample.corpus_kind})`);
+    lines.push(`- Indexed files: ${sample.current_db.rows.files}`);
+    lines.push(`- Index time: ${sample.index_time_ms.toFixed(1)} ms`);
+    lines.push(`- Current DB size: ${sample.current_db.file_bytes} bytes`);
+    for (const [command, timing] of Object.entries(sample.commands)) {
+      lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
+    }
+    for (const [name, timing] of Object.entries(sample.query_groups)) {
+      lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -382,6 +474,7 @@ function main() {
     node: process.version,
     runs_per_command: runsPerCommand,
     scales: [],
+    sample_corpora: [],
     build_commands: {},
     decisions: {},
   };
@@ -406,6 +499,19 @@ function main() {
         query_plans: queryPlans(dbPath, "handler"),
       });
     }
+    for (const sample of sampleCorpusDefinitions()) {
+      const cwd = materializeSampleCorpus(sample, tmpRoot);
+      const indexRun = run(process.execPath, [cliPath, "--code-index", "--acknowledge-small-repo", "--code-scope", "."], { cwd });
+      const dbPath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+      result.sample_corpora.push({
+        name: sample.name,
+        corpus_kind: sample.corpus_kind,
+        index_time_ms: indexRun.elapsedMs,
+        current_db: databaseStats(dbPath),
+        commands: measureSampleCommands(cwd, sample),
+        query_groups: measureDatabaseQueryGroupsForTerms(dbPath, sample.terms),
+      });
+    }
     result.build_commands = measureBuildCommands();
     const largest = result.scales[result.scales.length - 1];
     const ftsDelta = largest.contentless_fts_size_delta_percent;
@@ -427,4 +533,13 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  markdownReport,
+  measureDatabaseQueryGroupsForTerms,
+  sampleCorpusDefinitions,
+  summarizeTimings,
+};
