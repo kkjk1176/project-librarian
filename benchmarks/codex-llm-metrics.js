@@ -12,7 +12,7 @@ const { buildManifest, conditions, controlProfiles, scales, taskFamilies, taskTr
 const { buildIsolatedCodexHome, buildSpawnEnv, checkPreRunFingerprint, injectMcpServerConfig, resolveRealCodexHome, snapshotFixturePaths, validateFixtureAfterRun } = require("./lib/hermetic");
 const { buildRealCorpusManifest } = require("./lib/real-corpus-manifest");
 const { checkRealRepoPreRun, snapshotRealRepoUntracked, validateRealRepoAfterRun } = require("./lib/real-corpus");
-const { applyCodexHomeRetention } = require("./lib/llm-raw-retention");
+const { DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, applyCodexHomeRetention, pruneOldCodexHomes, pruneOldRawRuns } = require("./lib/llm-raw-retention");
 
 // A real-corpus scenario is identified by its pinned-sha + git-clean fingerprint
 // algorithm (the synthetic path uses a content-hash fingerprint). Real scenarios
@@ -95,6 +95,34 @@ function positiveIntegerArgValue(name, defaultValue) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) fail(`invalid integer for ${name}: ${value}`);
   return parsed;
+}
+
+function summarizePruneResult(result, enabled) {
+  return {
+    enabled: Boolean(enabled),
+    raw_root: result.raw_root,
+    older_than_days: result.older_than_days,
+    cutoff: result.cutoff,
+    dry_run: result.dry_run,
+    candidate_count: result.candidate_count,
+    candidate_bytes: result.candidate_bytes,
+    pruned_count: result.pruned_count,
+    pruned_bytes: result.pruned_bytes,
+  };
+}
+
+function disabledPruneSummary({ rawRoot, olderThanDays }) {
+  return {
+    enabled: false,
+    raw_root: rawRoot,
+    older_than_days: olderThanDays,
+    cutoff: null,
+    dry_run: false,
+    candidate_count: 0,
+    candidate_bytes: 0,
+    pruned_count: 0,
+    pruned_bytes: 0,
+  };
 }
 
 function nonNegativeIntegerArgValue(name, defaultValue) {
@@ -468,7 +496,7 @@ function requireCompletedExecutionForClaimableRun(scenario, run) {
       if (session.execution?.stderr_path) stderrPaths.push(session.execution.stderr_path);
     }
   }
-  fail([
+  throw new Error([
     `measured Codex benchmark execution failed before claim evaluation: ${scenario.prompt_id} run ${run.run_index} (${reason})`,
     `raw: ${run.raw_jsonl_path}`,
     stderrPaths.length > 0 ? `stderr: ${stderrPaths.join(", ")}` : "stderr: n/a",
@@ -573,7 +601,7 @@ function absolutizeAgainstOriginalRoot(value, originalRoot) {
 
 function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
   const normalized = [];
-  const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir"]);
+  const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir", "--raw-report-root"]);
   const optionalPathValueFlags = new Set(["--markdown", "--payload-preview", "--preview-payload"]);
   let sawOut = false;
   let dryRun = args.includes("--dry-run");
@@ -777,7 +805,7 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, droppedScenarios }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios }) {
   const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   return {
@@ -809,6 +837,10 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       requested_model: manifest.requested_model,
       cache_discount: cacheDiscount,
       keep_codex_homes: Boolean(keepCodexHomes),
+      auto_prune_codex_homes: Boolean(autoPruneCodexHomes),
+      auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
+      auto_prune_raw_runs: Boolean(autoPruneRawRuns),
+      auto_prune_raw_runs_older_than_days: autoPruneRawRunsOlderThanDays,
       selected_scales: selectedScales,
       selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
@@ -840,10 +872,28 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
-  const rawReportRoot = sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root;
-  const rawRoot = path.join(rawReportRoot, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
+  const resolvedRawReportRoot = rawReportRoot
+    ? path.resolve(rawReportRoot)
+    : (sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root);
+  const rawParent = path.join(resolvedRawReportRoot, "benchmarks", "reports", "llm", "raw");
+  fs.mkdirSync(rawParent, { recursive: true });
+  const priorRawRunCleanup = autoPruneRawRuns
+    ? summarizePruneResult(pruneOldRawRuns({
+      rawRoot: rawParent,
+      olderThanDays: autoPruneRawRunsOlderThanDays,
+      dryRun: false,
+    }), true)
+    : disabledPruneSummary({ rawRoot: rawParent, olderThanDays: autoPruneRawRunsOlderThanDays });
+  const priorCodexHomeCleanup = autoPruneCodexHomes
+    ? summarizePruneResult(pruneOldCodexHomes({
+      rawRoot: rawParent,
+      olderThanDays: autoPruneCodexHomesOlderThanDays,
+      dryRun: false,
+    }), true)
+    : disabledPruneSummary({ rawRoot: rawParent, olderThanDays: autoPruneCodexHomesOlderThanDays });
+  const rawRoot = path.join(rawParent, new Date().toISOString().replace(/[:.]/g, "-"));
   if (maxScenarios < conditions.length) {
     fail(`measured Codex benchmark requires at least ${conditions.length} scenarios to compare conditions`);
   }
@@ -868,6 +918,24 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   function trackCodexHome(homePath) {
     codexHomePaths.add(homePath);
     return homePath;
+  }
+  let codexHomeRetention = null;
+  function applyCurrentCodexHomeRetention() {
+    if (codexHomeRetention) return codexHomeRetention;
+    codexHomeRetention = applyCodexHomeRetention({
+      rawRoot,
+      homePaths: [...codexHomePaths],
+      keepCodexHomes,
+    });
+    return codexHomeRetention;
+  }
+  function failAfterCurrentCodexHomeRetention(message) {
+    try {
+      applyCurrentCodexHomeRetention();
+    } catch (error) {
+      fail(`${message}\ncodex home retention cleanup failed: ${error.message}`);
+    }
+    fail(message);
   }
   const isolatedCodexHome = trackCodexHome(path.join(rawRoot, "codex-home"));
   const isolation = buildIsolatedCodexHome({ realCodexHome, destHome: isolatedCodexHome });
@@ -926,91 +994,91 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
 
   const scenarios = [];
 
-  for (const scenario of selectedScenarios) {
-    for (let index = 0; index < warmupRuns; index += 1) {
-      const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
-      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
+  try {
+    for (const scenario of selectedScenarios) {
+      for (let index = 0; index < warmupRuns; index += 1) {
+        const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
+        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
+      }
+      const measuredRuns = [];
+      for (let index = 0; index < runs; index += 1) {
+        const measuredRun = runScenarioOnce(scenario, index + 1);
+        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
+        measuredRuns.push(measuredRun);
+      }
+      const correctnessPassedRuns = passedRuns(measuredRuns);
+      const actualClaimableRuns = claimableRuns(measuredRuns);
+      const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
+      const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+      const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
+      const isMultiSession = Array.isArray(scenario.sessions) && scenario.sessions.length > 0;
+      const scenarioRecord = {
+        scale: scenario.scale,
+        condition: scenario.condition,
+        benchmark_track: scenario.benchmark_track,
+        // Corpus dimension (schema 7): carried through from the manifest so reports
+        // separate real-corpus from synthetic results. Synthetic scenarios carry
+        // "synthetic" + null repo fields; real-corpus scenarios carry "real" + the
+        // repo/repo_sha/question_id they were built from.
+        corpus: scenario.corpus || "synthetic",
+        repo: scenario.repo || null,
+        repo_sha: scenario.repo_sha || null,
+        question_id: scenario.question_id || null,
+        // MCP provenance: with-arm real scenarios inject the project-librarian MCP
+        // server into the isolated CODEX_HOME; recorded so the report shows which
+        // condition carried the MCP entry. Synthetic and control scenarios are false.
+        mcp_injected: Boolean(scenario.mcp),
+        control_profile: scenario.control_profile,
+        task_family: scenario.task_family,
+        prompt_id: scenario.prompt_id,
+        prompt: scenario.prompt,
+        command: scenario.command,
+        cwd: scenario.cwd,
+        expectation: scenario.expectation || null,
+        fixture_fingerprint: scenario.fixture_fingerprint,
+        requested_model: scenario.requested_model,
+        model: scenarioModel,
+        model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
+        models: scenarioModels,
+        runs: measuredRuns,
+        // Scenario medians/dispersion are sourced from each run's primary metrics. For
+        // multi_session that primary is the MEASURED session (session 2), so the
+        // scenario's headline metrics are session-2 metrics, reported separately from
+        // session 1 (which lives only in each run's session_metrics array).
+        median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
+        median_all_runs: medianMetrics(measuredRuns),
+        dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
+        dispersion_all_runs: metricStats(measuredRuns),
+        passed_run_count: correctnessPassedRuns.length,
+        claimable_run_count: actualClaimableRuns.length,
+        correctness: measuredRuns.map((run) => run.correctness),
+        raw_jsonl_paths: measuredRuns.map((run) => run.raw_jsonl_path),
+      };
+      if (isMultiSession) {
+        // session_metrics surfaces per-session raw JSONL paths and metrics for every
+        // measured run, plus session_count and the measured session index, so a
+        // reader can audit session-1 (familiarization) separately from session-2
+        // (measured) without conflating the two.
+        scenarioRecord.session_count = scenario.session_count;
+        scenarioRecord.sessions = scenario.sessions.map((session) => ({
+          session_index: session.session_index,
+          role: session.role,
+          prompt: session.prompt,
+          command: session.command,
+        }));
+        scenarioRecord.session_metrics = measuredRuns.map((run) => ({
+          run_index: run.run_index,
+          measured_session_index: run.measured_session_index,
+          sessions: run.session_metrics,
+        }));
+      }
+      scenarios.push(scenarioRecord);
     }
-    const measuredRuns = [];
-    for (let index = 0; index < runs; index += 1) {
-      const measuredRun = runScenarioOnce(scenario, index + 1);
-      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
-      measuredRuns.push(measuredRun);
-    }
-    const correctnessPassedRuns = passedRuns(measuredRuns);
-    const actualClaimableRuns = claimableRuns(measuredRuns);
-    const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
-    const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
-    const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
-    const isMultiSession = Array.isArray(scenario.sessions) && scenario.sessions.length > 0;
-    const scenarioRecord = {
-      scale: scenario.scale,
-      condition: scenario.condition,
-      benchmark_track: scenario.benchmark_track,
-      // Corpus dimension (schema 7): carried through from the manifest so reports
-      // separate real-corpus from synthetic results. Synthetic scenarios carry
-      // "synthetic" + null repo fields; real-corpus scenarios carry "real" + the
-      // repo/repo_sha/question_id they were built from.
-      corpus: scenario.corpus || "synthetic",
-      repo: scenario.repo || null,
-      repo_sha: scenario.repo_sha || null,
-      question_id: scenario.question_id || null,
-      // MCP provenance: with-arm real scenarios inject the project-librarian MCP
-      // server into the isolated CODEX_HOME; recorded so the report shows which
-      // condition carried the MCP entry. Synthetic and control scenarios are false.
-      mcp_injected: Boolean(scenario.mcp),
-      control_profile: scenario.control_profile,
-      task_family: scenario.task_family,
-      prompt_id: scenario.prompt_id,
-      prompt: scenario.prompt,
-      command: scenario.command,
-      cwd: scenario.cwd,
-      expectation: scenario.expectation || null,
-      fixture_fingerprint: scenario.fixture_fingerprint,
-      requested_model: scenario.requested_model,
-      model: scenarioModel,
-      model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
-      models: scenarioModels,
-      runs: measuredRuns,
-      // Scenario medians/dispersion are sourced from each run's primary metrics. For
-      // multi_session that primary is the MEASURED session (session 2), so the
-      // scenario's headline metrics are session-2 metrics, reported separately from
-      // session 1 (which lives only in each run's session_metrics array).
-      median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
-      median_all_runs: medianMetrics(measuredRuns),
-      dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
-      dispersion_all_runs: metricStats(measuredRuns),
-      passed_run_count: correctnessPassedRuns.length,
-      claimable_run_count: actualClaimableRuns.length,
-      correctness: measuredRuns.map((run) => run.correctness),
-      raw_jsonl_paths: measuredRuns.map((run) => run.raw_jsonl_path),
-    };
-    if (isMultiSession) {
-      // session_metrics surfaces per-session raw JSONL paths and metrics for every
-      // measured run, plus session_count and the measured session index, so a
-      // reader can audit session-1 (familiarization) separately from session-2
-      // (measured) without conflating the two.
-      scenarioRecord.session_count = scenario.session_count;
-      scenarioRecord.sessions = scenario.sessions.map((session) => ({
-        session_index: session.session_index,
-        role: session.role,
-        prompt: session.prompt,
-        command: session.command,
-      }));
-      scenarioRecord.session_metrics = measuredRuns.map((run) => ({
-        run_index: run.run_index,
-        measured_session_index: run.measured_session_index,
-        sessions: run.session_metrics,
-      }));
-    }
-    scenarios.push(scenarioRecord);
+  } catch (error) {
+    failAfterCurrentCodexHomeRetention(error.message || String(error));
   }
 
-  const codexHomeRetention = applyCodexHomeRetention({
-    rawRoot,
-    homePaths: [...codexHomePaths],
-    keepCodexHomes,
-  });
+  const retainedCodexHomes = applyCurrentCodexHomeRetention();
 
   const presentTracks = tracksPresent(scenarios);
   const expectedByTrack = expectedTasksByTrack(selectedTasks);
@@ -1048,14 +1116,16 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     sanitized_pack: sanitizedPack || { enabled: false },
     hermetic: {
       ...hermetic,
+      prior_raw_run_cleanup: priorRawRunCleanup,
+      prior_codex_home_cleanup: priorCodexHomeCleanup,
       codex_home_retention: {
-        manifest_path: codexHomeRetention.manifest_path,
-        keep_codex_homes: codexHomeRetention.keep_codex_homes,
-        home_count: codexHomeRetention.home_count,
-        retained_home_count: codexHomeRetention.retained_home_count,
-        pruned_home_count: codexHomeRetention.pruned_home_count,
-        retained_bytes: codexHomeRetention.retained_bytes,
-        pruned_bytes: codexHomeRetention.pruned_bytes,
+        manifest_path: retainedCodexHomes.manifest_path,
+        keep_codex_homes: retainedCodexHomes.keep_codex_homes,
+        home_count: retainedCodexHomes.home_count,
+        retained_home_count: retainedCodexHomes.retained_home_count,
+        pruned_home_count: retainedCodexHomes.pruned_home_count,
+        retained_bytes: retainedCodexHomes.retained_bytes,
+        pruned_bytes: retainedCodexHomes.pruned_bytes,
       },
     },
     codex: {
@@ -1073,6 +1143,10 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       cache_discount: cacheDiscount,
       sanitized_pack: Boolean(sanitizedPack && sanitizedPack.enabled),
       keep_codex_homes: Boolean(keepCodexHomes),
+      auto_prune_codex_homes: Boolean(autoPruneCodexHomes),
+      auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
+      auto_prune_raw_runs: Boolean(autoPruneRawRuns),
+      auto_prune_raw_runs_older_than_days: autoPruneRawRunsOlderThanDays,
       scenario_order: "deterministic-alternating-pairs",
       requested_model: manifest.requested_model,
       selected_scales: selectedScales,
@@ -1341,6 +1415,12 @@ function main() {
   const requireClaimable = hasFlag("--require-claimable");
   const requireClean = hasFlag("--require-clean");
   const keepCodexHomes = hasFlag("--keep-codex-homes");
+  const autoPruneCodexHomes = !hasFlag("--no-auto-prune-codex-homes");
+  const autoPruneCodexHomesOlderThanDays = positiveIntegerArgValue("--auto-prune-codex-homes-older-than-days", DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS);
+  const autoPruneRawRuns = !hasFlag("--no-auto-prune-raw-runs");
+  const autoPruneRawRunsOlderThanDays = positiveIntegerArgValue("--auto-prune-raw-runs-older-than-days", DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS);
+  const rawReportRootArg = optionalStringArgValue("--raw-report-root");
+  const rawReportRoot = rawReportRootArg ? path.resolve(root, rawReportRootArg) : "";
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const controlProfile = argValue("--control-profile", "organic");
@@ -1463,6 +1543,10 @@ function main() {
       sourceRoot,
       sanitizedPack,
       keepCodexHomes,
+      autoPruneCodexHomes,
+      autoPruneCodexHomesOlderThanDays,
+      autoPruneRawRuns,
+      autoPruneRawRunsOlderThanDays,
       droppedScenarios,
     });
     writeJson(payloadPreviewPath, preview);
@@ -1479,7 +1563,7 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
@@ -1495,6 +1579,8 @@ function main() {
       fixture_root: fixtureRoot,
       control_profile: manifest.control_profile,
       isolated_codex_home: report.hermetic.isolated_codex_home,
+      prior_raw_run_cleanup: report.hermetic.prior_raw_run_cleanup,
+      prior_codex_home_cleanup: report.hermetic.prior_codex_home_cleanup,
       codex_home_retention: report.hermetic.codex_home_retention,
       allowlisted_env_key_count: report.hermetic.allowlisted_env_key_count,
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,

@@ -8,7 +8,7 @@ const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const assert = require("node:assert/strict");
 const { summarizeJsonl } = require("../../benchmarks/lib/codex-jsonl");
-const { applyCodexHomeRetention, pruneOldCodexHomes } = require("../../benchmarks/lib/llm-raw-retention");
+const { DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, applyCodexHomeRetention, pruneOldCodexHomes, pruneOldRawRuns } = require("../../benchmarks/lib/llm-raw-retention");
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { aggregationExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
 const { sampleImpactTraceExpectation } = require("../../benchmarks/llm/samples/sample-code-graph-expectation");
@@ -841,6 +841,8 @@ function validateMeasurementClaimability() {
 }
 
 function validateRawRetention() {
+  assert.equal(DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, 1);
+  assert.equal(DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, 1);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-raw-retention-"));
   try {
     const rawRoot = path.join(tempRoot, "raw");
@@ -918,6 +920,23 @@ function validateRawRetention() {
     assert(fs.existsSync(protectedStderr), "stderr must survive old raw cleanup");
     assert(fs.existsSync(protectedRetentionManifest), "retention manifest must survive old raw cleanup");
     assert(fs.existsSync(protectedPackManifest), "sanitized-pack manifest must survive old raw cleanup");
+
+    const rawRunCleanupRoot = path.join(tempRoot, "raw-run-cleanup");
+    const oldRawRun = path.join(rawRunCleanupRoot, "2026-01-01T00-00-00-000Z");
+    const freshRawRun = path.join(rawRunCleanupRoot, "2026-06-17T00-00-00-000Z");
+    const invalidNameRun = path.join(rawRunCleanupRoot, "misc-debug");
+    fs.mkdirSync(oldRawRun, { recursive: true });
+    fs.mkdirSync(freshRawRun, { recursive: true });
+    fs.mkdirSync(invalidNameRun, { recursive: true });
+    fs.writeFileSync(path.join(oldRawRun, "sample-run-1.jsonl"), "{}\n");
+    fs.writeFileSync(path.join(oldRawRun, "sample-run-1.stderr.txt"), "stderr\n");
+    fs.writeFileSync(path.join(freshRawRun, "sample-run-1.jsonl"), "{}\n");
+    fs.writeFileSync(path.join(invalidNameRun, "sample-run-1.jsonl"), "{}\n");
+    const rawRunCleanup = pruneOldRawRuns({ rawRoot: rawRunCleanupRoot, olderThanDays: 7, dryRun: false, now });
+    assert.equal(rawRunCleanup.pruned_count, 1);
+    assert(!fs.existsSync(oldRawRun), "execute should remove stale timestamped raw run directories");
+    assert(fs.existsSync(freshRawRun), "fresh raw run directories should remain");
+    assert(fs.existsSync(invalidNameRun), "non-timestamp raw directories are outside the raw-run cleanup surface");
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }

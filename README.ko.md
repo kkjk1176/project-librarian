@@ -391,7 +391,7 @@ npm pack --dry-run
 
 코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서는 `mixed-monorepo`, `web-service`, `python-cli`, `docs-heavy` 체크인 corpus도 합성 scale fixture와 분리해 측정합니다.
 
-무시된 오래된 LLM 벤치마크 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 먼저 감사할 수 있습니다.
+측정형 LLM 벤치마크 실행은 1일보다 오래된 이전 raw run 디렉터리와 격리 Codex home을 자동 삭제하고, claimable 실행 실패 시에도 현재 실행의 home을 삭제한 뒤 종료합니다. raw JSONL, stderr, 보고서, manifest는 보존 기간 안의 실행에 대해서만 감사용으로 유지됩니다. 무시된 오래된 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 여전히 먼저 감사할 수 있습니다.
 
 ```bash
 npm run benchmark:llm:prune-raw -- --older-than-days 14

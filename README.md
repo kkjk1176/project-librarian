@@ -390,7 +390,7 @@ Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.m
 
 For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generates 3k/10k/50k fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks; the `query_groups` section reports direct DB timings for representative file/symbol/route/import/edge queries. The report also measures checked-in `mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy` corpora separately from synthetic scale fixtures.
 
-Old ignored LLM benchmark raw output can be audited with the dry-run-first helper before deleting retained isolated Codex homes:
+Measured LLM benchmark runs automatically prune stale prior raw run directories and isolated Codex homes older than 1 day, then prune the current run's homes even on claimable-run failure; raw JSONL, stderr, reports, and manifests remain for runs inside the retention window. Old ignored raw output can still be audited with the dry-run-first helper before deleting retained isolated Codex homes:
 
 ```bash
 npm run benchmark:llm:prune-raw -- --older-than-days 14
