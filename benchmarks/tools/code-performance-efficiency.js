@@ -51,6 +51,18 @@ function sampleCorpusDefinitions() {
         edge: "SampleCli",
       },
     },
+    {
+      name: "docs-heavy",
+      corpus_kind: "docs-heavy",
+      source: path.join(repoRoot, "benchmarks", "samples", "docs-heavy"),
+      terms: {
+        file: "manifest",
+        symbol: "docsSearchIndex",
+        route: "docs",
+        import: "navigation",
+        edge: "docsSearchIndex",
+      },
+    },
   ];
 }
 

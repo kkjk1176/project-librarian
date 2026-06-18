@@ -44,6 +44,7 @@ function printUsage() {
 Runs local-only release checks:
   - npm test
   - benchmark JSONL parser smoke
+  - multi-agent generated-surface smoke
   - benchmark release payload preview
   - benchmark claim ledger classification
   - npm pack --dry-run --json package inspection
@@ -203,6 +204,11 @@ function main() {
   printStep(parseSmoke);
   results.push(parseSmoke);
   if (!parseSmoke.ok) fail("release readiness failed: benchmark parser smoke");
+
+  const agentSurfaceSmoke = runCommand("agent surface smoke", "npm", ["run", "benchmark:agent-surface-smoke"]);
+  printStep(agentSurfaceSmoke);
+  results.push(agentSurfaceSmoke);
+  if (!agentSurfaceSmoke.ok) fail("release readiness failed: agent surface smoke");
 
   if (!hasFlag("--skip-benchmark-preview")) {
     const preview = runCommand("benchmark release preview", "npm", ["run", "benchmark:release:preview"]);

@@ -45,7 +45,13 @@ function printJson(value: unknown): void {
 function requireCompatibleDatabase(database: SqliteDatabase, runtime: CodeIndexModeRuntime): void {
   const schemaVersion = readMetaValue(database, "schema_version");
   if (schemaVersion !== codeIndexSchemaVersion) {
-    runtime.fail(`code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}; rebuild with --code-index`);
+    const databasePath = runtime.codeEvidenceDatabasePath();
+    runtime.fail([
+      `code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}`,
+      `inspect: project-librarian --code-index-health`,
+      `rebuild: project-librarian --code-index --code-index-full`,
+      `database: ${databasePath.relativePath}`,
+    ].join("\n"));
   }
 }
 
