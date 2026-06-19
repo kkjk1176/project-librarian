@@ -249,7 +249,7 @@ function buildSyntheticOwnershipControlScenario(rawDir) {
 
 function buildMiniReport(rawDir, scenarios) {
   return {
-    schema_version: 7,
+    schema_version: 8,
     benchmark_kind: "codex-actual-llm",
     auth_mode: "chatgpt_codex",
     auth: { auth_mode_source: "declared", code_api_key_present: false, openai_api_key_present: false, codex_home_set: false },
@@ -279,7 +279,7 @@ function buildMiniReport(rawDir, scenarios) {
       require_clean: false,
       control_profile: "organic",
       cache_discount: 0.1,
-      scenario_order: "deterministic-alternating-pairs",
+      scenario_order: "run-major-balanced",
       requested_model: "stub-model",
       selected_scales: ["small"],
       selected_tasks: ["ownership_lookup"],

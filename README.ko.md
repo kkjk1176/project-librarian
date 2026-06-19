@@ -406,6 +406,8 @@ npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
 
 `npm run benchmark:llm:delta-analysis`는 체크인된 measured LLM 보고서를 읽고 Codex를 실행하지 않은 채 cost-weighted regression을 순위화합니다. 대표 raw JSONL command trace와 broad-search/router-read driver 분류까지 보려면 `-- --include-traces`를 붙입니다. 작은 scale aggregation처럼 약한 셀을 새 공개 claim보다 먼저 진단하는 첫 경로입니다.
 
+측정형 LLM 실행은 기본적으로 `--scenario-order run-major-balanced`를 사용합니다. 각 measured run index마다 선택된 모든 scenario를 실행하고 반복마다 순서를 뒤집어, 반복 실행에서 with/without 조건이 한쪽으로 몰리지 않게 합니다. 이전의 scenario별 묶음 실행 진단을 재현할 때만 `--scenario-order scenario-major`를 사용하세요.
+
 `npm run typecheck:ts7`은 opt-in TypeScript 7 RC 호환성 probe입니다. `npx`를 사용하며, compiler API와 이 프로젝트 TypeScript extractor의 parity 기록이 생기기 전까지 `test`, `release:check`, CI 게이트 밖에 둡니다.
 
 ## 영감

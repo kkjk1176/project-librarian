@@ -406,6 +406,8 @@ npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
 
 `npm run benchmark:llm:delta-analysis` reads the checked-in measured LLM report and ranks cost-weighted regressions without launching Codex. Add `-- --include-traces` to include representative raw JSONL command traces and classify broad-search/router-read drivers. It is the first diagnostic stop for weak cells such as small-scale aggregation before adding new benchmark claims.
 
+Measured LLM runs default to `--scenario-order run-major-balanced`: each measured run index executes all selected scenarios, reversing the order on alternating repetitions so with/without pairs are not grouped by condition across repeated runs. Use `--scenario-order scenario-major` only when reproducing older scenario-grouped diagnostics.
+
 `npm run typecheck:ts7` is an opt-in TypeScript 7 RC compatibility probe. It uses `npx` and is intentionally outside `test`, `release:check`, and CI gates until the compiler API and this project's TypeScript extractor have a measured parity record.
 
 ## Inspiration
