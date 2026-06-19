@@ -56,6 +56,7 @@
     "release:check": "node benchmarks/tools/release-readiness.js",
     "typecheck": "tsc --noEmit",
     "unit": "node --test tests/unit/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage tests/unit/*.test.js",
     "test": "npm run build && npm run typecheck && npm run unit && bash tests/smoke.sh",
     "prepack": "npm run build"
   },

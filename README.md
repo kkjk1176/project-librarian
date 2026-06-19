@@ -193,6 +193,7 @@ Code evidence:
 | Require incremental update | "Update the Project Librarian code evidence index incrementally." | `--code-index --incremental` |
 | Force a full rebuild | "Fully rebuild the Project Librarian code evidence index." | `--code-index --code-index-full` |
 | Use optional Tree-sitter backend | "Build Project Librarian code evidence with the Tree-sitter parser." | `--code-index --code-parser tree-sitter` |
+| Inspect cache compatibility | "Inspect Project Librarian code evidence cache health." | `--code-index-health` |
 | Show cache status | "Show Project Librarian code evidence status." | `--code-status` |
 | List indexed files | "List files in the Project Librarian code evidence index." | `--code-files` |
 | Print architecture and ownership report | "Show the Project Librarian code report." | `--code-report` |
@@ -375,6 +376,7 @@ npm install
 npm run typecheck
 npm run build
 npm test
+npm run test:coverage
 npm run benchmark:claim-ledger
 npm run release:check
 npm pack --dry-run
@@ -382,9 +384,9 @@ npm pack --dry-run
 
 When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current.
 
-`npm run release:check` is a local-only maintainer gate: it runs tests, benchmark parser smoke, benchmark release preview, benchmark claim-ledger classification, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes and never launches a measured Codex benchmark.
+`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
-Publishing is handled by `.github/workflows/publish.yml` after a GitHub Release is published. The workflow uses npm trusted publishing through GitHub OIDC (`id-token: write`) and `npm publish --access public`; it must not use `NODE_AUTH_TOKEN` or npm token secrets. `release:check` verifies this workflow contract locally.
+Publishing is handled by `.github/workflows/publish.yml` after a GitHub Release is published. The workflow uses npm trusted publishing through GitHub OIDC (`id-token: write`) and `npm publish --access public`, which generates npm provenance automatically; it must not use `NODE_AUTH_TOKEN` or npm token secrets, and release-critical first-party GitHub Actions are pinned to full commit SHAs. `release:check` verifies this workflow contract locally.
 
 Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.md). They are for release evidence and public claim validation, not normal end-user setup.
 

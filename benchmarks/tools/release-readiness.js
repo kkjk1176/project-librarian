@@ -5,6 +5,7 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -39,17 +40,21 @@ function hasFlag(name) {
 
 function printUsage() {
   console.log(`Usage:
-  node benchmarks/tools/release-readiness.js [--skip-npm-test] [--skip-benchmark-preview]
+  node benchmarks/tools/release-readiness.js [--skip-npm-test] [--skip-test-coverage] [--skip-real-corpus-demo] [--skip-benchmark-preview]
 
 Runs local-only release checks:
   - npm test
+  - native Node test coverage
   - benchmark JSONL parser smoke
   - multi-agent generated-surface smoke
+  - real-corpus offline demo
   - benchmark release payload preview
   - benchmark claim ledger classification
+  - benchmark raw hygiene audit
   - npm pack --dry-run --json package inspection
   - dist executable and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
+  - release provenance/attestation status
 
 This script never publishes and never launches a measured Codex benchmark.`);
 }
@@ -123,6 +128,103 @@ function inspectPackFiles(files) {
   };
 }
 
+function githubActionReferencePinningStatus(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: false,
+      inspected_actions: [],
+      unpinned_actions: [],
+      message: `${path.relative(repoRoot, filePath)} is missing`,
+    };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const inspectedActions = [];
+  const unpinnedActions = [];
+  const usesPattern = /^\s*-\s+uses:\s*["']?([^@\s"']+)@([^"'\s#]+)["']?/gm;
+  let match;
+  while ((match = usesPattern.exec(text)) !== null) {
+    const action = match[1];
+    const ref = match[2];
+    if (!action.startsWith("actions/")) continue;
+    const item = { action, ref };
+    inspectedActions.push(item);
+    if (!/^[a-f0-9]{40}$/i.test(ref)) unpinnedActions.push(item);
+  }
+  const ok = unpinnedActions.length === 0;
+  return {
+    ok,
+    inspected_actions: inspectedActions,
+    unpinned_actions: unpinnedActions,
+    message: ok
+      ? `all ${inspectedActions.length} first-party GitHub action reference(s) are full-SHA pinned`
+      : "first-party GitHub action references must be pinned to full-length commit SHAs",
+  };
+}
+
+function formatBytes(bytes) {
+  const units = ["B", "KiB", "MiB", "GiB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function rawCodexHomeHygieneStatus(options = {}) {
+  const rawRoot = path.resolve(options.rawRoot || path.join(repoRoot, "benchmarks", "reports", "llm", "raw"));
+  const olderThanDays = options.olderThanDays || 1;
+  const now = options.now || new Date();
+  if (!fs.existsSync(rawRoot)) {
+    return {
+      ok: true,
+      available: false,
+      raw_root: rawRoot,
+      older_than_days: olderThanDays,
+      candidate_count: 0,
+      candidate_bytes: 0,
+      candidates: [],
+      message: `raw root does not exist: ${path.relative(repoRoot, rawRoot)}`,
+    };
+  }
+  const audit = discoverPrunableCodexHomes({ rawRoot, olderThanDays, now });
+  const candidates = audit.candidates.map(({ absolute_path, ...candidate }) => candidate);
+  const candidateSummaries = candidates.map((candidate) => ({
+    relative_path: candidate.relative_path,
+    modified_at: candidate.modified_at,
+    file_count: candidate.file_count,
+    directory_count: candidate.directory_count,
+    byte_count: candidate.byte_count,
+  }));
+  const candidateBytes = candidates.reduce((sum, candidate) => sum + candidate.byte_count, 0);
+  return {
+    ok: true,
+    available: true,
+    raw_root: audit.raw_root,
+    older_than_days: audit.older_than_days,
+    cutoff: audit.cutoff,
+    candidate_count: candidates.length,
+    candidate_bytes: candidateBytes,
+    sample_candidates: candidateSummaries.slice(0, 10),
+    candidates: options.includeCandidates ? candidates : [],
+    message: candidates.length === 0
+      ? `no stale codex-home directories older than ${olderThanDays} day(s)`
+      : `${candidates.length} stale codex-home director${candidates.length === 1 ? "y" : "ies"} (${formatBytes(candidateBytes)}) would be pruned by the dry-run cleanup`,
+  };
+}
+
+function releaseProvenanceStatus() {
+  return {
+    ok: true,
+    status: "automatic",
+    current_control: "npm trusted publishing through GitHub OIDC",
+    reason: "npm provenance attestations are generated automatically for packages published through trusted publishing",
+    verification: "release:check validates OIDC permissions, token-free npm publish, a public repository field, and pinned first-party publish actions",
+  };
+}
+
 function distExecutableStatus(filePath = path.join(repoRoot, "dist", "init-project-wiki.js")) {
   if (!fs.existsSync(filePath)) return { ok: false, message: "dist/init-project-wiki.js is missing" };
   const stat = fs.statSync(filePath);
@@ -152,9 +254,10 @@ function benchmarkClaimStatus(readmeText) {
 
 function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github", "workflows", "publish.yml")) {
   if (!fs.existsSync(filePath)) {
-    return { ok: false, missing: ["publish workflow"], forbidden: [], message: ".github/workflows/publish.yml is missing" };
+    return { ok: false, missing: ["publish workflow"], forbidden: [], unpinned_actions: [], message: ".github/workflows/publish.yml is missing" };
   }
   const text = fs.readFileSync(filePath, "utf8");
+  const actionPinning = githubActionReferencePinningStatus(filePath);
   const required = [
     { label: "id-token: write", pattern: /\bid-token:\s*write\b/ },
     { label: "contents: read", pattern: /\bcontents:\s*read\b/ },
@@ -171,14 +274,16 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     { label: "NPM_TOKEN", pattern: /\bNPM_TOKEN\b/ },
     { label: "npm token secret", pattern: /\bsecrets\.[A-Z0-9_]*NPM[A-Z0-9_]*\b/i },
   ].filter((item) => item.pattern.test(text)).map((item) => item.label);
-  const ok = missing.length === 0 && forbidden.length === 0;
+  const ok = missing.length === 0 && forbidden.length === 0 && actionPinning.ok;
   return {
     ok,
     missing,
     forbidden,
+    action_pinning: actionPinning,
+    unpinned_actions: actionPinning.unpinned_actions,
     message: ok
-      ? "publish workflow uses GitHub OIDC trusted publishing without npm token secrets"
-      : "publish workflow is missing trusted publishing requirements or still references token secrets",
+      ? "publish workflow uses GitHub OIDC trusted publishing without npm token secrets and with full-SHA pinned first-party actions"
+      : "publish workflow is missing trusted publishing requirements, still references token secrets, or has unpinned first-party actions",
   };
 }
 
@@ -205,6 +310,13 @@ function main() {
     if (!npmTest.ok) fail("release readiness failed: npm test");
   }
 
+  if (!hasFlag("--skip-test-coverage")) {
+    const coverage = runCommand("native test coverage", "npm", ["run", "test:coverage"]);
+    printStep(coverage);
+    results.push(coverage);
+    if (!coverage.ok) fail("release readiness failed: native test coverage");
+  }
+
   const parseSmoke = runCommand("benchmark parser smoke", "npm", ["run", "benchmark:llm:parse-smoke"]);
   printStep(parseSmoke);
   results.push(parseSmoke);
@@ -214,6 +326,13 @@ function main() {
   printStep(agentSurfaceSmoke);
   results.push(agentSurfaceSmoke);
   if (!agentSurfaceSmoke.ok) fail("release readiness failed: agent surface smoke");
+
+  if (!hasFlag("--skip-real-corpus-demo")) {
+    const realCorpusDemo = runCommand("real-corpus offline demo", "npm", ["run", "benchmark:real-corpus:demo"]);
+    printStep(realCorpusDemo);
+    results.push(realCorpusDemo);
+    if (!realCorpusDemo.ok) fail("release readiness failed: real-corpus offline demo");
+  }
 
   if (!hasFlag("--skip-benchmark-preview")) {
     const preview = runCommand("benchmark release preview", "npm", ["run", "benchmark:release:preview"]);
@@ -251,6 +370,12 @@ function main() {
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
 
+  const rawHygieneStatus = rawCodexHomeHygieneStatus();
+  console.log(`${rawHygieneStatus.candidate_count > 0 ? "WARN" : "PASS"} raw hygiene audit: ${rawHygieneStatus.message}`);
+
+  const provenanceStatus = releaseProvenanceStatus();
+  console.log(`INFO release provenance: ${provenanceStatus.current_control}; npm provenance ${provenanceStatus.status}`);
+
   const trustedPublishingStatus = trustedPublishingWorkflowStatus();
   console.log(`${trustedPublishingStatus.ok ? "PASS" : "FAIL"} trusted publishing workflow: ${trustedPublishingStatus.message}`);
   if (!trustedPublishingStatus.ok) {
@@ -263,6 +388,8 @@ function main() {
     dist: distStatus,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
+    raw_hygiene: rawHygieneStatus,
+    release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
   }, null, 2));
 }
@@ -274,10 +401,13 @@ if (require.main === module) {
 module.exports = {
   benchmarkClaimStatus,
   distExecutableStatus,
+  githubActionReferencePinningStatus,
   inspectPackFiles,
   normalizePackPath,
   packFilePaths,
   parsePackJson,
+  rawCodexHomeHygieneStatus,
+  releaseProvenanceStatus,
   requiredPackFiles,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,

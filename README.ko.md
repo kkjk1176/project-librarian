@@ -193,7 +193,7 @@ npx project-librarian install-skill --scope project --agents all
 | 증분 갱신 요구 | "Project Librarian 코드 근거 인덱스를 증분 갱신해줘." | `--code-index --incremental` |
 | 전체 재생성 강제 | "Project Librarian 코드 근거 인덱스를 전체 재생성해줘." | `--code-index --code-index-full` |
 | 선택적 Tree-sitter 백엔드 사용 | "Tree-sitter 파서로 Project Librarian 코드 근거를 만들어줘." | `--code-index --code-parser tree-sitter` |
-| 캐시 호환성 진단 | "Project Librarian 코드 근거 캐시 health를 확인해줘." | `--code-index-health` |
+| 캐시 호환성 진단 | "Project Librarian 코드 근거 캐시 상태와 호환성을 진단해줘." | `--code-index-health` |
 | 캐시 상태 보기 | "Project Librarian 코드 근거 상태를 보여줘." | `--code-status` |
 | 인덱싱된 파일 목록 | "Project Librarian 코드 근거에 인덱싱된 파일을 보여줘." | `--code-files` |
 | 아키텍처/소유권 보고서 출력 | "Project Librarian 코드 보고서를 보여줘." | `--code-report` |
@@ -376,6 +376,7 @@ npm install
 npm run typecheck
 npm run build
 npm test
+npm run test:coverage
 npm run benchmark:claim-ledger
 npm run release:check
 npm pack --dry-run
@@ -383,9 +384,9 @@ npm pack --dry-run
 
 `src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요.
 
-`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, 벤치마크 파서 smoke, 벤치마크 release preview, 벤치마크 claim ledger 분류, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 measured Codex 벤치마크도 실행하지 않습니다.
+`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 
-배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하며, `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 됩니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
+배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하므로 npm provenance가 자동 생성됩니다. `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 되며, 릴리스 핵심 GitHub 공식 Actions는 전체 commit SHA로 고정합니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
 
 관리자 벤치마크 명령은 [benchmarks/README.md](benchmarks/README.md)에 있습니다. 이 명령은 릴리스 근거와 공개 주장 검증을 위한 것이며, 일반 사용자 설정 절차가 아닙니다.
 
