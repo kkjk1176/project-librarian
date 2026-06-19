@@ -58,11 +58,11 @@ test("release readiness uses an isolated npm cache for pack inspection", () => {
   assert(fs.existsSync(env.npm_config_cache));
 });
 
-test("release readiness recognizes the current README benchmark boundary as diagnostic", () => {
+test("release readiness recognizes the current README benchmark boundary as release claimable", () => {
   const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
   const status = benchmarkClaimStatus(readme);
   assert.equal(status.ok, true);
-  assert.equal(status.status, "diagnostic_only");
+  assert.equal(status.status, "release_claimable");
 });
 
 test("release readiness validates the trusted publishing workflow", () => {

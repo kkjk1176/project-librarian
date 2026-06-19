@@ -83,11 +83,11 @@ Cost-weighted tokens, Project Librarian vs control:
 
 | Scale | decision_lookup | aggregation | multi_session (2nd session) |
 | --- | --- | --- | --- |
-| Small | 43.8% less | 144.5% more | 5.4% more |
-| Medium | 53.4% less | 4.4% less | 68.5% less |
-| Large | 71.6% less* | 12.8% less | 66.0% less |
+| Small | 14.4% less | 81.0% more | 22.0% less |
+| Medium | 52.0% less | 19.0% less | 54.1% less |
+| Large | 71.1% less | 29.0% less | 71.8% less |
 
-Latest synthetic wiki-track release candidate: 2026-06-16, `gpt-5.5`, 42 scenarios, 3 measured runs plus 1 warmup each. The overall claim gate **failed**: 41/42 scenarios passed correctness, but `decision_lookup` at large scale on the no-Project-Librarian control had only 2/3 correct measured runs. The failed control run selected `2026-05-04` from a dated history file instead of the expected latest benchmark-evidence decision `2026-06-10` from the decision log. Treat this table as diagnostic evidence, not a public release claim, until a clean release run passes the claim gate. Published boundaries remain visible: small `aggregation` is much more expensive with the wiki, small `multi_session` is slightly more expensive, and `aggregation` stays slower at every scale even when token cost drops.
+Latest synthetic wiki-track release candidate: 2026-06-19, `gpt-5.5`, 42 scenarios, 3 measured runs plus 1 warmup each. The overall claim gate **passed**: 42/42 scenarios passed correctness, all 42 scenarios were claimable, and every corpus gate met the 3-run minimum. The release claim is still bounded to the synthetic wiki-routing track and the listed task families; it is not a claim about code-graph behavior, real repositories, every agent surface, or every question shape. Published boundaries remain visible: small `aggregation` still costs 81.0% more with the wiki, small `release_policy` costs 9.4% more in the full report, and `aggregation` stays slower at every scale even when token cost drops.
 
 ### Code-graph track (code evidence index, real repositories)
 
