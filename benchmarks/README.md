@@ -140,6 +140,12 @@ The release scripts pin `--model gpt-5.5`; `--require-claimable` now fails befor
 
 `--payload-preview <path>` builds the selected fixture matrix and writes a local audit JSON without launching Codex or requiring `--allow-codex-run`. The preview includes every selected prompt, prompt hash, requested model, scenario cwd, expected Codex exec count, fixture fingerprint, MCP injection flag, and the sanitized-pack provenance when enabled. It is intentionally a stop point: inspect the JSON first, then run the measured command separately.
 
+For diagnostic reruns after a failed full release benchmark, use `--only-failed-from <report.json>` to select only the scenarios that failed the prior claim gate, or `--only-prompt-id <prompt_id[,prompt_id...]>` to select named scenarios directly. Diagnostic prompt filters record `configuration.diagnostic_selection` in previews and measured reports, but they cannot be combined with `--require-claimable` or `--full-matrix`: a diagnostic rerun is evidence for debugging a miss, not a public release claim. For example:
+
+```sh
+npm run benchmark:release:diagnose -- --allow-codex-run --only-failed-from benchmarks/reports/llm/current.json
+```
+
 Use `--sanitized-pack` for measured runs that may leave the local machine. The runner copies only the benchmark harness (`benchmarks/codex-llm-metrics.js`, `benchmarks/lib/`, `dist/`, `package.json`, `benchmarks/real-keys/` when present, and the installed `typescript` runtime dependency) into a fresh temporary pack, then re-executes from that pack. Synthetic fixtures are built under the pack's `scratch/` directory, so Codex scenario cwd paths stay inside the minimized pack rather than the live source checkout. Raw JSONL, stderr, retention manifests, and measured reports still write under `benchmarks/reports/llm/` so report validators can re-read them after the pack run; isolated `codex-home*` directories are pruned unless `--keep-codex-homes` is present. The pack writes `SANITIZED_BENCHMARK_PACK.json` listing copied entries and excluded workspace roots. The re-exec path streams child output directly, so progress lines are visible while the minimized pack is running. This does not remove the need for human approval: a measured run still sends the listed prompts and any files Codex reads from each scenario cwd to the external service.
 
 Validate the JSONL parser and report-shape checks against checked-in sample artifacts:
