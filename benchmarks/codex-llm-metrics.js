@@ -67,6 +67,17 @@ function listArg(name, allowed, defaultValues) {
   return values;
 }
 
+function freeCommaListArg(name) {
+  const raw = argValue(name, "");
+  if (!raw) return [];
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) fail(`empty ${name} value`);
+  for (const value of values) {
+    if (value.includes("\n") || value.includes("\r")) fail(`invalid ${name} value`);
+  }
+  return values;
+}
+
 // A comma list argument with no fixed allowed set (e.g. --repos, whose values are
 // repo names present in the corpus directory). Returns [] when absent so the
 // caller fails with its own message.
@@ -602,6 +613,7 @@ function absolutizeAgainstOriginalRoot(value, originalRoot) {
 function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
   const normalized = [];
   const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir", "--raw-report-root"]);
+  const pathListValueFlags = new Set(["--only-failed-from"]);
   const optionalPathValueFlags = new Set(["--markdown", "--payload-preview", "--preview-payload"]);
   let sawOut = false;
   let dryRun = args.includes("--dry-run");
@@ -621,6 +633,13 @@ function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
       if (!value || value.startsWith("--")) fail(`missing value for ${arg}`);
       normalized.push(arg, absolutizeAgainstOriginalRoot(value, originalRoot));
       if (arg === "--out") sawOut = true;
+      index += 1;
+      continue;
+    }
+    if (pathListValueFlags.has(arg)) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) fail(`missing value for ${arg}`);
+      normalized.push(arg, value.split(",").map((item) => absolutizeAgainstOriginalRoot(item.trim(), originalRoot)).join(","));
       index += 1;
       continue;
     }
@@ -795,6 +814,56 @@ function scenarioHasClaimGateFailure(scenario, minRunsForClaim) {
   });
 }
 
+function failedPromptIdsFromReport(reportPath) {
+  if (!fs.existsSync(reportPath)) {
+    fail(`--only-failed-from report file not found: ${reportPath}`);
+  }
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  if (!Array.isArray(report.scenarios)) {
+    fail(`--only-failed-from report has no scenarios array: ${reportPath}`);
+  }
+  const minRunsForClaim = report.configuration?.min_runs_for_claim || 1;
+  return report.scenarios
+    .filter((scenario) => scenarioHasClaimGateFailure(scenario, minRunsForClaim))
+    .map((scenario) => scenario.prompt_id)
+    .filter(Boolean);
+}
+
+function selectDiagnosticScenarios(manifestScenarios, promptIds) {
+  const uniquePromptIds = [...new Set(promptIds)];
+  if (uniquePromptIds.length === 0) fail("diagnostic prompt selection found no prompt ids");
+  const byPromptId = new Map(manifestScenarios.map((scenario) => [scenario.prompt_id, scenario]));
+  const missing = uniquePromptIds.filter((promptId) => !byPromptId.has(promptId));
+  if (missing.length > 0) {
+    fail(`diagnostic prompt id(s) not found in selected manifest: ${missing.join(", ")}`);
+  }
+  return uniquePromptIds.map((promptId) => byPromptId.get(promptId));
+}
+
+function buildDiagnosticSelection({ manifestScenarios, onlyPromptIds, onlyFailedFrom }) {
+  const promptIds = [...onlyPromptIds];
+  for (const reportPath of onlyFailedFrom) {
+    promptIds.push(...failedPromptIdsFromReport(reportPath));
+  }
+  if (promptIds.length === 0) return null;
+  return {
+    mode: onlyFailedFrom.length > 0 ? "failed-report-or-prompt-id" : "prompt-id",
+    requested_prompt_ids: [...new Set(promptIds)],
+    source_reports: onlyFailedFrom,
+    selected_scenarios: selectDiagnosticScenarios(manifestScenarios, promptIds),
+  };
+}
+
+function diagnosticSelectionConfig(diagnosticSelection) {
+  if (!diagnosticSelection) return { enabled: false };
+  return {
+    enabled: true,
+    mode: diagnosticSelection.mode,
+    requested_prompt_ids: diagnosticSelection.requested_prompt_ids,
+    source_reports: diagnosticSelection.source_reports,
+  };
+}
+
 function renderClaimGateFailureDiagnostics(report) {
   const lines = [];
   const configuration = report.configuration || {};
@@ -886,7 +955,7 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection }) {
   const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   return {
@@ -927,6 +996,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
       expected_codex_exec_count: codexExecCount,
+      diagnostic_selection: diagnosticSelectionConfig(diagnosticSelection),
       dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((scenario) => scenario.prompt_id) : [],
       manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
         scale: scenario.scale,
@@ -953,7 +1023,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
+function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
   const resolvedRawReportRoot = rawReportRoot
     ? path.resolve(rawReportRoot)
@@ -975,11 +1045,13 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     }), true)
     : disabledPruneSummary({ rawRoot: rawParent, olderThanDays: autoPruneCodexHomesOlderThanDays });
   const rawRoot = path.join(rawParent, new Date().toISOString().replace(/[:.]/g, "-"));
-  if (maxScenarios < conditions.length) {
+  if (!selectedScenariosOverride && maxScenarios < conditions.length) {
     fail(`measured Codex benchmark requires at least ${conditions.length} scenarios to compare conditions`);
   }
-  const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
-  if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
+  const selectedScenarios = selectedScenariosOverride || selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
+  if (selectedScenarios.length === 0) {
+    fail(selectedScenariosOverride ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
+  }
   const progress = createBenchmarkProgress({
     selectedScenarios,
     runs,
@@ -1234,6 +1306,7 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
+      diagnostic_selection: diagnosticSelectionConfig(diagnosticSelection),
       // For real-corpus runs with an explicit --max-scenarios cap, records which
       // prompt_ids were dropped so the partial run is transparent in the report.
       dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((s) => s.prompt_id) : undefined,
@@ -1502,6 +1575,8 @@ function main() {
   const autoPruneRawRunsOlderThanDays = positiveIntegerArgValue("--auto-prune-raw-runs-older-than-days", DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS);
   const rawReportRootArg = optionalStringArgValue("--raw-report-root");
   const rawReportRoot = rawReportRootArg ? path.resolve(root, rawReportRootArg) : "";
+  const onlyPromptIds = freeCommaListArg("--only-prompt-id");
+  const onlyFailedFrom = freeCommaListArg("--only-failed-from").map((reportPath) => path.resolve(root, reportPath));
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const controlProfile = argValue("--control-profile", "organic");
@@ -1525,6 +1600,15 @@ function main() {
   const requestedModel = optionalStringArgValue("--model");
   if (requireClaimable && !requestedModel) {
     fail("--require-claimable requires --model <model> so claimable reports can record a single requested model when Codex JSONL omits model metadata");
+  }
+  if ((onlyPromptIds.length > 0 || onlyFailedFrom.length > 0) && requireClaimable) {
+    fail("diagnostic prompt filters cannot be combined with --require-claimable; rerun the full release matrix for public claims");
+  }
+  if ((onlyPromptIds.length > 0 || onlyFailedFrom.length > 0) && fullMatrix) {
+    fail("diagnostic prompt filters cannot be combined with --full-matrix; use a diagnostic run without release coverage flags");
+  }
+  if ((onlyPromptIds.length > 0 || onlyFailedFrom.length > 0) && dryRun && !payloadPreviewPath) {
+    fail("diagnostic prompt filters require --payload-preview or a measured run; --dry-run writes the full manifest");
   }
   const corpus = argValue("--corpus", "synthetic");
   if (!["synthetic", "real"].includes(corpus)) fail(`invalid --corpus value: ${corpus} (expected synthetic or real)`);
@@ -1581,6 +1665,12 @@ function main() {
     manifest = buildManifest({ fixtureRoot, cliPath: cli, selectedScales, selectedTasks, requestedModel, controlProfile });
   }
 
+  const diagnosticSelection = buildDiagnosticSelection({
+    manifestScenarios: manifest.scenarios,
+    onlyPromptIds,
+    onlyFailedFrom,
+  });
+
   // For real-corpus runs, resolve the effective maxScenarios NOW that we have the
   // manifest. Default (no --max-scenarios flag) = full key coverage = all manifest
   // scenarios. Explicit --max-scenarios N is a probe/debug cap: it MUST log every
@@ -1604,9 +1694,13 @@ function main() {
     }
   }
 
-  const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
+  const selectedScenarios = diagnosticSelection
+    ? diagnosticSelection.selected_scenarios
+    : selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
   if (payloadPreviewPath) {
-    if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
+    if (selectedScenarios.length === 0) {
+      fail(diagnosticSelection ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
+    }
     const preview = buildPayloadPreview({
       manifest,
       selectedScenarios,
@@ -1629,6 +1723,7 @@ function main() {
       autoPruneRawRuns,
       autoPruneRawRunsOlderThanDays,
       droppedScenarios,
+      diagnosticSelection,
     });
     writeJson(payloadPreviewPath, preview);
     console.log(JSON.stringify({
@@ -1644,7 +1739,7 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
+    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));

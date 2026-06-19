@@ -315,6 +315,89 @@ test("--payload-preview records the requested model for claimable release prefli
   assert(preview.scenarios.every((scenario) => scenario.command_prefix.includes("gpt-test")), "preview command prefix must expose the requested model value");
 });
 
+test("--payload-preview can select one diagnostic prompt without requiring a complete pair", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-diagnostic-prompt-preview-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const promptId = "decision_lookup-small-with_project_librarian";
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", promptId,
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.scenario_count, 1);
+  assert.equal(stdout.expected_codex_exec_count, 1);
+  const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
+  assert.equal(preview.configuration.diagnostic_selection.enabled, true);
+  assert.deepEqual(preview.configuration.diagnostic_selection.requested_prompt_ids, [promptId]);
+  assert.equal(preview.scenarios.length, 1);
+  assert.equal(preview.scenarios[0].prompt_id, promptId);
+});
+
+test("--only-failed-from selects failed prompt ids from a previous report", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-diagnostic-failed-from-"));
+  const priorReport = path.join(tmp, "current.json");
+  const previewPath = path.join(tmp, "preview.json");
+  fs.writeFileSync(priorReport, `${JSON.stringify({
+    configuration: { min_runs_for_claim: 1 },
+    scenarios: [
+      {
+        prompt_id: "decision_lookup-small-with_project_librarian",
+        claimable_run_count: 0,
+        runs: [{
+          execution: { status: "completed" },
+          measurement: { status: "unclaimable" },
+          correctness: { status: "failed" },
+        }],
+      },
+      {
+        prompt_id: "decision_lookup-small-without_project_librarian",
+        claimable_run_count: 1,
+        median: { wall_ms: 1 },
+        runs: [{
+          execution: { status: "completed" },
+          measurement: { status: "claimable" },
+          correctness: { status: "passed" },
+        }],
+      },
+    ],
+  }, null, 2)}\n`);
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-failed-from", priorReport,
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
+  assert.equal(preview.configuration.diagnostic_selection.enabled, true);
+  assert.deepEqual(preview.configuration.diagnostic_selection.source_reports, [priorReport]);
+  assert.deepEqual(preview.configuration.diagnostic_selection.requested_prompt_ids, ["decision_lookup-small-with_project_librarian"]);
+  assert.deepEqual(preview.scenarios.map((scenario) => scenario.prompt_id), ["decision_lookup-small-with_project_librarian"]);
+});
+
+test("diagnostic prompt filters stay separate from release claim gates", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-diagnostic-claimable-reject-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", "decision_lookup-small-with_project_librarian",
+    "--require-claimable",
+    "--model", "gpt-test",
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /diagnostic prompt filters cannot be combined with --require-claimable/);
+  assert(!fs.existsSync(previewPath), "failed diagnostic claim gate preflight must not write a preview");
+});
+
 test("--sanitized-pack re-executes dry-run from a minimized pack boundary", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-sanitized-pack-test-"));
   const packRoot = path.join(tmp, "pack");
@@ -371,6 +454,33 @@ test("measured benchmark reports live progress on stderr without corrupting stdo
   assert.match(result.stderr, /\[benchmark:progress\] done .*current=2\/2 .*status=completed .*exit=0/);
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
   assert.equal(report.scenarios.length, 2);
+});
+
+test("diagnostic prompt filter measures a single scenario without a complete pair", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-diagnostic-measured-"));
+  const reportPath = path.join(tmp, "report.json");
+  const promptId = "decision_lookup-small-with_project_librarian";
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", promptId,
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.scenario_count, 1);
+  assert.match(result.stderr, /\[benchmark:progress\] plan .*scenarios=1 .*codex_exec_total=1/);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.configuration.diagnostic_selection.enabled, true);
+  assert.deepEqual(report.configuration.diagnostic_selection.requested_prompt_ids, [promptId]);
+  assert.deepEqual(report.scenarios.map((scenario) => scenario.prompt_id), [promptId]);
+  assert.equal(report.claim_gate.status, "failed", "single-scenario diagnostics must not become release-claimable");
 });
 
 test("require-claimable failure prints scenario-level correctness diagnostics", () => {
