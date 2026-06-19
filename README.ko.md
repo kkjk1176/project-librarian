@@ -377,12 +377,16 @@ npm run typecheck
 npm run build
 npm test
 npm run test:coverage
+npm run benchmark:llm:raw-audit
+npm run benchmark:llm:delta-analysis
 npm run benchmark:claim-ledger
 npm run release:check
 npm pack --dry-run
 ```
 
 `src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요.
+
+`npm run test:coverage`는 Node 내장 test coverage에 보수적인 line, branch, function threshold를 적용하므로 coverage를 단순 보고서가 아니라 회귀 게이트로 사용합니다.
 
 `npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 
@@ -395,9 +399,14 @@ npm pack --dry-run
 측정형 LLM 벤치마크 실행은 1일보다 오래된 이전 raw run 디렉터리와 격리 Codex home을 자동 삭제하고, claimable 실행 실패 시에도 현재 실행의 home을 삭제한 뒤 종료합니다. raw JSONL, stderr, 보고서, manifest는 보존 기간 안의 실행에 대해서만 감사용으로 유지됩니다. 무시된 오래된 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 여전히 먼저 감사할 수 있습니다.
 
 ```bash
+npm run benchmark:llm:raw-audit -- --older-than-days 14
 npm run benchmark:llm:prune-raw -- --older-than-days 14
 npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
 ```
+
+`npm run benchmark:llm:delta-analysis`는 체크인된 measured LLM 보고서를 읽고 Codex를 실행하지 않은 채 cost-weighted regression을 순위화합니다. 대표 raw JSONL command trace와 broad-search/router-read driver 분류까지 보려면 `-- --include-traces`를 붙입니다. 작은 scale aggregation처럼 약한 셀을 새 공개 claim보다 먼저 진단하는 첫 경로입니다.
+
+`npm run typecheck:ts7`은 opt-in TypeScript 7 RC 호환성 probe입니다. `npx`를 사용하며, compiler API와 이 프로젝트 TypeScript extractor의 parity 기록이 생기기 전까지 `test`, `release:check`, CI 게이트 밖에 둡니다.
 
 ## 영감
 

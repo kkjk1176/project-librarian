@@ -377,12 +377,16 @@ npm run typecheck
 npm run build
 npm test
 npm run test:coverage
+npm run benchmark:llm:raw-audit
+npm run benchmark:llm:delta-analysis
 npm run benchmark:claim-ledger
 npm run release:check
 npm pack --dry-run
 ```
 
 When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current.
+
+`npm run test:coverage` uses Node's native test coverage with conservative line, branch, and function thresholds so coverage is a regression gate, not only a report.
 
 `npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
@@ -395,9 +399,14 @@ For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generat
 Measured LLM benchmark runs automatically prune stale prior raw run directories and isolated Codex homes older than 1 day, then prune the current run's homes even on claimable-run failure; raw JSONL, stderr, reports, and manifests remain for runs inside the retention window. Old ignored raw output can still be audited with the dry-run-first helper before deleting retained isolated Codex homes:
 
 ```bash
+npm run benchmark:llm:raw-audit -- --older-than-days 14
 npm run benchmark:llm:prune-raw -- --older-than-days 14
 npm run benchmark:llm:prune-raw -- --older-than-days 14 --execute
 ```
+
+`npm run benchmark:llm:delta-analysis` reads the checked-in measured LLM report and ranks cost-weighted regressions without launching Codex. Add `-- --include-traces` to include representative raw JSONL command traces and classify broad-search/router-read drivers. It is the first diagnostic stop for weak cells such as small-scale aggregation before adding new benchmark claims.
+
+`npm run typecheck:ts7` is an opt-in TypeScript 7 RC compatibility probe. It uses `npx` and is intentionally outside `test`, `release:check`, and CI gates until the compiler API and this project's TypeScript extractor have a measured parity record.
 
 ## Inspiration
 
