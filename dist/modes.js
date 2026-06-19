@@ -218,6 +218,10 @@ function scoreQueryBlock(block, terms) {
 function hasMigrationQueryIntent(terms) {
     return terms.some((term) => /^(migrat|legacy|coverage|unit|ledger|review)/.test(term));
 }
+function hasDeepReferenceQueryIntent(terms) {
+    return hasMigrationQueryIntent(terms)
+        || terms.some((term) => /^(archive|audit|decision|detail|history|ledger|raw|record|source|trace|verification)/.test(term));
+}
 function isMigrationSurface(file, meta) {
     return file.startsWith("wiki/migration/")
         || /(?:^|-)migration(?:-|$)/.test(file)
@@ -230,6 +234,9 @@ function querySurfaceScore(file, meta, rawScore, terms) {
         return Math.max(1, Math.floor(rawScore * 0.25) - 20);
     }
     let score = rawScore;
+    if (meta.budget === "on-demand" && !hasDeepReferenceQueryIntent(terms)) {
+        score = Math.max(1, Math.min(Math.floor(score * 0.5), 24));
+    }
     if (file.startsWith("wiki/canonical/") && meta.status === "active")
         score += 12;
     else if (meta.status === "active")
