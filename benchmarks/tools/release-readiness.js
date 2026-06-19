@@ -134,10 +134,15 @@ function distExecutableStatus(filePath = path.join(repoRoot, "dist", "init-proje
 
 function benchmarkClaimStatus(readmeText) {
   const hasFailedGate = /claim gate \*\*failed\*\*/i.test(readmeText);
+  const hasPassedGate = /claim gate \*\*passed\*\*/i.test(readmeText);
   const hasDiagnosticBoundary = /diagnostic evidence/i.test(readmeText);
   const hasReleaseClaimBoundary = /not a public release claim|not a blanket promise|not a release baseline/i.test(readmeText);
+  const hasSyntheticBoundary = /synthetic wiki(?:-| )routing track/i.test(readmeText);
   if (hasFailedGate && hasDiagnosticBoundary) {
     return { ok: true, status: "diagnostic_only", message: "README labels the failed wiki-track claim gate as diagnostic evidence" };
+  }
+  if (hasPassedGate && hasReleaseClaimBoundary && hasSyntheticBoundary) {
+    return { ok: true, status: "release_claimable", message: "README labels the passed wiki-track claim gate with bounded release-claim language" };
   }
   if (hasReleaseClaimBoundary) {
     return { ok: true, status: "bounded", message: "README includes benchmark claim boundary language" };
