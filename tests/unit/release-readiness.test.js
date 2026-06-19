@@ -6,10 +6,13 @@ const test = require("node:test");
 
 const {
   benchmarkClaimStatus,
+  githubActionReferencePinningStatus,
   inspectPackFiles,
   normalizePackPath,
   packFilePaths,
   parsePackJson,
+  rawCodexHomeHygieneStatus,
+  releaseProvenanceStatus,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
@@ -71,6 +74,7 @@ test("release readiness validates the trusted publishing workflow", () => {
   assert.equal(status.ok, true);
   assert.deepEqual(status.missing, []);
   assert.deepEqual(status.forbidden, []);
+  assert.deepEqual(status.unpinned_actions, []);
 });
 
 test("release readiness rejects token-based npm publish workflows", () => {
@@ -98,4 +102,65 @@ test("release readiness rejects token-based npm publish workflows", () => {
   assert.equal(status.ok, false);
   assert.deepEqual(status.missing, []);
   assert.deepEqual(status.forbidden, ["NODE_AUTH_TOKEN", "NPM_TOKEN", "npm token secret"]);
+});
+
+test("release readiness rejects movable first-party GitHub action refs", () => {
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-action-pinning-")), "workflow.yml");
+  fs.writeFileSync(fixture, [
+    "jobs:",
+    "  test:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@v6",
+    "      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+    "      - uses: ./local-action",
+    "",
+  ].join("\n"));
+
+  const status = githubActionReferencePinningStatus(fixture);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.unpinned_actions, [{ action: "actions/checkout", ref: "v6" }]);
+  assert.deepEqual(status.inspected_actions, [
+    { action: "actions/checkout", ref: "v6" },
+    { action: "actions/setup-node", ref: "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" },
+  ]);
+});
+
+test("release readiness raw hygiene audit is non-destructive", () => {
+  const rawRoot = fs.mkdtempSync(path.join(os.tmpdir(), "release-raw-hygiene-"));
+  const runDir = path.join(rawRoot, "2026-06-17T00-00-00-000Z");
+  const oldHome = path.join(runDir, "codex-home-old");
+  const freshHome = path.join(runDir, "codex-home-fresh");
+  fs.mkdirSync(oldHome, { recursive: true });
+  fs.mkdirSync(freshHome, { recursive: true });
+  fs.writeFileSync(path.join(oldHome, "debug.log"), "hello");
+  fs.writeFileSync(path.join(freshHome, "debug.log"), "fresh");
+  const oldDate = new Date("2026-06-17T00:00:00.000Z");
+  const freshDate = new Date("2026-06-19T00:00:00.000Z");
+  fs.utimesSync(oldHome, oldDate, oldDate);
+  fs.utimesSync(freshHome, freshDate, freshDate);
+
+  const status = rawCodexHomeHygieneStatus({
+    rawRoot,
+    olderThanDays: 1,
+    includeCandidates: true,
+    now: new Date("2026-06-19T12:00:00.000Z"),
+  });
+
+  assert.equal(status.ok, true);
+  assert.equal(status.available, true);
+  assert.equal(status.candidate_count, 1);
+  assert.equal(status.candidate_bytes, 5);
+  assert.equal(status.candidates[0].relative_path, "2026-06-17T00-00-00-000Z/codex-home-old");
+  assert(fs.existsSync(oldHome));
+  assert(fs.existsSync(freshHome));
+});
+
+test("release readiness records automatic trusted-publishing provenance", () => {
+  const status = releaseProvenanceStatus();
+  assert.equal(status.ok, true);
+  assert.equal(status.status, "automatic");
+  assert.match(status.current_control, /trusted publishing/);
+  assert.match(status.reason, /provenance attestations/);
+  assert.match(status.verification, /OIDC/);
 });
