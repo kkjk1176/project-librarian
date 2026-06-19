@@ -3,6 +3,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS = 1;
+const DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS = 1;
+
 function toSlash(value) {
   return value.split(path.sep).join("/");
 }
@@ -28,6 +31,14 @@ function assertPruneOptions({ rawRoot, olderThanDays }) {
     throw new Error(`olderThanDays must be a positive integer: ${olderThanDays}`);
   }
   return absoluteRawRoot;
+}
+
+function parseRawRunDirectoryName(name) {
+  const match = name.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
+  if (!match) return null;
+  const parsed = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed;
 }
 
 function candidateContainers(rawRoot) {
@@ -79,6 +90,66 @@ function discoverPrunableCodexHomes({ rawRoot, olderThanDays, now = new Date() }
 
 function pruneOldCodexHomes({ rawRoot, olderThanDays, dryRun = true, now = new Date() }) {
   const discovery = discoverPrunableCodexHomes({ rawRoot, olderThanDays, now });
+  const action = dryRun ? "would-prune" : "pruned";
+  if (!dryRun) {
+    for (const candidate of discovery.candidates) {
+      fs.rmSync(candidate.absolute_path, { recursive: true });
+    }
+  }
+  const candidates = discovery.candidates.map(({ absolute_path, ...candidate }) => ({
+    ...candidate,
+    action,
+  }));
+  const candidateBytes = candidates.reduce((sum, candidate) => sum + candidate.byte_count, 0);
+  return {
+    schema_version: 1,
+    generated_at: now.toISOString(),
+    raw_root: discovery.raw_root,
+    older_than_days: discovery.older_than_days,
+    cutoff: discovery.cutoff,
+    dry_run: Boolean(dryRun),
+    candidate_count: candidates.length,
+    candidate_bytes: candidateBytes,
+    pruned_count: dryRun ? 0 : candidates.length,
+    pruned_bytes: dryRun ? 0 : candidateBytes,
+    candidates,
+  };
+}
+
+function discoverPrunableRawRuns({ rawRoot, olderThanDays, now = new Date() }) {
+  const absoluteRawRoot = assertPruneOptions({ rawRoot, olderThanDays });
+  const cutoffMs = now.getTime() - olderThanDays * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(cutoffMs)) {
+    throw new Error(`invalid prune cutoff for olderThanDays: ${olderThanDays}`);
+  }
+  const candidates = [];
+  for (const entry of fs.readdirSync(absoluteRawRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const startedAt = parseRawRunDirectoryName(entry.name);
+    if (!startedAt || startedAt.getTime() > cutoffMs) continue;
+    const runPath = path.join(absoluteRawRoot, entry.name);
+    const summary = summarizeDirectory(runPath);
+    candidates.push({
+      absolute_path: runPath,
+      relative_path: entry.name,
+      started_at: startedAt.toISOString(),
+      file_count: summary.file_count,
+      directory_count: summary.directory_count,
+      byte_count: summary.byte_count,
+      largest_files: summary.largest_files,
+    });
+  }
+  candidates.sort((left, right) => left.relative_path.localeCompare(right.relative_path));
+  return {
+    raw_root: absoluteRawRoot,
+    older_than_days: olderThanDays,
+    cutoff: new Date(cutoffMs).toISOString(),
+    candidates,
+  };
+}
+
+function pruneOldRawRuns({ rawRoot, olderThanDays, dryRun = true, now = new Date() }) {
+  const discovery = discoverPrunableRawRuns({ rawRoot, olderThanDays, now });
   const action = dryRun ? "would-prune" : "pruned";
   if (!dryRun) {
     for (const candidate of discovery.candidates) {
@@ -200,8 +271,12 @@ function applyCodexHomeRetention({ rawRoot, homePaths, keepCodexHomes }) {
 }
 
 module.exports = {
+  DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS,
+  DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS,
   applyCodexHomeRetention,
+  discoverPrunableRawRuns,
   discoverPrunableCodexHomes,
   pruneOldCodexHomes,
+  pruneOldRawRuns,
   summarizeDirectory,
 };

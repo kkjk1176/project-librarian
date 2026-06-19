@@ -50,7 +50,7 @@ Options:
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --glossary-init                  Create and route the optional glossary page.
-  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing installs preserve detected surfaces by default.
+  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing project skill/setup surfaces are preserved by default.
   --prune-check                    Report active pages with stale or unresolved signals.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.

@@ -75,6 +75,8 @@ npm run benchmark:release:preview
 npm run benchmark:release -- --allow-codex-run
 ```
 
+실측 릴리스 실행은 stderr에 `[benchmark:progress]` 줄을 스트리밍하여 시나리오 수, 예상 Codex 실행 총량, 현재 실행 순번, 단계, 프롬프트 ID, 종료 상태, 경과 시간, 원시 JSONL 경로를 보여줍니다. stdout은 최종 JSON 결과 전용으로 유지됩니다.
+
 ### 위키 트랙 (계획 문서 라우팅)
 
 비용 가중 토큰, Project Librarian 대 대조군:
@@ -143,7 +145,7 @@ npx project-librarian install-skill --scope project --agents all
 
 `--agents`는 `codex,claude,cursor,gemini`처럼 쉼표로 구분한 값도 받습니다. `all`은 지원하는 모든 에이전트를 대상으로 합니다. `--scope`는 `user` 또는 `project`를 받습니다.
 
-프로젝트 설정/갱신 실행기도 `--agents`를 받습니다. 새로 설정할 때는 지원하는 모든 에이전트 표면을 기본으로 만들지만, 마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
+프로젝트 설정/갱신 실행기도 `--agents`를 받습니다. 새로 설정할 때는 프로젝트 범위 Project Librarian 스킬 설치가 없을 때만 지원하는 모든 에이전트 표면을 기본으로 만듭니다. 저장소에 이미 `.codex/skills/project-librarian/`, `.claude/skills/project-librarian/` 같은 프로젝트 범위 스킬이 있으면 첫 설정도 그 설치된 에이전트 집합을 기본값으로 사용합니다. 마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
 
 ## 실행 경로
 
@@ -205,7 +207,7 @@ npx project-librarian install-skill --scope project --agents all
 
 ## 설치되는 파일
 
-새로 설정할 때는 `--agents`로 좁히지 않는 한 아래 지원 에이전트 표면을 설치합니다. 마이그레이션 없는 기존 설정 갱신은 기본적으로 감지된 표면만 보존해서 갱신하고, 공통 위키/git 훅 파일은 계속 갱신합니다.
+새로 설정할 때는 `--agents`로 좁히지 않았고 프로젝트 범위 Project Librarian 스킬 설치도 없을 때 아래 지원 에이전트 표면을 설치합니다. 마이그레이션 없는 기존 설정 갱신은 기본적으로 감지된 표면만 보존해서 갱신하고, 공통 위키/git 훅 파일은 계속 갱신합니다.
 
 프로젝트 지침 파일:
 
@@ -389,7 +391,7 @@ npm pack --dry-run
 
 코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서는 `mixed-monorepo`, `web-service`, `python-cli`, `docs-heavy` 체크인 corpus도 합성 scale fixture와 분리해 측정합니다.
 
-무시된 오래된 LLM 벤치마크 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 먼저 감사할 수 있습니다.
+측정형 LLM 벤치마크 실행은 1일보다 오래된 이전 raw run 디렉터리와 격리 Codex home을 자동 삭제하고, claimable 실행 실패 시에도 현재 실행의 home을 삭제한 뒤 종료합니다. raw JSONL, stderr, 보고서, manifest는 보존 기간 안의 실행에 대해서만 감사용으로 유지됩니다. 무시된 오래된 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 여전히 먼저 감사할 수 있습니다.
 
 ```bash
 npm run benchmark:llm:prune-raw -- --older-than-days 14

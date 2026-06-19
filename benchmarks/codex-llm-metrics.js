@@ -12,7 +12,7 @@ const { buildManifest, conditions, controlProfiles, scales, taskFamilies, taskTr
 const { buildIsolatedCodexHome, buildSpawnEnv, checkPreRunFingerprint, injectMcpServerConfig, resolveRealCodexHome, snapshotFixturePaths, validateFixtureAfterRun } = require("./lib/hermetic");
 const { buildRealCorpusManifest } = require("./lib/real-corpus-manifest");
 const { checkRealRepoPreRun, snapshotRealRepoUntracked, validateRealRepoAfterRun } = require("./lib/real-corpus");
-const { applyCodexHomeRetention } = require("./lib/llm-raw-retention");
+const { DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, applyCodexHomeRetention, pruneOldCodexHomes, pruneOldRawRuns } = require("./lib/llm-raw-retention");
 
 // A real-corpus scenario is identified by its pinned-sha + git-clean fingerprint
 // algorithm (the synthetic path uses a content-hash fingerprint). Real scenarios
@@ -95,6 +95,34 @@ function positiveIntegerArgValue(name, defaultValue) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1) fail(`invalid integer for ${name}: ${value}`);
   return parsed;
+}
+
+function summarizePruneResult(result, enabled) {
+  return {
+    enabled: Boolean(enabled),
+    raw_root: result.raw_root,
+    older_than_days: result.older_than_days,
+    cutoff: result.cutoff,
+    dry_run: result.dry_run,
+    candidate_count: result.candidate_count,
+    candidate_bytes: result.candidate_bytes,
+    pruned_count: result.pruned_count,
+    pruned_bytes: result.pruned_bytes,
+  };
+}
+
+function disabledPruneSummary({ rawRoot, olderThanDays }) {
+  return {
+    enabled: false,
+    raw_root: rawRoot,
+    older_than_days: olderThanDays,
+    cutoff: null,
+    dry_run: false,
+    candidate_count: 0,
+    candidate_bytes: 0,
+    pruned_count: 0,
+    pruned_bytes: 0,
+  };
 }
 
 function nonNegativeIntegerArgValue(name, defaultValue) {
@@ -232,7 +260,7 @@ function summarizeJsonlSafely(content, timing) {
   }
 }
 
-function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
+function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
   const rawPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.jsonl`);
   const stderrPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.stderr.txt`);
   fs.mkdirSync(path.dirname(rawPath), { recursive: true });
@@ -265,6 +293,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
     // distinguish pre-existing bootstrap dot-dirs from paths written during the run.
     preRunSnapshot = snapshotFixturePaths(scenario.cwd);
   }
+  const progressItem = progress ? progress.start({ scenario, runIndex }) : null;
   const started = process.hrtime.bigint();
   const result = childProcess.spawnSync(command, args, {
     cwd: scenario.cwd,
@@ -322,6 +351,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
     fixture_validation: fixtureValidation,
   };
   run.measurement = measurementStatus(run);
+  if (progressItem) progress.complete(progressItem, run);
   return run;
 }
 
@@ -333,7 +363,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv }) {
 // metrics and raw JSONL paths are recorded in session_metrics so the session-2
 // metrics are reported separately from session 1. Both sessions are ephemeral with
 // no shared codex state, so the only amortization surface is the repo itself.
-function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs }) {
+function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs, progress }) {
   if (!Array.isArray(scenario.sessions) || scenario.sessions.length === 0) {
     fail(`internal error: multi_session scenario ${scenario.prompt_id} has no sessions`);
   }
@@ -362,6 +392,7 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
     }
     const command = session.command[0];
     const args = session.command.slice(1);
+    const progressItem = progress ? progress.start({ scenario, runIndex, session }) : null;
     const started = process.hrtime.bigint();
     const result = childProcess.spawnSync(command, args, {
       cwd: scenario.cwd,
@@ -387,6 +418,12 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
       metrics,
     };
     sessionMetrics.push(sessionRecord);
+    if (progressItem) {
+      progress.complete(progressItem, {
+        raw_jsonl_path: sessionRecord.raw_jsonl_path,
+        execution: sessionRecord.execution,
+      });
+    }
     if (session.role === "measured") measuredSession = sessionRecord;
   }
   if (!measuredSession) {
@@ -459,7 +496,7 @@ function requireCompletedExecutionForClaimableRun(scenario, run) {
       if (session.execution?.stderr_path) stderrPaths.push(session.execution.stderr_path);
     }
   }
-  fail([
+  throw new Error([
     `measured Codex benchmark execution failed before claim evaluation: ${scenario.prompt_id} run ${run.run_index} (${reason})`,
     `raw: ${run.raw_jsonl_path}`,
     stderrPaths.length > 0 ? `stderr: ${stderrPaths.join(", ")}` : "stderr: n/a",
@@ -564,7 +601,7 @@ function absolutizeAgainstOriginalRoot(value, originalRoot) {
 
 function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
   const normalized = [];
-  const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir"]);
+  const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir", "--raw-report-root"]);
   const optionalPathValueFlags = new Set(["--markdown", "--payload-preview", "--preview-payload"]);
   let sawOut = false;
   let dryRun = args.includes("--dry-run");
@@ -607,31 +644,19 @@ function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
 }
 
 function reexecFromSanitizedPack(packRoot) {
-  const created = createSanitizedPack(packRoot);
+  createSanitizedPack(packRoot);
   const activeRunner = path.join(packRoot, "benchmarks", "codex-llm-metrics.js");
   const activeArgs = normalizeArgsForSanitizedPack(process.argv.slice(2), { originalRoot: root, packRoot });
   const result = childProcess.spawnSync(process.execPath, [activeRunner, ...activeArgs], {
     cwd: packRoot,
     env: process.env,
-    encoding: "utf8",
-    maxBuffer: 100 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "inherit", "inherit"],
   });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) {
     fail(`sanitized benchmark pack execution failed: ${result.error.message}`);
   }
   if (result.status !== 0) {
     process.exit(result.status);
-  }
-  if (!result.stdout) {
-    console.log(JSON.stringify({
-      status: "ok",
-      mode: "sanitized-pack",
-      pack_root: packRoot,
-      pack_manifest: created.manifest_path,
-    }, null, 2));
   }
 }
 
@@ -664,6 +689,164 @@ function promptDigest(prompt) {
 function scenarioCodexExecCount(scenario, runs, warmupRuns) {
   const sessionCount = Array.isArray(scenario.sessions) && scenario.sessions.length > 0 ? scenario.sessions.length : 1;
   return (runs + warmupRuns) * sessionCount;
+}
+
+function formatProgressSeconds(ms) {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function compactProgressFields(fields) {
+  return Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
+    .join(" ");
+}
+
+function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot, sanitizedPack }) {
+  const total = selectedScenarios.reduce((sum, scenario) => sum + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
+  const startedAt = Date.now();
+  let startedCount = 0;
+  let completedCount = 0;
+
+  function log(event, fields) {
+    process.stderr.write(`[benchmark:progress] ${event} ${compactProgressFields(fields)}\n`);
+  }
+
+  log("plan", {
+    scenarios: selectedScenarios.length,
+    codex_exec_total: total,
+    measured_runs: runs,
+    warmup_runs: warmupRuns,
+    raw_root: rawRoot,
+    sanitized_pack: sanitizedPack && sanitizedPack.pack_root,
+  });
+
+  return {
+    start({ scenario, runIndex, session }) {
+      startedCount += 1;
+      const item = {
+        ordinal: startedCount,
+        scenario,
+        runIndex,
+        session,
+        startedAt: Date.now(),
+      };
+      log("start", {
+        current: `${startedCount}/${total}`,
+        prompt_id: scenario.prompt_id,
+        phase: String(runIndex).startsWith("warmup-") ? "warmup" : "measured",
+        run: runIndex,
+        session: session ? session.session_index : undefined,
+        role: session ? session.role : undefined,
+        track: scenario.benchmark_track,
+        corpus: scenario.corpus || "synthetic",
+        scale: scenario.scale,
+        task: scenario.task_family,
+        condition: scenario.condition,
+      });
+      return item;
+    },
+    complete(item, run) {
+      completedCount += 1;
+      const elapsedMs = Date.now() - startedAt;
+      const itemMs = Date.now() - item.startedAt;
+      log("done", {
+        current: `${completedCount}/${total}`,
+        prompt_id: item.scenario.prompt_id,
+        phase: String(item.runIndex).startsWith("warmup-") ? "warmup" : "measured",
+        run: item.runIndex,
+        session: item.session ? item.session.session_index : undefined,
+        role: item.session ? item.session.role : undefined,
+        status: run.execution && run.execution.status,
+        exit: run.execution && run.execution.exit_code,
+        elapsed: formatProgressSeconds(elapsedMs),
+        duration: formatProgressSeconds(itemMs),
+        raw: run.raw_jsonl_path,
+        stderr: run.execution && run.execution.stderr_path,
+      });
+    },
+  };
+}
+
+function excerpt(value, maxLength = 360) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function failedCheckNames(checks) {
+  if (!Array.isArray(checks)) return [];
+  return checks
+    .filter((check) => !check.passed)
+    .map((check) => check.reason ? `${check.name} (${check.reason})` : check.name);
+}
+
+function scenarioHasClaimGateFailure(scenario, minRunsForClaim) {
+  const runs = Array.isArray(scenario.runs) ? scenario.runs : [];
+  if (runs.length === 0) return true;
+  if (scenario.claimable_run_count !== runs.length) return true;
+  if (scenario.claimable_run_count < minRunsForClaim) return true;
+  if (!scenario.median) return true;
+  return runs.some((run) => {
+    if (run.execution?.status && run.execution.status !== "completed") return true;
+    if (run.measurement?.status && run.measurement.status !== "claimable") return true;
+    if (run.correctness?.status && run.correctness.status !== "passed") return true;
+    return false;
+  });
+}
+
+function renderClaimGateFailureDiagnostics(report) {
+  const lines = [];
+  const configuration = report.configuration || {};
+  const minRunsForClaim = configuration.min_runs_for_claim || 1;
+  lines.push("claim gate failure diagnostics:");
+  lines.push(`  report: scenarios=${report.summary?.scenario_count ?? "n/a"} claimable=${report.summary?.claimable_scenario_count ?? "n/a"} unclaimable=${report.summary?.unclaimable_scenario_count ?? "n/a"} min_runs_for_claim=${minRunsForClaim}`);
+  lines.push(`  source: branch=${report.source_control?.branch || "n/a"} commit=${report.source_control?.short_commit || "n/a"} dirty=${report.source_control?.dirty === true ? "true" : "false"}`);
+  for (const issue of report.claim_gate?.issues || []) {
+    lines.push(`  gate-issue: ${issue}`);
+  }
+
+  const failingScenarios = (report.scenarios || [])
+    .filter((scenario) => scenarioHasClaimGateFailure(scenario, minRunsForClaim));
+  const scenarioLimit = 12;
+  for (const scenario of failingScenarios.slice(0, scenarioLimit)) {
+    const runs = Array.isArray(scenario.runs) ? scenario.runs : [];
+    lines.push([
+      `  scenario: ${scenario.prompt_id || "unknown"}`,
+      `track=${scenario.benchmark_track || "wiki"}`,
+      `corpus=${scenario.corpus || "synthetic"}`,
+      `scale=${scenario.scale || "n/a"}`,
+      `task=${scenario.task_family || "n/a"}`,
+      `condition=${scenario.condition || "n/a"}`,
+      `claimable=${scenario.claimable_run_count ?? 0}/${runs.length}`,
+      `passed=${scenario.passed_run_count ?? 0}/${runs.length}`,
+    ].join(" "));
+
+    for (const run of runs) {
+      const executionFailed = run.execution?.status && run.execution.status !== "completed";
+      const measurementFailed = run.measurement?.status && run.measurement.status !== "claimable";
+      const correctnessFailed = run.correctness?.status && run.correctness.status !== "passed";
+      if (!executionFailed && !measurementFailed && !correctnessFailed) continue;
+      lines.push(`    run ${run.run_index}: execution=${run.execution?.status || "unknown"} claim=${run.measurement?.status || "unknown"} correctness=${run.correctness?.status || "unknown"}`);
+      if (run.execution?.exit_code !== undefined && run.execution?.exit_code !== null) {
+        lines.push(`      exit_code: ${run.execution.exit_code}`);
+      }
+      if (run.raw_jsonl_path) lines.push(`      raw: ${run.raw_jsonl_path}`);
+      if (run.execution?.stderr_path) lines.push(`      stderr: ${run.execution.stderr_path}`);
+      const failedMeasurement = failedCheckNames(run.measurement?.checks);
+      if (failedMeasurement.length > 0) lines.push(`      failed measurement checks: ${failedMeasurement.join("; ")}`);
+      const failedCorrectness = failedCheckNames(run.correctness?.checks);
+      if (failedCorrectness.length > 0) lines.push(`      failed correctness checks: ${failedCorrectness.join("; ")}`);
+      if (run.correctness?.reason) lines.push(`      correctness reason: ${run.correctness.reason}`);
+      const finalText = excerpt(run.metrics?.final_text);
+      if (finalText) lines.push(`      final text excerpt: ${finalText}`);
+    }
+  }
+  if (failingScenarios.length > scenarioLimit) {
+    lines.push(`  ... ${failingScenarios.length - scenarioLimit} more failing scenario(s) omitted`);
+  }
+  lines.push("  note: non-passing correctness is a valid benchmark miss, not a runner execution error.");
+  return lines.join("\n");
 }
 
 function scenarioPayloadPreview(scenario, runs, warmupRuns) {
@@ -703,7 +886,7 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, droppedScenarios }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios }) {
   const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   return {
@@ -735,6 +918,10 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       requested_model: manifest.requested_model,
       cache_discount: cacheDiscount,
       keep_codex_homes: Boolean(keepCodexHomes),
+      auto_prune_codex_homes: Boolean(autoPruneCodexHomes),
+      auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
+      auto_prune_raw_runs: Boolean(autoPruneRawRuns),
+      auto_prune_raw_runs_older_than_days: autoPruneRawRunsOlderThanDays,
       selected_scales: selectedScales,
       selected_tasks: selectedTasks,
       selected_scenarios: selectedScenarios.length,
@@ -766,15 +953,40 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false }) {
+function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
-  const rawReportRoot = sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root;
-  const rawRoot = path.join(rawReportRoot, "benchmarks", "reports", "llm", "raw", new Date().toISOString().replace(/[:.]/g, "-"));
+  const resolvedRawReportRoot = rawReportRoot
+    ? path.resolve(rawReportRoot)
+    : (sanitizedPack && sanitizedPack.original_root ? sanitizedPack.original_root : root);
+  const rawParent = path.join(resolvedRawReportRoot, "benchmarks", "reports", "llm", "raw");
+  fs.mkdirSync(rawParent, { recursive: true });
+  const priorRawRunCleanup = autoPruneRawRuns
+    ? summarizePruneResult(pruneOldRawRuns({
+      rawRoot: rawParent,
+      olderThanDays: autoPruneRawRunsOlderThanDays,
+      dryRun: false,
+    }), true)
+    : disabledPruneSummary({ rawRoot: rawParent, olderThanDays: autoPruneRawRunsOlderThanDays });
+  const priorCodexHomeCleanup = autoPruneCodexHomes
+    ? summarizePruneResult(pruneOldCodexHomes({
+      rawRoot: rawParent,
+      olderThanDays: autoPruneCodexHomesOlderThanDays,
+      dryRun: false,
+    }), true)
+    : disabledPruneSummary({ rawRoot: rawParent, olderThanDays: autoPruneCodexHomesOlderThanDays });
+  const rawRoot = path.join(rawParent, new Date().toISOString().replace(/[:.]/g, "-"));
   if (maxScenarios < conditions.length) {
     fail(`measured Codex benchmark requires at least ${conditions.length} scenarios to compare conditions`);
   }
   const selectedScenarios = selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
   if (selectedScenarios.length === 0) fail("no complete with/without scenario pair selected");
+  const progress = createBenchmarkProgress({
+    selectedScenarios,
+    runs,
+    warmupRuns,
+    rawRoot,
+    sanitizedPack,
+  });
 
   // Hermetic measurement (A5), always on for measured runs (not flag-gated): copy
   // only the auth material from the real Codex home into a fresh isolated
@@ -787,6 +999,24 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
   function trackCodexHome(homePath) {
     codexHomePaths.add(homePath);
     return homePath;
+  }
+  let codexHomeRetention = null;
+  function applyCurrentCodexHomeRetention() {
+    if (codexHomeRetention) return codexHomeRetention;
+    codexHomeRetention = applyCodexHomeRetention({
+      rawRoot,
+      homePaths: [...codexHomePaths],
+      keepCodexHomes,
+    });
+    return codexHomeRetention;
+  }
+  function failAfterCurrentCodexHomeRetention(message) {
+    try {
+      applyCurrentCodexHomeRetention();
+    } catch (error) {
+      fail(`${message}\ncodex home retention cleanup failed: ${error.message}`);
+    }
+    fail(message);
   }
   const isolatedCodexHome = trackCodexHome(path.join(rawRoot, "codex-home"));
   const isolation = buildIsolatedCodexHome({ realCodexHome, destHome: isolatedCodexHome });
@@ -835,101 +1065,101 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
 
   function runScenarioOnce(scenario, runIndex) {
     if (Array.isArray(scenario.sessions) && scenario.sessions.length > 0) {
-      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex) });
+      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex), progress });
     }
     // Real-corpus scenarios use a per-scenario isolated home (with conditional MCP
     // injection); synthetic scenarios share the single auth-only isolated home.
     const scenarioSpawnEnv = isRealScenario(scenario) ? buildRealScenarioSpawnEnv(scenario, runIndex) : spawnEnv;
-    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv });
+    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv, progress });
   }
 
   const scenarios = [];
 
-  for (const scenario of selectedScenarios) {
-    for (let index = 0; index < warmupRuns; index += 1) {
-      const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
-      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
+  try {
+    for (const scenario of selectedScenarios) {
+      for (let index = 0; index < warmupRuns; index += 1) {
+        const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
+        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
+      }
+      const measuredRuns = [];
+      for (let index = 0; index < runs; index += 1) {
+        const measuredRun = runScenarioOnce(scenario, index + 1);
+        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
+        measuredRuns.push(measuredRun);
+      }
+      const correctnessPassedRuns = passedRuns(measuredRuns);
+      const actualClaimableRuns = claimableRuns(measuredRuns);
+      const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
+      const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+      const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
+      const isMultiSession = Array.isArray(scenario.sessions) && scenario.sessions.length > 0;
+      const scenarioRecord = {
+        scale: scenario.scale,
+        condition: scenario.condition,
+        benchmark_track: scenario.benchmark_track,
+        // Corpus dimension (schema 7): carried through from the manifest so reports
+        // separate real-corpus from synthetic results. Synthetic scenarios carry
+        // "synthetic" + null repo fields; real-corpus scenarios carry "real" + the
+        // repo/repo_sha/question_id they were built from.
+        corpus: scenario.corpus || "synthetic",
+        repo: scenario.repo || null,
+        repo_sha: scenario.repo_sha || null,
+        question_id: scenario.question_id || null,
+        // MCP provenance: with-arm real scenarios inject the project-librarian MCP
+        // server into the isolated CODEX_HOME; recorded so the report shows which
+        // condition carried the MCP entry. Synthetic and control scenarios are false.
+        mcp_injected: Boolean(scenario.mcp),
+        control_profile: scenario.control_profile,
+        task_family: scenario.task_family,
+        prompt_id: scenario.prompt_id,
+        prompt: scenario.prompt,
+        command: scenario.command,
+        cwd: scenario.cwd,
+        expectation: scenario.expectation || null,
+        fixture_fingerprint: scenario.fixture_fingerprint,
+        requested_model: scenario.requested_model,
+        model: scenarioModel,
+        model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
+        models: scenarioModels,
+        runs: measuredRuns,
+        // Scenario medians/dispersion are sourced from each run's primary metrics. For
+        // multi_session that primary is the MEASURED session (session 2), so the
+        // scenario's headline metrics are session-2 metrics, reported separately from
+        // session 1 (which lives only in each run's session_metrics array).
+        median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
+        median_all_runs: medianMetrics(measuredRuns),
+        dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
+        dispersion_all_runs: metricStats(measuredRuns),
+        passed_run_count: correctnessPassedRuns.length,
+        claimable_run_count: actualClaimableRuns.length,
+        correctness: measuredRuns.map((run) => run.correctness),
+        raw_jsonl_paths: measuredRuns.map((run) => run.raw_jsonl_path),
+      };
+      if (isMultiSession) {
+        // session_metrics surfaces per-session raw JSONL paths and metrics for every
+        // measured run, plus session_count and the measured session index, so a
+        // reader can audit session-1 (familiarization) separately from session-2
+        // (measured) without conflating the two.
+        scenarioRecord.session_count = scenario.session_count;
+        scenarioRecord.sessions = scenario.sessions.map((session) => ({
+          session_index: session.session_index,
+          role: session.role,
+          prompt: session.prompt,
+          command: session.command,
+        }));
+        scenarioRecord.session_metrics = measuredRuns.map((run) => ({
+          run_index: run.run_index,
+          measured_session_index: run.measured_session_index,
+          sessions: run.session_metrics,
+        }));
+      }
+      scenarios.push(scenarioRecord);
     }
-    const measuredRuns = [];
-    for (let index = 0; index < runs; index += 1) {
-      const measuredRun = runScenarioOnce(scenario, index + 1);
-      if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
-      measuredRuns.push(measuredRun);
-    }
-    const correctnessPassedRuns = passedRuns(measuredRuns);
-    const actualClaimableRuns = claimableRuns(measuredRuns);
-    const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
-    const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
-    const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
-    const isMultiSession = Array.isArray(scenario.sessions) && scenario.sessions.length > 0;
-    const scenarioRecord = {
-      scale: scenario.scale,
-      condition: scenario.condition,
-      benchmark_track: scenario.benchmark_track,
-      // Corpus dimension (schema 7): carried through from the manifest so reports
-      // separate real-corpus from synthetic results. Synthetic scenarios carry
-      // "synthetic" + null repo fields; real-corpus scenarios carry "real" + the
-      // repo/repo_sha/question_id they were built from.
-      corpus: scenario.corpus || "synthetic",
-      repo: scenario.repo || null,
-      repo_sha: scenario.repo_sha || null,
-      question_id: scenario.question_id || null,
-      // MCP provenance: with-arm real scenarios inject the project-librarian MCP
-      // server into the isolated CODEX_HOME; recorded so the report shows which
-      // condition carried the MCP entry. Synthetic and control scenarios are false.
-      mcp_injected: Boolean(scenario.mcp),
-      control_profile: scenario.control_profile,
-      task_family: scenario.task_family,
-      prompt_id: scenario.prompt_id,
-      prompt: scenario.prompt,
-      command: scenario.command,
-      cwd: scenario.cwd,
-      expectation: scenario.expectation || null,
-      fixture_fingerprint: scenario.fixture_fingerprint,
-      requested_model: scenario.requested_model,
-      model: scenarioModel,
-      model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
-      models: scenarioModels,
-      runs: measuredRuns,
-      // Scenario medians/dispersion are sourced from each run's primary metrics. For
-      // multi_session that primary is the MEASURED session (session 2), so the
-      // scenario's headline metrics are session-2 metrics, reported separately from
-      // session 1 (which lives only in each run's session_metrics array).
-      median: actualClaimableRuns.length > 0 ? medianMetrics(actualClaimableRuns) : null,
-      median_all_runs: medianMetrics(measuredRuns),
-      dispersion: actualClaimableRuns.length > 0 ? metricStats(actualClaimableRuns) : null,
-      dispersion_all_runs: metricStats(measuredRuns),
-      passed_run_count: correctnessPassedRuns.length,
-      claimable_run_count: actualClaimableRuns.length,
-      correctness: measuredRuns.map((run) => run.correctness),
-      raw_jsonl_paths: measuredRuns.map((run) => run.raw_jsonl_path),
-    };
-    if (isMultiSession) {
-      // session_metrics surfaces per-session raw JSONL paths and metrics for every
-      // measured run, plus session_count and the measured session index, so a
-      // reader can audit session-1 (familiarization) separately from session-2
-      // (measured) without conflating the two.
-      scenarioRecord.session_count = scenario.session_count;
-      scenarioRecord.sessions = scenario.sessions.map((session) => ({
-        session_index: session.session_index,
-        role: session.role,
-        prompt: session.prompt,
-        command: session.command,
-      }));
-      scenarioRecord.session_metrics = measuredRuns.map((run) => ({
-        run_index: run.run_index,
-        measured_session_index: run.measured_session_index,
-        sessions: run.session_metrics,
-      }));
-    }
-    scenarios.push(scenarioRecord);
+  } catch (error) {
+    failAfterCurrentCodexHomeRetention(error.message || String(error));
   }
 
-  const codexHomeRetention = applyCodexHomeRetention({
-    rawRoot,
-    homePaths: [...codexHomePaths],
-    keepCodexHomes,
-  });
+  const retainedCodexHomes = applyCurrentCodexHomeRetention();
 
   const presentTracks = tracksPresent(scenarios);
   const expectedByTrack = expectedTasksByTrack(selectedTasks);
@@ -967,14 +1197,16 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
     sanitized_pack: sanitizedPack || { enabled: false },
     hermetic: {
       ...hermetic,
+      prior_raw_run_cleanup: priorRawRunCleanup,
+      prior_codex_home_cleanup: priorCodexHomeCleanup,
       codex_home_retention: {
-        manifest_path: codexHomeRetention.manifest_path,
-        keep_codex_homes: codexHomeRetention.keep_codex_homes,
-        home_count: codexHomeRetention.home_count,
-        retained_home_count: codexHomeRetention.retained_home_count,
-        pruned_home_count: codexHomeRetention.pruned_home_count,
-        retained_bytes: codexHomeRetention.retained_bytes,
-        pruned_bytes: codexHomeRetention.pruned_bytes,
+        manifest_path: retainedCodexHomes.manifest_path,
+        keep_codex_homes: retainedCodexHomes.keep_codex_homes,
+        home_count: retainedCodexHomes.home_count,
+        retained_home_count: retainedCodexHomes.retained_home_count,
+        pruned_home_count: retainedCodexHomes.pruned_home_count,
+        retained_bytes: retainedCodexHomes.retained_bytes,
+        pruned_bytes: retainedCodexHomes.pruned_bytes,
       },
     },
     codex: {
@@ -992,6 +1224,10 @@ function measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fu
       cache_discount: cacheDiscount,
       sanitized_pack: Boolean(sanitizedPack && sanitizedPack.enabled),
       keep_codex_homes: Boolean(keepCodexHomes),
+      auto_prune_codex_homes: Boolean(autoPruneCodexHomes),
+      auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
+      auto_prune_raw_runs: Boolean(autoPruneRawRuns),
+      auto_prune_raw_runs_older_than_days: autoPruneRawRunsOlderThanDays,
       scenario_order: "deterministic-alternating-pairs",
       requested_model: manifest.requested_model,
       selected_scales: selectedScales,
@@ -1260,6 +1496,12 @@ function main() {
   const requireClaimable = hasFlag("--require-claimable");
   const requireClean = hasFlag("--require-clean");
   const keepCodexHomes = hasFlag("--keep-codex-homes");
+  const autoPruneCodexHomes = !hasFlag("--no-auto-prune-codex-homes");
+  const autoPruneCodexHomesOlderThanDays = positiveIntegerArgValue("--auto-prune-codex-homes-older-than-days", DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS);
+  const autoPruneRawRuns = !hasFlag("--no-auto-prune-raw-runs");
+  const autoPruneRawRunsOlderThanDays = positiveIntegerArgValue("--auto-prune-raw-runs-older-than-days", DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS);
+  const rawReportRootArg = optionalStringArgValue("--raw-report-root");
+  const rawReportRoot = rawReportRootArg ? path.resolve(root, rawReportRootArg) : "";
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const controlProfile = argValue("--control-profile", "organic");
@@ -1382,6 +1624,10 @@ function main() {
       sourceRoot,
       sanitizedPack,
       keepCodexHomes,
+      autoPruneCodexHomes,
+      autoPruneCodexHomesOlderThanDays,
+      autoPruneRawRuns,
+      autoPruneRawRunsOlderThanDays,
       droppedScenarios,
     });
     writeJson(payloadPreviewPath, preview);
@@ -1398,12 +1644,13 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes });
+    const report = measuredReport({ manifest, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
     if (requireClaimable && report.claim_gate.status !== "passed") {
       console.error(`claim gate failed: ${report.claim_gate.issues.join("; ")}`);
+      console.error(renderClaimGateFailureDiagnostics(report));
       process.exit(1);
     }
     console.log(JSON.stringify({
@@ -1414,6 +1661,8 @@ function main() {
       fixture_root: fixtureRoot,
       control_profile: manifest.control_profile,
       isolated_codex_home: report.hermetic.isolated_codex_home,
+      prior_raw_run_cleanup: report.hermetic.prior_raw_run_cleanup,
+      prior_codex_home_cleanup: report.hermetic.prior_codex_home_cleanup,
       codex_home_retention: report.hermetic.codex_home_retention,
       allowlisted_env_key_count: report.hermetic.allowlisted_env_key_count,
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,

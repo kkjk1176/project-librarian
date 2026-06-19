@@ -17,6 +17,14 @@ function runCli(cwd, args = []) {
   });
 }
 
+function runCommand(cwd, args = []) {
+  return childProcess.execFileSync(process.execPath, [cliPath, ...args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
 function runCliFailure(cwd, args = []) {
   try {
     runCli(cwd, args);
@@ -70,6 +78,24 @@ test("fresh bootstrap with --agents codex,claude creates only Codex and Claude s
   try {
     runCli(root, ["--agents", "codex,claude"]);
     assertCodexClaudeOnly(root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project-scoped skill installs constrain the first bootstrap surface default", () => {
+  const root = makeTmpDir("surface-skill-default-");
+  try {
+    runCommand(root, ["install-skill", "--scope", "project", "--agents", "codex"]);
+    runCommand(root, ["install-skill", "--scope", "project", "--agents", "claude"]);
+    assert.equal(exists(root, ".codex/skills/project-librarian/SKILL.md"), true);
+    assert.equal(exists(root, ".claude/skills/project-librarian/SKILL.md"), true);
+
+    runCli(root);
+
+    assertCodexClaudeOnly(root);
+    assert.equal(exists(root, ".cursor/skills/project-librarian/SKILL.md"), false, "Cursor skill should not be installed by bootstrap");
+    assert.equal(exists(root, ".gemini/skills/project-librarian/SKILL.md"), false, "Gemini skill should not be installed by bootstrap");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

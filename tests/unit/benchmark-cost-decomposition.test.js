@@ -172,13 +172,63 @@ function runDryRun(args) {
   });
 }
 
-function runMetrics(args) {
+function runMetrics(args, options = {}) {
   return childProcess.spawnSync(process.execPath, [metricsCli, ...args], {
     cwd: root,
+    env: options.env || process.env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 50 * 1024 * 1024,
   });
+}
+
+function writeFakeCodex(binDir, { exitCode = 0 } = {}) {
+  fs.mkdirSync(binDir, { recursive: true });
+  const codexPath = path.join(binDir, "codex");
+  fs.writeFileSync(codexPath, `#!/usr/bin/env node
+"use strict";
+
+if (process.argv.includes("--version")) {
+  console.log("codex-test 0.0.0");
+  process.exit(0);
+}
+
+const exitCode = ${JSON.stringify(exitCode)};
+if (exitCode !== 0) {
+  console.error("fake codex forced failure");
+  process.exit(exitCode);
+}
+
+console.log(JSON.stringify({ type: "session.started", model: "gpt-test", cwd: process.cwd() }));
+console.log(JSON.stringify({ type: "assistant.message", message: { content: "fake codex benchmark response" } }));
+console.log(JSON.stringify({
+  type: "turn.completed",
+  usage: {
+    input_tokens: 100,
+    cached_input_tokens: 0,
+    output_tokens: 5,
+    reasoning_output_tokens: 0
+  }
+}));
+`);
+  fs.chmodSync(codexPath, 0o755);
+  return codexPath;
+}
+
+function fakeCodexEnv(tmp, options = {}) {
+  const binDir = path.join(tmp, "bin");
+  writeFakeCodex(binDir, options);
+  const codexHome = path.join(tmp, "codex-home");
+  fs.mkdirSync(codexHome, { recursive: true });
+  const authPath = path.join(codexHome, "auth.json");
+  fs.writeFileSync(authPath, "{}\n");
+  fs.chmodSync(authPath, 0o600);
+  return {
+    ...process.env,
+    PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
+    CODEX_HOME: codexHome,
+    CODEX_API_KEY: "test-key",
+  };
 }
 
 test("--cache-discount validates: rejects negative, > 1, and non-numeric values", () => {
@@ -295,6 +345,182 @@ test("--sanitized-pack re-executes dry-run from a minimized pack boundary", () =
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   assert.equal(manifest.scenarios.length, 2);
   assert(manifest.scenarios.every((scenario) => scenario.cwd.startsWith(packRoot)), "scenario cwd must stay inside the sanitized pack");
+});
+
+test("measured benchmark reports live progress on stderr without corrupting stdout JSON", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-progress-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  const stdout = JSON.parse(result.stdout);
+  assert.equal(stdout.mode, "measured");
+  assert.equal(stdout.scenario_count, 2);
+  assert.match(result.stderr, /\[benchmark:progress\] plan .*scenarios=2 .*codex_exec_total=2/);
+  assert.match(result.stderr, /\[benchmark:progress\] start .*current=1\/2 .*phase=measured/);
+  assert.match(result.stderr, /\[benchmark:progress\] done .*current=2\/2 .*status=completed .*exit=0/);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.scenarios.length, 2);
+});
+
+test("require-claimable failure prints scenario-level correctness diagnostics", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-claim-diagnostics-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--min-runs-for-claim", "1",
+    "--require-claimable",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 1, "failed correctness must fail the release claim gate");
+  assert.match(result.stderr, /claim gate failed:/);
+  assert.match(result.stderr, /claim gate failure diagnostics:/);
+  assert.match(result.stderr, /scenario: decision_lookup-small-with_project_librarian/);
+  assert.match(result.stderr, /failed correctness checks:/);
+  assert.match(result.stderr, /required term: 2026-06-10/);
+  assert.match(result.stderr, /expected evidence:/);
+  assert.match(result.stderr, /raw: .*decision_lookup-small-with_project_librarian-run-1\.jsonl/);
+  assert.match(result.stderr, /final text excerpt: fake codex benchmark response/);
+  assert.match(result.stderr, /valid benchmark miss, not a runner execution error/);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.claim_gate.status, "failed");
+});
+
+test("measured benchmark auto-prunes stale prior codex homes before a new run", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-auto-prune-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const rawParent = path.join(tmp, "benchmarks", "reports", "llm", "raw");
+  const oldRun = path.join(rawParent, "2026-01-01T00-00-00-000Z");
+  const freshRun = path.join(rawParent, "2999-01-01T00-00-00-000Z");
+  const oldHome = path.join(oldRun, "codex-home-old-run");
+  const freshHome = path.join(freshRun, "codex-home-fresh-run");
+  const protectedJsonl = path.join(oldRun, "sample-run-1.jsonl");
+  const protectedStderr = path.join(oldRun, "sample-run-1.stderr.txt");
+  fs.mkdirSync(oldHome, { recursive: true });
+  fs.mkdirSync(freshHome, { recursive: true });
+  fs.writeFileSync(path.join(oldHome, "logs.sqlite"), Buffer.alloc(256));
+  fs.writeFileSync(path.join(freshHome, "logs.sqlite"), Buffer.alloc(256));
+  fs.writeFileSync(protectedJsonl, "{}\n");
+  fs.writeFileSync(protectedStderr, "stderr\n");
+  const oldDate = new Date("2026-05-01T00:00:00.000Z");
+  fs.utimesSync(oldHome, oldDate, oldDate);
+
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--no-auto-prune-raw-runs",
+    "--auto-prune-codex-homes-older-than-days", "1",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  assert(!fs.existsSync(oldHome), "stale prior codex home should be auto-pruned");
+  assert(fs.existsSync(freshHome), "fresh prior codex home should be left for the next age window");
+  assert(fs.existsSync(protectedJsonl), "raw JSONL must survive automatic old-home pruning");
+  assert(fs.existsSync(protectedStderr), "stderr must survive automatic old-home pruning");
+
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.hermetic.prior_codex_home_cleanup.enabled, true);
+  assert.equal(report.hermetic.prior_codex_home_cleanup.older_than_days, 1);
+  assert.equal(report.hermetic.prior_codex_home_cleanup.pruned_count, 1);
+  assert.equal(report.configuration.auto_prune_codex_homes, true);
+});
+
+test("measured benchmark auto-prunes stale prior raw run directories before a new run", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-auto-raw-prune-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const rawParent = path.join(tmp, "benchmarks", "reports", "llm", "raw");
+  const oldRun = path.join(rawParent, "2026-01-01T00-00-00-000Z");
+  const freshRun = path.join(rawParent, "2999-01-01T00-00-00-000Z");
+  const oldJsonl = path.join(oldRun, "sample-run-1.jsonl");
+  const freshJsonl = path.join(freshRun, "sample-run-1.jsonl");
+  fs.mkdirSync(oldRun, { recursive: true });
+  fs.mkdirSync(freshRun, { recursive: true });
+  fs.writeFileSync(oldJsonl, "{}\n");
+  fs.writeFileSync(path.join(oldRun, "sample-run-1.stderr.txt"), "stderr\n");
+  fs.writeFileSync(freshJsonl, "{}\n");
+
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--auto-prune-raw-runs-older-than-days", "1",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  assert(!fs.existsSync(oldRun), "stale prior raw run directory should be auto-pruned");
+  assert(fs.existsSync(freshJsonl), "fresh raw run directory should be kept inside the retention window");
+
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.hermetic.prior_raw_run_cleanup.enabled, true);
+  assert.equal(report.hermetic.prior_raw_run_cleanup.older_than_days, 1);
+  assert.equal(report.hermetic.prior_raw_run_cleanup.pruned_count, 1);
+  assert.equal(report.configuration.auto_prune_raw_runs, true);
+});
+
+test("failed claimable measured run prunes current codex homes before exiting", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-failed-retention-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--require-claimable",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.notEqual(result.status, 0, "failed codex execution should fail the claimable run");
+  assert.match(result.stderr, /execution failed before claim evaluation/);
+  assert(!fs.existsSync(reportPath), "failed pre-report execution should not write a final report");
+
+  const rawParent = path.join(tmp, "benchmarks", "reports", "llm", "raw");
+  const runDirs = fs.readdirSync(rawParent, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+  assert(runDirs.length >= 1, "failed run should leave a raw run directory with audit files");
+  const currentRawRoot = path.join(rawParent, runDirs[runDirs.length - 1].name);
+  const retentionManifest = path.join(currentRawRoot, "codex-home-retention.json");
+  assert(fs.existsSync(retentionManifest), "failed run should still write the retention manifest");
+  const retention = JSON.parse(fs.readFileSync(retentionManifest, "utf8"));
+  assert.equal(retention.keep_codex_homes, false);
+  assert(retention.pruned_home_count >= 1);
+  const remainingHomes = fs.readdirSync(currentRawRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^codex-home(?:-|$)/.test(entry.name))
+    .map((entry) => entry.name);
+  assert.deepEqual(remainingHomes, []);
 });
 
 // --- Per-track report assembly: cost-weighted headline, merged total secondary ---
