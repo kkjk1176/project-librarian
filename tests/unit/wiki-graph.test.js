@@ -566,6 +566,60 @@ test("broad efficiency queries rank active canonical pages ahead of migration le
   }
 });
 
+test("broad queries rank medium summaries ahead of on-demand archives", () => {
+  const root = makeTmpDir("wg-query-on-demand-ranking-");
+  try {
+    runCli(root);
+    writePage(root, "wiki/canonical/release-readiness-summary.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-18",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: release readiness query ranking changes",
+      "---",
+      "",
+      "# Release Readiness Summary",
+      "",
+      "## TL;DR",
+      "",
+      "- Current release readiness summary for operator action.",
+      "",
+      "Operator release readiness uses this summary for the normal workflow.",
+      "",
+    ].join("\n"));
+    writePage(root, "wiki/canonical/release-readiness-archive.md", [
+      "---",
+      "status: active",
+      "updated: 2026-06-18",
+      "scope: project-canonical",
+      "read_budget: on-demand",
+      "decision_ref: none",
+      "review_trigger: release readiness archive changes",
+      "---",
+      "",
+      "# Release Readiness Archive",
+      "",
+      "## TL;DR",
+      "",
+      "- Long release readiness archive for audit reads.",
+      "",
+      "operator release readiness operator release readiness operator release readiness",
+      "operator release readiness operator release readiness operator release readiness",
+      "",
+    ].join("\n"));
+
+    const broad = runCli(root, ["--query", "operator release readiness"]);
+    assert.match(broad.split(/\r?\n/)[0], /^Project wiki query "operator release readiness": best match wiki\/canonical\/release-readiness-summary\.md/);
+
+    const archive = runCli(root, ["--query", "archive operator release readiness"]);
+    assert.match(archive.split(/\r?\n/)[0], /^Project wiki query "archive operator release readiness": best match wiki\/canonical\/release-readiness-archive\.md/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("query output includes capped one-hop graph evidence without self-link cycles", () => {
   const root = makeTmpDir("wg-query-graph-");
   try {
