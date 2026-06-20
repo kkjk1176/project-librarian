@@ -57,7 +57,9 @@ test("bootstrap creates router templates when absent", () => {
     assert.match(readFile(root, "wiki/index.md"), /meta\/document-taxonomy/);
     assert.match(readFile(root, "wiki/AGENTS.md"), /Before adding or consolidating project content/);
     assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /# Document Taxonomy/);
-    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Source-of-truth governance/);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Canonical vs Roadmap vs Plan Boundary/);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /wiki\/roadmaps\//);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /wiki\/plans\//);
     for (const emptyStarter of [
       "wiki/canonical/project-brief.md",
       "wiki/canonical/open-questions.md",

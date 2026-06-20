@@ -52,7 +52,7 @@ Project Librarian gives agents two local sources of truth:
 | Surface | What It Gives The Agent |
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | A compact session-start summary and router, so only the relevant planning pages are read. |
-| `wiki/canonical/` and `wiki/decisions/` | Current project facts, constraints, risks, package contracts, CLI behavior, and durable decisions. |
+| `wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, and `wiki/decisions/` | Current truth stays in canonical pages, broad future work stays in roadmaps, detailed execution stays in plans, and durable rationale stays in decisions. |
 | `wiki/meta/document-taxonomy.md` | A service-lifecycle classification map that tells agents where PRD, policy, UX, data, engineering, QA, release, and operations truth should live. |
 | `.codex/`, `.claude/`, `.cursor/`, and `.gemini/` hooks | Automatic startup context for Codex, Claude Code, Cursor, and Gemini CLI without loading the full wiki. |
 | `GEMINI.md` and `.cursor/rules/` | Gemini CLI and Cursor instruction files that route agents to the same compact wiki-first contract. |
@@ -236,6 +236,8 @@ Git hook files:
 Wiki directories:
 
 - `wiki/canonical/`
+- `wiki/roadmaps/`
+- `wiki/plans/`
 - `wiki/decisions/`
 - `wiki/inbox/`
 - `wiki/meta/`

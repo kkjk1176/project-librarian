@@ -200,6 +200,7 @@ Execution contract:
 3. Separate evidence mapping from canonical truth:
    - Code structure, entrypoints, module relationships, execution flows, read-on-demand routes, and evidence paths belong under `wiki/meta/` with descriptive project-specific filenames chosen by the LLM.
    - Code-backed current project behavior, features, policies, constraints, terminology, domain rules, and operational facts belong under `wiki/canonical/`.
+   - Broad future work belongs under `wiki/roadmaps/`; detailed execution plans belong under `wiki/plans/`. After completion, update canonical truth and remove completed roadmap/plan content after rationale and evidence are preserved.
    - Important design rationale or tradeoffs inferred from code may belong under `wiki/decisions/` when they meet the decision policy.
    - Unclear, conflicting, or low-confidence interpretations belong in `wiki/inbox/` or a focused canonical questions page created for the topic, not directly in canonical truth.
 4. Do not use fixed canonical filenames. Choose or create files from topic boundaries, expected read frequency, and token budget.
@@ -228,6 +229,8 @@ It installs:
 - `wiki/startup.md` compact session-start context.
 - `wiki/index.md` router with read/update/token-budget hints.
 - `wiki/canonical/` directory for project-current-truth documents, created only when real content exists.
+- `wiki/roadmaps/` for broad future scope and priority queues, created only when real content exists.
+- `wiki/plans/` for detailed future execution plans, created only when real content exists.
 - Optional `wiki/canonical/glossary.md` project terminology contract when `--glossary-init` is used.
 - `wiki/decisions/` project-decision directory and lightweight decision ledgers.
 - `wiki/meta/` wiki operating rules, project decision policy, and wiki-operations Decision Pack.
@@ -247,7 +250,7 @@ Project canonical wiki content should not default to Korean or English. Choose t
 
 ## Boundary Rule
 
-`wiki/canonical/` and `wiki/decisions/` are for project planning only. Do not store wiki operating decisions, hook/bootstrap/lint/migration details, LLM collaboration preferences, assistant reminders, or non-project workflow memory there.
+`wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, and `wiki/decisions/` are for project planning only. Do not store wiki operating decisions, hook/bootstrap/lint/migration details, LLM collaboration preferences, assistant reminders, or non-project workflow memory there.
 
 Use:
 
@@ -255,6 +258,8 @@ Use:
 - Root `AGENTS.md`, hooks, or skills for durable project-wide LLM instructions and collaboration memory.
 - `wiki/AGENTS.md` for wiki-internal editing rules that should apply only under `wiki/`.
 - `wiki/canonical/` only for current project truth.
+- `wiki/roadmaps/` only for broad future scope, priority queues, and milestone sequences.
+- `wiki/plans/` only for detailed future execution plans.
 - `wiki/decisions/` only for project decision history.
 
 Every wiki markdown file should include a compact metadata header with `status`, `updated`, `scope`, `read_budget`, `decision_ref`, and `review_trigger`.

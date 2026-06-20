@@ -10,15 +10,16 @@ At the start of every session:
 
 1. Review `wiki/startup.md` for compact current context.
 2. Review `wiki/index.md` as the router for which files to read next.
-3. Read detailed `wiki/canonical/`, `wiki/decisions/`, `wiki/meta/`, and `wiki/sources/` files on demand only when the current question needs them.
+3. Read detailed `wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, `wiki/decisions/`, `wiki/meta/`, and `wiki/sources/` files on demand only when the current question needs them.
 
 ### Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)
 
 - Initial planning state unless canonical wiki says otherwise.
-- Project truth: `wiki/canonical/`; decisions: `wiki/decisions/`; source summaries: `wiki/sources/`.
+- Project truth: `wiki/canonical/`; future work: `wiki/roadmaps/` and `wiki/plans/`; decisions: `wiki/decisions/`; sources: `wiki/sources/`.
 - Wiki operating rules and decisions live in `wiki/meta/`.
 - At session start, read only this file and `wiki/index.md`; read details on demand.
 - Project canonical language follows user/project context.
+- Completed roadmaps/plans are removed after truth/rationale/evidence capture.
 - Update the wiki in the same turn when project-planning content changes.
 - Classify new project-planning content with `wiki/meta/document-taxonomy.md` before writing or consolidating it.
 

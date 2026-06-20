@@ -52,7 +52,7 @@ Project Librarian은 에이전트에게 두 가지 로컬 정본을 제공합니
 | 표면 | 에이전트가 얻는 것 |
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | 짧은 세션 시작 요약과 라우터. 관련 계획 페이지만 읽습니다. |
-| `wiki/canonical/` 및 `wiki/decisions/` | 현재 프로젝트 사실, 제약, 리스크, 패키지 계약, CLI 동작, 지속되는 결정. |
+| `wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, `wiki/decisions/` | 현재 정본은 canonical, 큰 미래 작업은 roadmaps, 상세 실행은 plans, 지속되는 근거는 decisions에 둡니다. |
 | `wiki/meta/document-taxonomy.md` | PRD, 정책, UX, 데이터, 개발, QA, 릴리즈, 운영 정본을 어디에 둘지 안내하는 서비스 생애주기 분류 지도. |
 | `.codex/`, `.claude/`, `.cursor/`, `.gemini/` 훅 | 전체 위키를 불러오지 않는 Codex/Claude Code/Cursor/Gemini CLI 시작 컨텍스트. |
 | `GEMINI.md` 및 `.cursor/rules/` | Gemini CLI와 Cursor를 같은 간결한 위키 우선 계약으로 안내하는 지침 파일. |
@@ -236,6 +236,8 @@ Git 훅 파일:
 위키 디렉터리:
 
 - `wiki/canonical/`
+- `wiki/roadmaps/`
+- `wiki/plans/`
 - `wiki/decisions/`
 - `wiki/inbox/`
 - `wiki/meta/`
