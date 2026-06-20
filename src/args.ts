@@ -66,74 +66,79 @@ export interface ParsedArgs {
 export const rawArgs: string[] = process.argv.slice(2);
 const knownCommands: Set<string> = new Set(["init", "update", "install-skill", "mcp"]);
 
-const flagsWithoutValues: Set<string> = new Set([
-  "--acknowledge-small-repo",
-  "--adopt-existing",
-  "--capture-inbox",
-  "--code-evidence-files",
-  "--code-evidence-index",
-  "--code-evidence-status",
-  "--code-files",
-  "--code-incremental",
-  "--code-index",
-  "--code-index-full",
-  "--code-index-health",
-  "--code-index-incremental",
-  "--code-evidence-index-full",
-  "--code-evidence-index-incremental",
-  "--code-report",
-  "--code-status",
-  "--code-evidence-report",
-  "--dry-run",
-  "--glossary-init",
-  "--doctor",
-  "--fix",
-  "--issue-create",
-  "--issue-draft",
-  "--incremental",
-  "--link-check",
-  "--lint",
-  "--migrate",
-  "--migration-doctor",
-  "--migration-lint",
-  "--migration-quality-check",
-  "--no-git-config",
-  "--prune-check",
-  "--quality-check",
-  "--refresh-index",
-  "--review-migration",
-  "--semantic-migrate",
-  "--wiki-graph-html",
-  "--wiki-visualize",
-]);
-const flagsWithValues: Set<string> = new Set([
-  "--agents",
-  "--category",
-  "--code-evidence-context-pack",
-  "--code-evidence-impact",
-  "--code-context-pack",
-  "--code-evidence-out",
-  "--code-evidence-parser",
-  "--code-evidence-query",
-  "--code-evidence-report-section",
-  "--code-evidence-scope",
-  "--code-evidence-symbol",
-  "--code-impact",
-  "--code-index-out",
-  "--code-parser",
-  "--code-query",
-  "--code-report-section",
-  "--code-scope",
-  "--code-search-symbol",
-  "--content",
-  "--issue-body-file",
-  "--issue-title",
-  "--query",
-  "--scope",
-  "--title",
-  "--wiki-impact",
-  "--wiki-visualize-out",
-]);
+type FlagValuePolicy = "none" | "value";
+
+interface FlagDefinition {
+  aliases?: readonly string[];
+  name: string;
+  value: FlagValuePolicy;
+}
+
+const flagDefinitions: readonly FlagDefinition[] = [
+  { name: "--acknowledge-small-repo", value: "none" },
+  { name: "--adopt-existing", value: "none" },
+  { name: "--agents", value: "value" },
+  { name: "--capture-inbox", value: "none" },
+  { name: "--category", value: "value" },
+  { name: "--code-context-pack", value: "value", aliases: ["--code-evidence-context-pack"] },
+  { name: "--code-files", value: "none", aliases: ["--code-evidence-files"] },
+  { name: "--code-impact", value: "value", aliases: ["--code-evidence-impact"] },
+  { name: "--code-index", value: "none", aliases: ["--code-evidence-index"] },
+  { name: "--code-index-full", value: "none", aliases: ["--code-evidence-index-full"] },
+  { name: "--code-index-health", value: "none" },
+  { name: "--code-index-incremental", value: "none", aliases: ["--incremental", "--code-incremental", "--code-evidence-index-incremental"] },
+  { name: "--code-index-out", value: "value", aliases: ["--code-evidence-out"] },
+  { name: "--code-parser", value: "value", aliases: ["--code-evidence-parser"] },
+  { name: "--code-query", value: "value", aliases: ["--code-evidence-query"] },
+  { name: "--code-report", value: "none", aliases: ["--code-evidence-report"] },
+  { name: "--code-report-section", value: "value", aliases: ["--code-evidence-report-section"] },
+  { name: "--code-scope", value: "value", aliases: ["--code-evidence-scope"] },
+  { name: "--code-search-symbol", value: "value", aliases: ["--code-evidence-symbol"] },
+  { name: "--code-status", value: "none", aliases: ["--code-evidence-status"] },
+  { name: "--content", value: "value" },
+  { name: "--doctor", value: "none" },
+  { name: "--dry-run", value: "none" },
+  { name: "--fix", value: "none" },
+  { name: "--glossary-init", value: "none" },
+  { name: "--issue-body-file", value: "value" },
+  { name: "--issue-create", value: "none" },
+  { name: "--issue-draft", value: "none" },
+  { name: "--issue-title", value: "value" },
+  { name: "--link-check", value: "none" },
+  { name: "--lint", value: "none" },
+  { name: "--migrate", value: "none" },
+  { name: "--migration-doctor", value: "none" },
+  { name: "--migration-lint", value: "none" },
+  { name: "--migration-quality-check", value: "none" },
+  { name: "--no-git-config", value: "none" },
+  { name: "--prune-check", value: "none" },
+  { name: "--quality-check", value: "none" },
+  { name: "--query", value: "value" },
+  { name: "--refresh-index", value: "none" },
+  { name: "--review-migration", value: "none", aliases: ["--semantic-migrate"] },
+  { name: "--scope", value: "value" },
+  { name: "--title", value: "value" },
+  { name: "--wiki-graph-html", value: "none" },
+  { name: "--wiki-impact", value: "value" },
+  { name: "--wiki-visualize", value: "none" },
+  { name: "--wiki-visualize-out", value: "value" },
+];
+
+function definitionNames(definition: FlagDefinition): string[] {
+  return [definition.name, ...(definition.aliases ?? [])];
+}
+
+function flagNamesByPolicy(value: FlagValuePolicy): string[] {
+  return flagDefinitions.filter((definition) => definition.value === value).flatMap(definitionNames);
+}
+
+function namesForFlag(name: string): string[] {
+  const definition = flagDefinitions.find((candidate) => definitionNames(candidate).includes(name));
+  return definition ? definitionNames(definition) : [name];
+}
+
+const flagsWithoutValues: Set<string> = new Set(flagNamesByPolicy("none"));
+const flagsWithValues: Set<string> = new Set(flagNamesByPolicy("value"));
 const knownFlags: Set<string> = new Set([...flagsWithoutValues, ...flagsWithValues, "--help", "-h"]);
 
 function flagName(arg: string): string {
@@ -194,10 +199,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const hasFlag = (name: string): boolean => hasFlagIn(commandArgs, name);
   const argValue = (name: string): string => argValueFrom(commandArgs, name);
   const argValues = (name: string): string[] => argValuesFrom(commandArgs, name);
-  const codeImpactTarget = argValue("--code-impact") || argValue("--code-evidence-impact");
-  const codeContextPackTarget = argValue("--code-context-pack") || argValue("--code-evidence-context-pack");
-  const codeQuerySql = argValue("--code-query") || argValue("--code-evidence-query");
-  const codeSearchSymbol = argValue("--code-search-symbol") || argValue("--code-evidence-symbol");
+  const hasAnyFlag = (name: string): boolean => namesForFlag(name).some(hasFlag);
+  const argValueFromAny = (name: string): string => namesForFlag(name).map(argValue).find(Boolean) ?? "";
+  const argValuesFromAny = (name: string): string[] => namesForFlag(name).flatMap(argValues);
+  const codeImpactTarget = argValueFromAny("--code-impact");
+  const codeContextPackTarget = argValueFromAny("--code-context-pack");
+  const codeQuerySql = argValueFromAny("--code-query");
+  const codeSearchSymbol = argValueFromAny("--code-search-symbol");
   const parsedAgentTargets = parseAgentSurfaceValues(argValues("--agents"));
   return {
     acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
@@ -207,26 +215,26 @@ export function parseArgs(argv: string[]): ParsedArgs {
     captureContent: argValue("--content"),
     captureInboxMode: args.has("--capture-inbox"),
     captureTitle: argValue("--title"),
-    codeContextPackMode: hasFlag("--code-context-pack") || hasFlag("--code-evidence-context-pack"),
+    codeContextPackMode: hasAnyFlag("--code-context-pack"),
     codeContextPackTarget,
-    codeFilesMode: args.has("--code-files") || args.has("--code-evidence-files"),
-    codeImpactMode: hasFlag("--code-impact") || hasFlag("--code-evidence-impact"),
+    codeFilesMode: hasAnyFlag("--code-files"),
+    codeImpactMode: hasAnyFlag("--code-impact"),
     codeImpactTarget,
-    codeIndexFullMode: args.has("--code-index-full") || args.has("--code-evidence-index-full"),
+    codeIndexFullMode: hasAnyFlag("--code-index-full"),
     codeIndexHealthMode: args.has("--code-index-health"),
-    codeIndexIncrementalMode: args.has("--incremental") || args.has("--code-incremental") || args.has("--code-index-incremental") || args.has("--code-evidence-index-incremental"),
-    codeIndexMode: args.has("--code-index") || args.has("--code-evidence-index"),
-    codeIndexOutput: argValue("--code-index-out") || argValue("--code-evidence-out") || ".project-wiki/code-evidence.sqlite",
-    codeIndexScopes: [...argValues("--code-scope"), ...argValues("--code-evidence-scope")],
-    codeParser: argValue("--code-parser") || argValue("--code-evidence-parser") || "default",
-    codeParserMode: hasFlag("--code-parser") || hasFlag("--code-evidence-parser"),
-    codeQueryMode: hasFlag("--code-query") || hasFlag("--code-evidence-query"),
+    codeIndexIncrementalMode: hasAnyFlag("--code-index-incremental"),
+    codeIndexMode: hasAnyFlag("--code-index"),
+    codeIndexOutput: argValueFromAny("--code-index-out") || ".project-wiki/code-evidence.sqlite",
+    codeIndexScopes: argValuesFromAny("--code-scope"),
+    codeParser: argValueFromAny("--code-parser") || "default",
+    codeParserMode: hasAnyFlag("--code-parser"),
+    codeQueryMode: hasAnyFlag("--code-query"),
     codeQuerySql,
-    codeReportMode: args.has("--code-report") || args.has("--code-evidence-report"),
-    codeReportSection: argValue("--code-report-section") || argValue("--code-evidence-report-section"),
+    codeReportMode: hasAnyFlag("--code-report"),
+    codeReportSection: argValueFromAny("--code-report-section"),
     codeSearchSymbol,
-    codeSearchSymbolMode: hasFlag("--code-search-symbol") || hasFlag("--code-evidence-symbol"),
-    codeStatusMode: args.has("--code-status") || args.has("--code-evidence-status"),
+    codeSearchSymbolMode: hasAnyFlag("--code-search-symbol"),
+    codeStatusMode: hasAnyFlag("--code-status"),
     command,
     commandArgs,
     doctorMode: args.has("--doctor"),
@@ -251,7 +259,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     queryTerm: argValue("--query"),
     rawArgs: argv,
     refreshIndexMode: args.has("--refresh-index"),
-    reviewMigrationMode: args.has("--review-migration") || args.has("--semantic-migrate"),
+    reviewMigrationMode: hasAnyFlag("--review-migration"),
     unexpectedValueOptions: Array.from(new Set(commandArgs
       .filter((arg) => arg.startsWith("--") && arg.includes("="))
       .map(flagName)

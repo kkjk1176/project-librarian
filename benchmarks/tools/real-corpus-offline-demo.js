@@ -34,6 +34,7 @@ const {
   copyPristineClone,
   fetchCorpus,
   loadCorpusManifest,
+  realCorpusKeyCoverage,
   snapshotRealRepoUntracked,
   validateRealRepoAfterRun,
 } = require("../lib/real-corpus");
@@ -92,6 +93,11 @@ function main() {
   const candidateManifest = loadCorpusManifest(path.join(root, "benchmarks", "real-corpus.json"));
   const gate = assertSelectionGate(candidateManifest.candidates);
   log("gate", `selection gate PASSED: ${gate.distinct_languages.length} languages, ${gate.large_repo_count} large repo(s), ${gate.codeowners_count} CODEOWNERS, ${gate.monorepo_count} monorepos`);
+  const shippedKeyCoverage = realCorpusKeyCoverage({ keysDir: path.join(root, "benchmarks", "real-keys") });
+  if (shippedKeyCoverage.missing_task_families.length > 0) {
+    throw new Error(`shipped real-corpus keys are missing task families: ${shippedKeyCoverage.missing_task_families.join(", ")}`);
+  }
+  log("keys", `shipped answer-key coverage PASSED: ${shippedKeyCoverage.question_count} questions across ${shippedKeyCoverage.repo_count} repo(s) and ${shippedKeyCoverage.task_families.length} task families`);
 
   // 6 (early). Fetch refusal without the flag (exit-2 semantics), shown before any
   // materialization so the offline guarantee is explicit.
@@ -112,7 +118,7 @@ function main() {
   try {
     log("stub", `built committed stub monorepo at HEAD ${sha.slice(0, 12)}`);
 
-    // 2. Stage the pristine clone + author a minimal answer key.
+    // 2. Stage the pristine clone + author a task-family-complete answer key.
     copyPristineClone(repo, path.join(corpusDir, "stub"));
     const key = {
       repo: "stub",
@@ -134,10 +140,41 @@ function main() {
             answer_key_terms: ["packages/workspace-a/src/mid.ts"],
           },
         },
+        {
+          question_id: "ownership-1",
+          task_family: "ownership_lookup",
+          prompt: "Using CODEOWNERS last-matching-rule-wins precedence, find the owner of packages/workspace-a/src/service/handler.go.",
+          expectation: {
+            required_terms: ["@stub-service-team"],
+            any_terms: [["CODEOWNERS", "owner", "precedence", "last match", "last-match"]],
+            forbidden_terms: ["I cannot access"],
+            designation_forbidden: [{ team: "@stub-go-team", correct_owner: "@stub-service-team" }],
+            evidence_by_condition: {
+              with_project_librarian: ["CODEOWNERS"],
+              without_project_librarian: ["CODEOWNERS"],
+            },
+            answer_key_terms: ["@stub-service-team"],
+          },
+        },
+        {
+          question_id: "workspace-1",
+          task_family: "workspace_graph",
+          prompt: "Compute the transitive workspace dependency set of @stub/workspace-b through the package.json dependency graph.",
+          expectation: {
+            required_terms: ["@stub/workspace-a"],
+            any_terms: [["depends", "dependency", "transitive", "workspace:", "chain"]],
+            forbidden_terms: ["I cannot access"],
+            evidence_by_condition: {
+              with_project_librarian: ["packages/", "@stub/workspace-"],
+              without_project_librarian: ["packages/", "@stub/workspace-"],
+            },
+            answer_key_terms: ["@stub/workspace-a"],
+          },
+        },
       ],
     };
     writeFile(path.join(keysDir, "stub.json"), `${JSON.stringify(key, null, 2)}\n`);
-    log("key", "authored a minimal answer key (1 impact_trace question) and validated its shape on load");
+    log("key", "authored a task-family-complete answer key (impact_trace, ownership_lookup, workspace_graph) and validated its shape on load");
 
     // 3. Build the real-corpus manifest (materializes with-arm incl. MCP handshake).
     const manifest = buildRealCorpusManifest({ corpusDir, keysDir, workDir: work, cliPath, repos: ["stub"] });
@@ -147,6 +184,9 @@ function main() {
     const withScenario = manifest.scenarios.find((s) => s.condition === "with_project_librarian");
     const controlScenario = manifest.scenarios.find((s) => s.condition === "without_project_librarian");
     const handshake = manifest.repos[0].mcp_handshake;
+    if (manifest.scenarios.length !== 6) {
+      throw new Error(`expected 6 demo scenarios (3 questions x 2 conditions), got ${manifest.scenarios.length}`);
+    }
     log("manifest", `built corpus 'real' manifest (schema 5): ${manifest.scenarios.length} scenarios, repo_sha ${withScenario.repo_sha.slice(0, 12)}`);
     log("mcp", `with-arm MCP handshake OK: ${handshake.tool_count} tools [${handshake.tool_names.join(", ")}]`);
     if (withScenario.mcp !== true || controlScenario.mcp !== false) {

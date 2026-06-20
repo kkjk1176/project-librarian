@@ -390,7 +390,11 @@ When editing TypeScript under `src/`, rebuild before committing so `dist/` stays
 
 `npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
+Treat a green `release:check` as a reproducible release-readiness bundle, not a runtime guarantee: it proves those local gates on the current checkout, including that the package dry run stays inside the expected publish boundary (`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, and `SKILL.md`) and excludes source files, tests, repo-local wiki/workflow state, raw benchmark output, and local caches.
+
 Publishing is handled by `.github/workflows/publish.yml` after a GitHub Release is published. The workflow uses npm trusted publishing through GitHub OIDC (`id-token: write`) and `npm publish --access public`, which generates npm provenance automatically; it must not use `NODE_AUTH_TOKEN` or npm token secrets, and release-critical first-party GitHub Actions are pinned to full commit SHAs. `release:check` verifies this workflow contract locally.
+
+Trusted publishing and npm provenance prove the package was published through that GitHub OIDC workflow. They do not prove benchmark correctness, code-evidence freshness in an end-user repository, or a security audit; those remain separate evidence tracks.
 
 Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.md). They are for release evidence and public claim validation, not normal end-user setup.
 

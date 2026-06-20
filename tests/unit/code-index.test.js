@@ -8,7 +8,7 @@ const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, s
 const { openDatabase } = require("../../dist/code-index-db.js");
 const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
-const { shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
+const { searchFiles, shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
 const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
@@ -57,6 +57,22 @@ function initGitRepository(cwd) {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, `git init failed (${result.status}): ${result.stderr}`);
+}
+
+function assertTopFile(rows, expectedPath, label, topN = 1) {
+  const topRows = rows.slice(0, topN);
+  assert.ok(
+    topRows.some((row) => row.path === expectedPath),
+    `${label}: expected ${expectedPath} in top ${topN}, got ${JSON.stringify(topRows)}`,
+  );
+}
+
+function assertTopSymbol(rows, expected, label, topN = 1) {
+  const topRows = rows.slice(0, topN);
+  assert.ok(
+    topRows.some((row) => Object.entries(expected).every(([key, value]) => row[key] === value)),
+    `${label}: expected ${JSON.stringify(expected)} in top ${topN}, got ${JSON.stringify(topRows)}`,
+  );
 }
 
 test("isCodeEvidenceModeFor includes every code evidence mode", () => {
@@ -233,6 +249,89 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
     } finally {
       firstDatabase.close();
       secondDatabase.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code search golden queries cover exact, prefix, FTS, and contains ranking paths", () => {
+  const cwd = makeTmpDir("code-search-golden-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), [
+      "const express = require(\"express\");",
+      "const app = express();",
+      "function healthHandler(req, res) { res.json({ ok: true }); }",
+      "app.get(\"/health\", healthHandler);",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "service.ts"), [
+      "export interface UserRecord { id: string; }",
+      "export function fetchUser(): Promise<UserRecord> {",
+      "  return Promise.resolve({ id: \"1\" });",
+      "}",
+      "export function literalPercentToken() {",
+      "  return true;",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "jobs.py"), [
+      "import json",
+      "",
+      "class PythonJob:",
+      "    pass",
+      "",
+      "def run_job(payload):",
+      "    return json.dumps(payload)",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "worker.go"), [
+      "package main",
+      "",
+      "import \"net/http\"",
+      "",
+      "type GoWorker struct{}",
+      "",
+      "func (worker GoWorker) ServeHTTP(w http.ResponseWriter, r *http.Request) {}",
+      "",
+      "func LaunchWorker() {}",
+      "",
+    ].join("\n"));
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+    const database = openSnapshotDatabase(databasePath);
+    try {
+      const fileCases = [
+        { label: "file exact path", query: "src/service.ts", expectedPath: "src/service.ts", topN: 1 },
+        { label: "file path prefix", query: "src/ser", expectedPath: "src/service.ts", topN: 1 },
+        { label: "file path contains", query: "jobs", expectedPath: "src/jobs.py", topN: 1 },
+        { label: "file FTS by content", query: "Promise UserRecord", expectedPath: "src/service.ts", topN: 3 },
+        { label: "file FTS route handler content", query: "express healthHandler", expectedPath: "src/app.js", topN: 3 },
+        { label: "file path contains extension", query: "worker.go", expectedPath: "src/worker.go", topN: 1 },
+      ];
+      for (const testCase of fileCases) {
+        assertTopFile(searchFiles(database, testCase.query), testCase.expectedPath, testCase.label, testCase.topN);
+      }
+
+      const symbolCases = [
+        { label: "symbol exact function", query: "healthHandler", expected: { name: "healthHandler", file_path: "src/app.js" }, topN: 1 },
+        { label: "symbol prefix function", query: "fetch", expected: { name: "fetchUser", file_path: "src/service.ts" }, topN: 1 },
+        { label: "symbol contains underscore", query: "run_", expected: { name: "run_job", file_path: "src/jobs.py" }, topN: 1 },
+        { label: "symbol FTS signature", query: "Promise UserRecord", expected: { name: "fetchUser", file_path: "src/service.ts" }, topN: 3 },
+        { label: "symbol exact Go function", query: "LaunchWorker", expected: { name: "LaunchWorker", file_path: "src/worker.go" }, topN: 1 },
+        { label: "symbol prefix class", query: "Python", expected: { name: "PythonJob", file_path: "src/jobs.py" }, topN: 1 },
+      ];
+      for (const testCase of symbolCases) {
+        assertTopSymbol(searchSymbols(database, testCase.query), testCase.expected, testCase.label, testCase.topN);
+      }
+
+      assert.deepEqual(searchFiles(database, "literal%Token"), []);
+      assert.deepEqual(searchSymbols(database, "literal%Token"), []);
+    } finally {
+      database.close();
     }
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });

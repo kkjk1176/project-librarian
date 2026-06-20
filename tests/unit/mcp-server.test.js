@@ -273,6 +273,141 @@ test("prompts/get hard-caps oversized prompt arguments with an explicit notice",
   }
 });
 
+test("MCP list contract pins public resources, prompts, tool schemas, and trust guidance", () => {
+  const cwd = makeTmpDir("mcp-contract-");
+  try {
+    const responses = mcpExchange(cwd, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "1999-01-01" } },
+      { jsonrpc: "2.0", id: 2, method: "resources/list" },
+      { jsonrpc: "2.0", id: 3, method: "prompts/list" },
+      { jsonrpc: "2.0", id: 4, method: "tools/list" },
+    ]);
+
+    assert.equal(responses[0].result.protocolVersion, SUPPORTED_PROTOCOL_VERSION);
+    assert.deepEqual(responses[0].result.capabilities, { tools: {}, resources: {}, prompts: {} });
+    assert.equal(TRUST_SENTENCE.includes("do not re-verify with repo-wide greps"), true);
+
+    const resourceContract = responses[1].result.resources.map((resource) => ({
+      uri: resource.uri,
+      name: resource.name,
+      title: resource.title,
+      mimeType: resource.mimeType,
+      audience: resource.annotations.audience,
+      priority: resource.annotations.priority,
+    }));
+    assert.deepEqual(resourceContract, [
+      {
+        uri: "project-librarian://wiki/startup",
+        name: "wiki-startup",
+        title: "Project Wiki Startup",
+        mimeType: "text/markdown",
+        audience: ["assistant"],
+        priority: 0.9,
+      },
+      {
+        uri: "project-librarian://wiki/index",
+        name: "wiki-index",
+        title: "Project Wiki Index",
+        mimeType: "text/markdown",
+        audience: ["assistant"],
+        priority: 0.9,
+      },
+      {
+        uri: "project-librarian://code/status",
+        name: "code-status",
+        title: "Code Evidence Status",
+        mimeType: "text/plain",
+        audience: ["assistant"],
+        priority: 0.7,
+      },
+    ]);
+
+    const promptContract = responses[2].result.prompts.map((prompt) => ({
+      name: prompt.name,
+      title: prompt.title,
+      arguments: prompt.arguments.map((argument) => ({
+        name: argument.name,
+        required: argument.required === true,
+      })),
+    }));
+    assert.deepEqual(promptContract, [
+      {
+        name: "wiki_taxonomy_update",
+        title: "Wiki Taxonomy Update",
+        arguments: [
+          { name: "content", required: true },
+          { name: "target", required: false },
+        ],
+      },
+      {
+        name: "code_impact_trace",
+        title: "Code Impact Trace",
+        arguments: [
+          { name: "term", required: true },
+          { name: "question", required: false },
+        ],
+      },
+      {
+        name: "retrieval_quality_review",
+        title: "Retrieval Quality Review",
+        arguments: [
+          { name: "query", required: true },
+          { name: "expected_evidence", required: false },
+        ],
+      },
+    ]);
+
+    const toolContract = responses[3].result.tools.map((tool) => ({
+      name: tool.name,
+      required: tool.inputSchema.required ?? [],
+      properties: Object.fromEntries(
+        Object.entries(tool.inputSchema.properties ?? {}).map(([name, schema]) => [name, schema.type]),
+      ),
+      hasTrustSentence: tool.description.includes(TRUST_SENTENCE),
+    }));
+    assert.deepEqual(toolContract, [
+      {
+        name: "code_context_pack",
+        required: ["term"],
+        properties: { term: "string" },
+        hasTrustSentence: true,
+      },
+      {
+        name: "code_impact",
+        required: ["term"],
+        properties: { term: "string" },
+        hasTrustSentence: true,
+      },
+      {
+        name: "code_ownership",
+        required: ["path"],
+        properties: { path: "string" },
+        hasTrustSentence: true,
+      },
+      {
+        name: "code_workspace_graph",
+        required: [],
+        properties: { workspace: "string" },
+        hasTrustSentence: true,
+      },
+      {
+        name: "code_search",
+        required: ["term"],
+        properties: { term: "string" },
+        hasTrustSentence: true,
+      },
+      {
+        name: "code_status",
+        required: [],
+        properties: {},
+        hasTrustSentence: true,
+      },
+    ]);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("tools/list returns all six answer-shaped tools each carrying the trust sentence", () => {
   const cwd = makeTmpDir("mcp-list-");
   try {

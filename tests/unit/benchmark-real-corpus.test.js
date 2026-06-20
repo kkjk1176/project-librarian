@@ -29,6 +29,7 @@ const {
   loadCorpusManifest,
   materializeControlArm,
   materializeWithArm,
+  realCorpusKeyCoverage,
   snapshotRealRepoUntracked,
   validateAnswerKey,
   validateRealRepoAfterRun,
@@ -226,6 +227,24 @@ test("loadAnswerKey accepts the shipped stub example key", () => {
     assert(["impact_trace", "ownership_lookup", "workspace_graph"].includes(question.task_family));
     assert(question.expectation && Array.isArray(question.expectation.required_terms));
   }
+});
+
+test("realCorpusKeyCoverage covers every task family with shipped non-example keys", () => {
+  const coverage = realCorpusKeyCoverage({ keysDir: path.join(root, "benchmarks", "real-keys") });
+  assert.deepEqual(coverage.missing_task_families, []);
+  assert.equal(coverage.by_task_family.impact_trace >= 1, true);
+  assert.equal(coverage.by_task_family.ownership_lookup >= 1, true);
+  assert.equal(coverage.by_task_family.workspace_graph >= 1, true);
+  assert.equal(coverage.question_count, 5);
+  assert.deepEqual(coverage.key_files, ["backstage.json", "excalidraw.json"]);
+  assert.equal(coverage.repos.every((repo) => repo.notes_present), true, "real answer keys must carry anti-circularity notes");
+});
+
+test("realCorpusKeyCoverage can include example keys explicitly", () => {
+  const coverage = realCorpusKeyCoverage({ keysDir: path.join(root, "benchmarks", "real-keys"), includeExamples: true });
+  assert.equal(coverage.include_examples, true);
+  assert.ok(coverage.key_files.includes("_stub-example.json"));
+  assert.equal(coverage.question_count, 8);
 });
 
 test("validateAnswerKey hard-fails on an unknown top-level field", () => {
