@@ -104,6 +104,13 @@ test("aggregation expectation encodes every date as a required term plus compone
     assert(expectation.required_terms.includes(component.date));
     assert(expectation.no_single_page_terms.includes(component.summary));
   }
+  assert.deepEqual(expectation.evidence_by_condition.with_project_librarian[0], [
+    "wiki/canonical/dated-decision-0.md",
+    "wiki/canonical/dated-decision-1.md",
+    "wiki/canonical/dated-decision-2.md",
+    "wiki/canonical/dated-decision-3.md",
+    "wiki/decisions/log.md",
+  ]);
   // Profile-aware evidence: control side is profile-keyed for bare/organic/curated.
   for (const profile of controlProfiles) {
     assert(Array.isArray(expectation.evidence_by_condition.without_project_librarian[profile]), `missing aggregation evidence for ${profile}`);

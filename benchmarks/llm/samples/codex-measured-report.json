@@ -1,5 +1,5 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "benchmark_kind": "codex-actual-llm",
   "auth_mode": "chatgpt_codex",
   "auth": {
@@ -61,7 +61,7 @@
     "manifest_fingerprint": "cafbca22aca80900e839cec116d0d4056f523f83941061ebb460afbd9a6d2d58",
     "scenario_matrix_fingerprint": "009fcf52a1549fefe04441bff3f0428befb9a83a5a5dced9f65fbb97f0db2a3c",
     "require_clean": false,
-    "scenario_order": "deterministic-alternating-pairs"
+    "scenario_order": "run-major-balanced"
   },
   "benchmark_tracks": [
     "wiki",
@@ -75,6 +75,124 @@
     "failed_correctness_count": 0,
     "claimable_scenario_count": 8,
     "unclaimable_scenario_count": 0
+  },
+  "scenario_run_plan": {
+    "strategy": "run-major-balanced",
+    "scenario_run_count": 8,
+    "entries": [
+      {
+        "sequence": 1,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "decision_lookup-medium-with_project_librarian",
+        "condition": "with_project_librarian",
+        "scale": "medium",
+        "task_family": "decision_lookup",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 1
+      },
+      {
+        "sequence": 2,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "decision_lookup-medium-without_project_librarian",
+        "condition": "without_project_librarian",
+        "scale": "medium",
+        "task_family": "decision_lookup",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 1
+      },
+      {
+        "sequence": 3,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "multi_session-medium-with_project_librarian",
+        "condition": "with_project_librarian",
+        "scale": "medium",
+        "task_family": "multi_session",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 2
+      },
+      {
+        "sequence": 4,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "multi_session-medium-without_project_librarian",
+        "condition": "without_project_librarian",
+        "scale": "medium",
+        "task_family": "multi_session",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 2
+      },
+      {
+        "sequence": 5,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "aggregation-medium-with_project_librarian",
+        "condition": "with_project_librarian",
+        "scale": "medium",
+        "task_family": "aggregation",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 1
+      },
+      {
+        "sequence": 6,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "aggregation-medium-without_project_librarian",
+        "condition": "without_project_librarian",
+        "scale": "medium",
+        "task_family": "aggregation",
+        "benchmark_track": "wiki",
+        "corpus": "synthetic",
+        "repo": null,
+        "question_id": null,
+        "session_count": 1
+      },
+      {
+        "sequence": 7,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "_stub-example-impact-trace-1-with_project_librarian",
+        "condition": "with_project_librarian",
+        "scale": "real",
+        "task_family": "impact_trace",
+        "benchmark_track": "code_graph",
+        "corpus": "real",
+        "repo": "_stub-example",
+        "question_id": "impact-trace-1",
+        "session_count": 1
+      },
+      {
+        "sequence": 8,
+        "phase": "measured",
+        "run_index": 1,
+        "prompt_id": "_stub-example-impact-trace-1-without_project_librarian",
+        "condition": "without_project_librarian",
+        "scale": "real",
+        "task_family": "impact_trace",
+        "benchmark_track": "code_graph",
+        "corpus": "real",
+        "repo": "_stub-example",
+        "question_id": "impact-trace-1",
+        "session_count": 1
+      }
+    ]
   },
   "scenarios": [
     {
@@ -238,6 +356,12 @@
             "runtime_state_paths": [],
             "fingerprint_matched": true,
             "file_count": 1
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 1,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -864,6 +988,12 @@
             "runtime_state_paths": [],
             "fingerprint_matched": true,
             "file_count": 1
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 2,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -1603,6 +1733,12 @@
                 "passed": true
               }
             ]
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 3,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -2493,6 +2629,12 @@
                 "passed": true
               }
             ]
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 4,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -3182,7 +3324,8 @@
               "wiki/canonical/dated-decision-0.md",
               "wiki/canonical/dated-decision-1.md",
               "wiki/canonical/dated-decision-2.md",
-              "wiki/canonical/dated-decision-3.md"
+              "wiki/canonical/dated-decision-3.md",
+              "wiki/decisions/log.md"
             ]
           ],
           "without_project_librarian": {
@@ -3289,7 +3432,7 @@
                 "passed": true
               },
               {
-                "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md",
+                "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md | wiki/decisions/log.md",
                 "passed": true
               },
               {
@@ -3360,6 +3503,12 @@
             "runtime_state_paths": [],
             "fingerprint_matched": true,
             "file_count": 1
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 5,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -3451,7 +3600,7 @@
               "passed": true
             },
             {
-              "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md",
+              "name": "expected evidence: wiki/canonical/dated-decision-0.md | wiki/canonical/dated-decision-1.md | wiki/canonical/dated-decision-2.md | wiki/canonical/dated-decision-3.md | wiki/decisions/log.md",
               "passed": true
             },
             {
@@ -3910,7 +4059,8 @@
               "wiki/canonical/dated-decision-0.md",
               "wiki/canonical/dated-decision-1.md",
               "wiki/canonical/dated-decision-2.md",
-              "wiki/canonical/dated-decision-3.md"
+              "wiki/canonical/dated-decision-3.md",
+              "wiki/decisions/log.md"
             ]
           ],
           "without_project_librarian": {
@@ -4088,6 +4238,12 @@
             "runtime_state_paths": [],
             "fingerprint_matched": true,
             "file_count": 1
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 6,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -4817,6 +4973,12 @@
             "pinned_sha_matched": true,
             "git_clean": true,
             "new_untracked_runtime_state_paths": []
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 7,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],
@@ -5574,6 +5736,12 @@
             "pinned_sha_matched": true,
             "git_clean": true,
             "new_untracked_runtime_state_paths": []
+          },
+          "execution_order": {
+            "strategy": "run-major-balanced",
+            "sequence": 8,
+            "phase": "measured",
+            "run_index": 1
           }
         }
       ],

@@ -314,6 +314,7 @@ function assertValidTrackTag(track) {
 const validControlProfiles = ["bare", "organic", "curated"];
 
 const validCorpora = ["synthetic", "real"];
+const validScenarioOrders = ["run-major-balanced", "scenario-major"];
 
 function validateManifest(report) {
   // schema_version 5 adds the corpus dimension (corpus/repo/repo_sha/question_id on
@@ -404,8 +405,14 @@ function validateReport(reportPath) {
     validateManifest(report);
     return;
   }
-  assert.equal(report.schema_version, 7);
+  assert.equal(report.schema_version, 8);
   assert.equal(report.benchmark_kind, "codex-actual-llm");
+  // schema 8 execution-order provenance: the configured scenario order is recorded
+  // with a scenario-run plan and mirrored on every measured run.
+  assert(validScenarioOrders.includes(report.configuration.scenario_order), `invalid scenario_order: ${report.configuration.scenario_order}`);
+  assert(report.scenario_run_plan && report.scenario_run_plan.strategy === report.configuration.scenario_order, "scenario_run_plan strategy must match configuration.scenario_order");
+  assert(Array.isArray(report.scenario_run_plan.entries) && report.scenario_run_plan.entries.length > 0, "scenario_run_plan must list scenario runs");
+  assert.equal(report.scenario_run_plan.scenario_run_count, report.scenario_run_plan.entries.length);
   // schema 7 corpus dimension: a top-level corpus label ("synthetic", "real", or
   // "mixed" when a report carries both). Every scenario carries its own corpus.
   assert(["synthetic", "real", "mixed"].includes(report.corpus), `invalid report corpus: ${report.corpus}`);
@@ -455,7 +462,6 @@ function validateReport(reportPath) {
   assert(typeof report.configuration.scenario_matrix_fingerprint === "string" && report.configuration.scenario_matrix_fingerprint.length === 64);
   assert(Array.isArray(report.configuration.selected_scales));
   assert(Array.isArray(report.configuration.selected_tasks));
-  assert.equal(report.configuration.scenario_order, "deterministic-alternating-pairs");
   assert(Array.isArray(report.scenarios));
   assert(report.scenarios.length > 0);
   assert.equal(report.configuration.selected_scenarios, report.scenarios.length);
@@ -545,6 +551,10 @@ function validateReport(reportPath) {
     let passedRunCount = 0;
     const runModels = new Set();
     for (const [index, run] of scenario.runs.entries()) {
+      assert(run.execution_order && run.execution_order.strategy === report.configuration.scenario_order, `${scenario.prompt_id} run ${run.run_index} missing execution_order`);
+      assert(Number.isInteger(run.execution_order.sequence) && run.execution_order.sequence >= 1, `${scenario.prompt_id} run ${run.run_index} has invalid execution_order.sequence`);
+      assert.equal(run.execution_order.phase, "measured");
+      assert.equal(run.execution_order.run_index, run.run_index);
       assert(run.metrics);
       assert(run.execution && ["completed", "failed"].includes(run.execution.status));
       // A5: every measured run carries a post-run fixture validation record. A

@@ -637,7 +637,7 @@ function aggregationExpectation() {
     // organic+bare: docs/history/). evaluateCorrectness treats this as a wiki-track
     // evidence map (not code-graph) because aggregation is benchmark_track: wiki.
     evidence_by_condition: {
-      with_project_librarian: [["wiki/canonical/dated-decision-0.md", "wiki/canonical/dated-decision-1.md", "wiki/canonical/dated-decision-2.md", "wiki/canonical/dated-decision-3.md"]],
+      with_project_librarian: [["wiki/canonical/dated-decision-0.md", "wiki/canonical/dated-decision-1.md", "wiki/canonical/dated-decision-2.md", "wiki/canonical/dated-decision-3.md", "wiki/decisions/log.md"]],
       without_project_librarian: {
         curated: [["docs/decisions-history/dated-decision-0.md", "docs/decisions.md"]],
         organic: [["docs/history/dated-decision-0.md", "docs/notes/decision-log.md"]],
@@ -782,6 +782,22 @@ const ANSWER_PAGE_ROUTES = [
     page: "canonical/project-brief.md",
     readWhen: "project direction, audience, scope, success criteria, or current risks matter.",
   },
+  {
+    page: "canonical/dated-decision-0.md",
+    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+  },
+  {
+    page: "canonical/dated-decision-1.md",
+    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+  },
+  {
+    page: "canonical/dated-decision-2.md",
+    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+  },
+  {
+    page: "canonical/dated-decision-3.md",
+    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+  },
 ];
 
 function wikiLinkTargetForPage(page) {
@@ -816,6 +832,7 @@ This file is a router, not a file to expand into every answer. Read only the fil
 
 - \`wiki/canonical/\` and \`wiki/decisions/\` contain project-planning content only.
 - Wiki operating rules and decisions live in \`wiki/meta/\`.
+- For project decision inventories, stay in \`wiki/canonical/\` and \`wiki/decisions/\`; read \`wiki/meta/\` only when wiki operation or metadata is explicitly requested.
 
 ## Startup
 

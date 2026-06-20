@@ -268,6 +268,13 @@ test("--payload-preview writes a local audit file without requiring --allow-code
   assert.equal(preview.benchmark_kind, "codex-actual-llm-payload-preview");
   assert.equal(preview.disclosure_boundary.codex_network_run, false);
   assert.equal(preview.configuration.expected_codex_exec_count, 2);
+  assert.equal(preview.configuration.scenario_order, "run-major-balanced");
+  assert.equal(preview.scenario_run_plan.strategy, "run-major-balanced");
+  assert.equal(preview.scenario_run_plan.scenario_run_count, 2);
+  assert.deepEqual(preview.scenario_run_plan.entries.map((entry) => entry.prompt_id), [
+    "decision_lookup-small-with_project_librarian",
+    "decision_lookup-small-without_project_librarian",
+  ]);
   assert.equal(preview.scenarios.length, 2);
   for (const scenario of preview.scenarios) {
     assert(scenario.prompt.includes("Benchmark scenario:"));
@@ -454,6 +461,67 @@ test("measured benchmark reports live progress on stderr without corrupting stdo
   assert.match(result.stderr, /\[benchmark:progress\] done .*current=2\/2 .*status=completed .*exit=0/);
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
   assert.equal(report.scenarios.length, 2);
+});
+
+test("measured benchmark interleaves repeated pair runs and records execution order", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-balanced-order-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "2",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.configuration.scenario_order, "run-major-balanced");
+  assert.equal(report.scenario_run_plan.strategy, "run-major-balanced");
+  assert.deepEqual(report.scenario_run_plan.entries.map((entry) => `${entry.prompt_id}:${entry.run_index}`), [
+    "decision_lookup-small-with_project_librarian:1",
+    "decision_lookup-small-without_project_librarian:1",
+    "decision_lookup-small-without_project_librarian:2",
+    "decision_lookup-small-with_project_librarian:2",
+  ]);
+
+  const withScenario = report.scenarios.find((scenario) => scenario.condition === "with_project_librarian");
+  const withoutScenario = report.scenarios.find((scenario) => scenario.condition === "without_project_librarian");
+  assert.deepEqual(withScenario.runs.map((run) => run.execution_order.sequence), [1, 4]);
+  assert.deepEqual(withoutScenario.runs.map((run) => run.execution_order.sequence), [2, 3]);
+  assert(withScenario.runs.every((run) => run.execution_order.strategy === "run-major-balanced"));
+  assert(withoutScenario.runs.every((run) => run.execution_order.strategy === "run-major-balanced"));
+});
+
+test("--scenario-order scenario-major preserves legacy scenario-grouped measured order", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-scenario-major-order-test-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "2",
+    "--warmup-runs", "0",
+    "--scenario-order", "scenario-major",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp) });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.configuration.scenario_order, "scenario-major");
+  assert.deepEqual(report.scenario_run_plan.entries.map((entry) => `${entry.prompt_id}:${entry.run_index}`), [
+    "decision_lookup-small-with_project_librarian:1",
+    "decision_lookup-small-with_project_librarian:2",
+    "decision_lookup-small-without_project_librarian:1",
+    "decision_lookup-small-without_project_librarian:2",
+  ]);
 });
 
 test("diagnostic prompt filter measures a single scenario without a complete pair", () => {
@@ -676,12 +744,12 @@ function pair({ scale, track, taskFamily, withMetrics, withoutMetrics }) {
 function reportWith(scenarios, cacheDiscount = 0.1) {
   const present = tracksPresent(scenarios);
   const report = {
-    schema_version: 7,
+    schema_version: 8,
     generated_at: "2026-06-10T00:00:00.000Z",
     auth_mode: "chatgpt_codex",
     corpus: "synthetic",
     cache_discount: cacheDiscount,
-    configuration: { runs: 3, warmup_runs: 1, requested_model: "gpt-5.5", cache_discount: cacheDiscount, require_clean: false },
+    configuration: { runs: 3, warmup_runs: 1, requested_model: "gpt-5.5", cache_discount: cacheDiscount, require_clean: false, scenario_order: "run-major-balanced" },
     summary: { scenario_count: scenarios.length, comparison_pair_count: 1, claimable_scenario_count: scenarios.length },
     scenarios,
     claim_gate: { status: "passed", per_track: {} },
@@ -818,11 +886,13 @@ test("multi_session derives cost fields per session from each session's raw JSON
 
 // --- validator recomputation path (the checked-in sample) -----------------------
 
-test("the regenerated sample report is schema 7 with a recorded cache discount", () => {
+test("the regenerated sample report is schema 8 with a recorded cache discount", () => {
   const report = JSON.parse(fs.readFileSync(path.join(root, "benchmarks", "llm", "samples", "codex-measured-report.json"), "utf8"));
-  assert.equal(report.schema_version, 7);
+  assert.equal(report.schema_version, 8);
   assert(Number.isFinite(report.cache_discount));
   assert.equal(report.configuration.cache_discount, report.cache_discount);
+  assert.equal(report.configuration.scenario_order, "run-major-balanced");
+  assert.equal(report.scenario_run_plan.strategy, report.configuration.scenario_order);
 });
 
 test("every sample-report median exposes the derived cost fields and a recomputable headline", () => {

@@ -25,6 +25,7 @@ const { DEFAULT_CACHE_DISCOUNT, claimableRuns, completePairCount, corporaPresent
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
+const scenarioOrderStrategies = ["run-major-balanced", "scenario-major"];
 
 function fail(message) {
   console.error(message);
@@ -157,6 +158,14 @@ function cacheDiscountArgValue(name, defaultValue) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) fail(`invalid ${name}: ${value} (expected 0..1)`);
   return parsed;
+}
+
+function scenarioOrderArgValue(name, defaultValue) {
+  const value = argValue(name, defaultValue);
+  if (!scenarioOrderStrategies.includes(value)) {
+    fail(`invalid ${name}: ${value} (expected one of: ${scenarioOrderStrategies.join(", ")})`);
+  }
+  return value;
 }
 
 function writeJson(filePath, value) {
@@ -710,6 +719,84 @@ function scenarioCodexExecCount(scenario, runs, warmupRuns) {
   return (runs + warmupRuns) * sessionCount;
 }
 
+function orderedScenariosForIteration(selectedScenarios, iterationIndex) {
+  return iterationIndex % 2 === 0 ? selectedScenarios : [...selectedScenarios].reverse();
+}
+
+function buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder }) {
+  const plan = [];
+  function pushEntry({ phase, runIndex, scenario }) {
+    plan.push({
+      sequence: plan.length + 1,
+      phase,
+      run_index: runIndex,
+      scenario,
+    });
+  }
+
+  if (scenarioOrder === "scenario-major") {
+    for (const scenario of selectedScenarios) {
+      for (let index = 0; index < warmupRuns; index += 1) {
+        pushEntry({ phase: "warmup", runIndex: `warmup-${index + 1}`, scenario });
+      }
+      for (let index = 0; index < runs; index += 1) {
+        pushEntry({ phase: "measured", runIndex: index + 1, scenario });
+      }
+    }
+    return plan;
+  }
+
+  if (scenarioOrder === "run-major-balanced") {
+    for (let index = 0; index < warmupRuns; index += 1) {
+      for (const scenario of orderedScenariosForIteration(selectedScenarios, index)) {
+        pushEntry({ phase: "warmup", runIndex: `warmup-${index + 1}`, scenario });
+      }
+    }
+    for (let index = 0; index < runs; index += 1) {
+      for (const scenario of orderedScenariosForIteration(selectedScenarios, index)) {
+        pushEntry({ phase: "measured", runIndex: index + 1, scenario });
+      }
+    }
+    return plan;
+  }
+
+  fail(`internal error: unsupported scenario order strategy: ${scenarioOrder}`);
+}
+
+function scenarioRunPlanEntryPreview(entry) {
+  return {
+    sequence: entry.sequence,
+    phase: entry.phase,
+    run_index: entry.run_index,
+    prompt_id: entry.scenario.prompt_id,
+    condition: entry.scenario.condition,
+    scale: entry.scenario.scale,
+    task_family: entry.scenario.task_family,
+    benchmark_track: entry.scenario.benchmark_track,
+    corpus: entry.scenario.corpus || "synthetic",
+    repo: entry.scenario.repo || null,
+    question_id: entry.scenario.question_id || null,
+    session_count: Array.isArray(entry.scenario.sessions) && entry.scenario.sessions.length > 0 ? entry.scenario.sessions.length : 1,
+  };
+}
+
+function summarizeScenarioRunPlan({ scenarioOrder, plan }) {
+  return {
+    strategy: scenarioOrder,
+    scenario_run_count: plan.length,
+    entries: plan.map(scenarioRunPlanEntryPreview),
+  };
+}
+
+function runExecutionOrder(entry, scenarioOrder) {
+  return {
+    strategy: scenarioOrder,
+    sequence: entry.sequence,
+    phase: entry.phase,
+    run_index: entry.run_index,
+  };
+}
+
 function formatProgressSeconds(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
@@ -955,9 +1042,10 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection }) {
   const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
+  const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
   return {
     schema_version: 1,
     benchmark_kind: "codex-actual-llm-payload-preview",
@@ -986,6 +1074,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       require_clean: requireClean,
       requested_model: manifest.requested_model,
       cache_discount: cacheDiscount,
+      scenario_order: scenarioOrder,
       keep_codex_homes: Boolean(keepCodexHomes),
       auto_prune_codex_homes: Boolean(autoPruneCodexHomes),
       auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
@@ -1007,6 +1096,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
         requested_model: scenario.requested_model,
       })))),
     },
+    scenario_run_plan: summarizeScenarioRunPlan({ scenarioOrder, plan: scenarioRunPlan }),
     scenarios: selectedScenarios.map((scenario) => scenarioPayloadPreview(scenario, runs, warmupRuns)),
   };
 }
@@ -1023,7 +1113,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
+function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
   const resolvedRawReportRoot = rawReportRoot
     ? path.resolve(rawReportRoot)
@@ -1052,6 +1142,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
   if (selectedScenarios.length === 0) {
     fail(selectedScenariosOverride ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
   }
+  const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
   const progress = createBenchmarkProgress({
     selectedScenarios,
     runs,
@@ -1146,19 +1237,20 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
   }
 
   const scenarios = [];
+  const measuredRunsByPromptId = new Map(selectedScenarios.map((scenario) => [scenario.prompt_id, []]));
 
   try {
+    for (const entry of scenarioRunPlan) {
+      const run = runScenarioOnce(entry.scenario, entry.run_index);
+      run.execution_order = runExecutionOrder(entry, scenarioOrder);
+      if (requireClaimable) requireCompletedExecutionForClaimableRun(entry.scenario, run);
+      if (entry.phase === "measured") {
+        measuredRunsByPromptId.get(entry.scenario.prompt_id).push(run);
+      }
+    }
+
     for (const scenario of selectedScenarios) {
-      for (let index = 0; index < warmupRuns; index += 1) {
-        const warmupRun = runScenarioOnce(scenario, `warmup-${index + 1}`);
-        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, warmupRun);
-      }
-      const measuredRuns = [];
-      for (let index = 0; index < runs; index += 1) {
-        const measuredRun = runScenarioOnce(scenario, index + 1);
-        if (requireClaimable) requireCompletedExecutionForClaimableRun(scenario, measuredRun);
-        measuredRuns.push(measuredRun);
-      }
+      const measuredRuns = measuredRunsByPromptId.get(scenario.prompt_id) || [];
       const correctnessPassedRuns = passedRuns(measuredRuns);
       const actualClaimableRuns = claimableRuns(measuredRuns);
       const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
@@ -1237,7 +1329,10 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
   const expectedByTrack = expectedTasksByTrack(selectedTasks);
 
   const report = {
-    // schema_version 7 adds the corpus dimension: every scenario carries
+    // schema_version 8 adds measured execution-order provenance: configuration
+    // carries scenario_order, report.scenario_run_plan records the planned scenario
+    // run order, and every measured run carries execution_order. schema_version 7
+    // adds the corpus dimension: every scenario carries
     // `corpus`/`repo`/`repo_sha`/`question_id`, claim gates and report.tracks carry
     // a per-corpus breakdown (real vs synthetic), and the Markdown renders separate
     // per-corpus subsections within each track (real and synthetic are never merged
@@ -1253,7 +1348,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
     // level and a per-run fixture_validation record. schema_version 3 added
     // control_profile (A2) at the report top level, in configuration, and on
     // every scenario.
-    schema_version: 7,
+    schema_version: 8,
     benchmark_kind: "codex-actual-llm",
     auth_mode: authMode,
     auth: authAudit(),
@@ -1300,7 +1395,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
       auto_prune_codex_homes_older_than_days: autoPruneCodexHomesOlderThanDays,
       auto_prune_raw_runs: Boolean(autoPruneRawRuns),
       auto_prune_raw_runs_older_than_days: autoPruneRawRunsOlderThanDays,
-      scenario_order: "deterministic-alternating-pairs",
+      scenario_order: scenarioOrder,
       requested_model: manifest.requested_model,
       selected_scales: selectedScales,
       selected_tasks: selectedTasks,
@@ -1329,6 +1424,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
     },
     benchmark_tracks: presentTracks,
     summary: summarizeScenarios(scenarios),
+    scenario_run_plan: summarizeScenarioRunPlan({ scenarioOrder, plan: scenarioRunPlan }),
     scenarios,
   };
 
@@ -1590,6 +1686,7 @@ function main() {
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
   const minRunsForClaim = positiveIntegerArgValue("--min-runs-for-claim", 1);
   const cacheDiscount = cacheDiscountArgValue("--cache-discount", DEFAULT_CACHE_DISCOUNT);
+  const scenarioOrder = scenarioOrderArgValue("--scenario-order", "run-major-balanced");
   const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
   // For --corpus real, --max-scenarios defaults to Infinity (full key coverage) and
   // is resolved to the actual manifest size after building the manifest. The explicit
@@ -1715,6 +1812,7 @@ function main() {
       selectedScales,
       selectedTasks,
       cacheDiscount,
+      scenarioOrder,
       sourceRoot,
       sanitizedPack,
       keepCodexHomes,
@@ -1739,7 +1837,7 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
+    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));

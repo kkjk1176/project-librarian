@@ -9,6 +9,7 @@ const test = require("node:test");
 const {
   ANSWER_PAGE_ROUTES,
   SEEDED_DECISION,
+  aggregationExpectation,
   assertBoundedAnswerReachability,
   assertRouterTruthConsistency,
   maintainedIndex,
@@ -55,6 +56,32 @@ test("maintained startup and recent carry the seeded dated decision and never sa
     assert(text.includes(SEEDED_DECISION.date), `${name} missing seeded decision date`);
   }
   assert(startup.includes("[[index]]"), "startup must link [[index]] for hop 1");
+});
+
+test("maintained index routes aggregation evidence without pre-aggregating the answer", () => {
+  const index = maintainedIndex();
+  const expectation = aggregationExpectation();
+  const withEvidence = expectation.evidence_by_condition.with_project_librarian.flat();
+  for (const relative of withEvidence) {
+    const link = `[[${relative.replace(/^wiki\//, "").replace(/\.md$/, "")}]]`;
+    assert(index.includes(link), `index missing aggregation evidence route ${link}`);
+  }
+  assert(
+    index.includes("For project decision inventories, stay in `wiki/canonical/` and `wiki/decisions/`"),
+    "index must scope project-decision inventory routing away from wiki/meta",
+  );
+  assert(
+    index.includes("exclude wiki operating/meta decisions unless explicitly requested"),
+    "dated decision routes must distinguish project decisions from wiki operating decisions",
+  );
+  assert(
+    !expectation.required_terms.every((term) => index.includes(term)),
+    "index must not enumerate every aggregation date on one router page",
+  );
+  assert(
+    !expectation.no_single_page_terms.every((term) => index.includes(term)),
+    "index must not contain every aggregation summary on one router page",
+  );
 });
 
 test("router-truth consistency assert passes on a maintained router set", () => {

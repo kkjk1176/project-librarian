@@ -83,6 +83,37 @@ test("parseArgs handles code context pack aliases", () => {
   assert.equal(parsed.codeContextPackTarget, "healthHandler");
 });
 
+test("parseArgs handles code evidence alias groups from the flag schema", () => {
+  const parsed = parseArgs([
+    "--code-evidence-index",
+    "--code-evidence-index-full",
+    "--code-evidence-index-incremental",
+    "--code-evidence-parser=tree-sitter",
+    "--code-evidence-query",
+    "select * from files",
+    "--code-evidence-report",
+    "--code-evidence-report-section=ownership",
+    "--code-evidence-symbol=healthHandler",
+    "--code-evidence-status",
+    "--code-evidence-files",
+    "--code-evidence-out=.project-wiki/custom.sqlite",
+  ]);
+  assert.equal(parsed.codeIndexMode, true);
+  assert.equal(parsed.codeIndexFullMode, true);
+  assert.equal(parsed.codeIndexIncrementalMode, true);
+  assert.equal(parsed.codeParserMode, true);
+  assert.equal(parsed.codeParser, "tree-sitter");
+  assert.equal(parsed.codeQueryMode, true);
+  assert.equal(parsed.codeQuerySql, "select * from files");
+  assert.equal(parsed.codeReportMode, true);
+  assert.equal(parsed.codeReportSection, "ownership");
+  assert.equal(parsed.codeSearchSymbolMode, true);
+  assert.equal(parsed.codeSearchSymbol, "healthHandler");
+  assert.equal(parsed.codeStatusMode, true);
+  assert.equal(parsed.codeFilesMode, true);
+  assert.equal(parsed.codeIndexOutput, ".project-wiki/custom.sqlite");
+});
+
 test("parseArgs handles migration diagnostic modes", () => {
   const parsed = parseArgs(["--migration-lint", "--migration-quality-check", "--migration-doctor"]);
   assert.equal(parsed.migrationLintMode, true);

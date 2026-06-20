@@ -41,6 +41,7 @@ const WALL_MS = 2000;
 // headline and merged-total-secondary rendering are exercised under the shipped
 // default; the smoke validator recomputes cost-weighted from the same discount.
 const SAMPLE_CACHE_DISCOUNT = 0.1;
+const SAMPLE_SCENARIO_ORDER = "run-major-balanced";
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -295,6 +296,42 @@ function summarizeScenarios(scenarioList) {
   };
 }
 
+function scenarioRunPlanEntry(scenario, index) {
+  return {
+    sequence: index + 1,
+    phase: "measured",
+    run_index: 1,
+    prompt_id: scenario.prompt_id,
+    condition: scenario.condition,
+    scale: scenario.scale,
+    task_family: scenario.task_family,
+    benchmark_track: scenario.benchmark_track,
+    corpus: scenario.corpus || "synthetic",
+    repo: scenario.repo || null,
+    question_id: scenario.question_id || null,
+    session_count: Array.isArray(scenario.sessions) && scenario.sessions.length > 0 ? scenario.sessions.length : 1,
+  };
+}
+
+function attachScenarioRunPlan(scenarios) {
+  const entries = scenarios.map(scenarioRunPlanEntry);
+  for (const [index, scenario] of scenarios.entries()) {
+    for (const run of scenario.runs) {
+      run.execution_order = {
+        strategy: SAMPLE_SCENARIO_ORDER,
+        sequence: index + 1,
+        phase: "measured",
+        run_index: run.run_index,
+      };
+    }
+  }
+  return {
+    strategy: SAMPLE_SCENARIO_ORDER,
+    scenario_run_count: entries.length,
+    entries,
+  };
+}
+
 function main() {
   // The wiki track is sampled at the medium scale with all its expected tasks
   // present (decision_lookup, multi_session, aggregation). The code_graph track is
@@ -396,6 +433,7 @@ function main() {
   const selectedTasks = ["decision_lookup", "impact_trace", "multi_session", "aggregation"];
   const expectedByTrack = { wiki: ["decision_lookup", "multi_session", "aggregation"], code_graph: ["impact_trace"] };
   const presentTracks = tracksPresent(scenarios);
+  const scenarioRunPlan = attachScenarioRunPlan(scenarios);
 
   const manifestFingerprint = sha256(JSON.stringify(scenarios.map((scenario) => ({
     scale: scenario.scale,
@@ -414,7 +452,7 @@ function main() {
   }))));
 
   const report = {
-    schema_version: 7,
+    schema_version: 8,
     benchmark_kind: "codex-actual-llm",
     auth_mode: "chatgpt_codex",
     auth: {
@@ -461,10 +499,11 @@ function main() {
       manifest_fingerprint: manifestFingerprint,
       scenario_matrix_fingerprint: scenarioMatrixFingerprint,
       require_clean: false,
-      scenario_order: "deterministic-alternating-pairs",
+      scenario_order: SAMPLE_SCENARIO_ORDER,
     },
     benchmark_tracks: presentTracks,
     summary: summarizeScenarios(scenarios),
+    scenario_run_plan: scenarioRunPlan,
     scenarios,
     source_control: {
       available: true,

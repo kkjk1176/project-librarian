@@ -271,6 +271,47 @@ function loadAnswerKey(keyPath) {
   return parsed;
 }
 
+function realCorpusKeyCoverage({ keysDir, includeExamples = false } = {}) {
+  if (!keysDir || !fs.existsSync(keysDir) || !fs.statSync(keysDir).isDirectory()) {
+    throw new Error(`real corpus key coverage requires an existing keys directory: ${keysDir}`);
+  }
+  const keyFiles = fs.readdirSync(keysDir)
+    .filter((name) => name.endsWith(".json"))
+    .filter((name) => includeExamples || !name.startsWith("_"))
+    .sort();
+  if (keyFiles.length === 0) {
+    throw new Error(`real corpus key coverage found no answer-key files in ${keysDir}`);
+  }
+  const byTaskFamily = Object.fromEntries(REAL_TASK_FAMILIES.map((family) => [family, 0]));
+  const repos = [];
+  for (const fileName of keyFiles) {
+    const key = loadAnswerKey(path.join(keysDir, fileName));
+    const repoFamilies = new Set();
+    for (const question of key.questions) {
+      byTaskFamily[question.task_family] += 1;
+      repoFamilies.add(question.task_family);
+    }
+    repos.push({
+      file: fileName,
+      notes_present: typeof key.notes === "string" && key.notes.length > 0,
+      question_count: key.questions.length,
+      repo: key.repo,
+      task_families: [...repoFamilies].sort(),
+    });
+  }
+  const missingTaskFamilies = REAL_TASK_FAMILIES.filter((family) => byTaskFamily[family] === 0);
+  return {
+    by_task_family: byTaskFamily,
+    include_examples: includeExamples,
+    key_files: keyFiles,
+    missing_task_families: missingTaskFamilies,
+    question_count: Object.values(byTaskFamily).reduce((sum, count) => sum + count, 0),
+    repo_count: repos.length,
+    repos,
+    task_families: REAL_TASK_FAMILIES,
+  };
+}
+
 function validateAnswerKey(key, label) {
   if (!key || typeof key !== "object" || Array.isArray(key)) {
     throw new Error(`real corpus answer key must be an object (${label})`);
@@ -724,6 +765,7 @@ module.exports = {
   loadCorpusManifest,
   materializeControlArm,
   materializeWithArm,
+  realCorpusKeyCoverage,
   snapshotRealRepoUntracked,
   validateAnswerKey,
   validateExpectationShape,
