@@ -59,7 +59,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:ts7": "npx --yes -p typescript@rc tsc --noEmit --project tsconfig.json",
     "unit": "node --test tests/unit/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=65 tests/unit/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=dist/**/*.js --test-coverage-include=benchmarks/**/*.js --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=65 tests/unit/*.test.js",
     "test": "npm run build && npm run typecheck && npm run unit && bash tests/smoke.sh",
     "prepack": "npm run build"
   },
