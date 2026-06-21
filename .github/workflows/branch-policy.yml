@@ -1,0 +1,47 @@
+name: Branch Policy
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  branch-policy:
+    name: Branch policy
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v4 pinned on 2026-06-21.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Resolve branch policy inputs
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            branch="$GITHUB_HEAD_REF"
+            allow_main=false
+          else
+            branch="$GITHUB_REF_NAME"
+            allow_main=true
+          fi
+          {
+            echo "branch<<EOF"
+            echo "$branch"
+            echo "EOF"
+            echo "allow_main=$allow_main"
+          } >> "$GITHUB_OUTPUT"
+      - name: Validate branch strategy
+        env:
+          BRANCH_NAME: ${{ steps.branch.outputs.branch }}
+          BRANCH_POLICY_ALLOW_MAIN: ${{ steps.branch.outputs.allow_main }}
+        run: node scripts/validate-branch-name.js
