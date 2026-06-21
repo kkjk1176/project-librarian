@@ -4,7 +4,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
 
-const { sampleCorpusDefinitions } = require("../../benchmarks/tools/code-performance-efficiency.js");
+const {
+  bestVariantDecision,
+  markdownReport,
+  normalizeRows,
+  sampleCorpusDefinitions,
+} = require("../../benchmarks/tools/code-performance-efficiency.js");
 
 function listFiles(root) {
   const entries = fs.readdirSync(root, { withFileTypes: true });
@@ -42,4 +47,115 @@ test("code performance harness includes diverse checked-in sample corpora", () =
     assert(sample.terms.edge, `${sample.name} should define a representative edge query`);
   }
   assert(totalFiles >= 40, "checked-in sample corpora should not shrink below mixed-corpus scale");
+});
+
+test("normalizes query rows with stable key order for parity hashing", () => {
+  assert.deepEqual(
+    normalizeRows([
+      { z: "last", a: 1 },
+      { b: null, a: "first" },
+    ]),
+    [
+      { a: 1, z: "last" },
+      { a: "first", b: null },
+    ],
+  );
+});
+
+test("variant decision requires parity before threshold adoption", () => {
+  const quickDiagnostic = bestVariantDecision([
+    { name: "current", search_parity: { status: "passed" }, size_delta_percent_vs_current: 0, query_group_deltas_vs_current: {} },
+    { name: "contentless-delete-rowid", search_parity: { status: "passed" }, size_delta_percent_vs_current: -40, query_group_deltas_vs_current: {} },
+  ], { runsPerCommand: 1 });
+  assert.match(quickDiagnostic, /quick FTS variant diagnostic/);
+
+  const failedParity = bestVariantDecision([
+    { name: "current", search_parity: { status: "passed" }, size_delta_percent_vs_current: 0, query_group_deltas_vs_current: {} },
+    { name: "contentless-delete-rowid", search_parity: { status: "failed" }, size_delta_percent_vs_current: -40, query_group_deltas_vs_current: {} },
+  ], { runsPerCommand: 3 });
+  assert.match(failedParity, /no candidate FTS variant preserved search parity/);
+
+  const storageWin = bestVariantDecision([
+    { name: "current", search_parity: { status: "passed" }, size_delta_percent_vs_current: 0, query_group_deltas_vs_current: {} },
+    {
+      name: "external-content-rowid",
+      search_parity: { status: "passed" },
+      size_delta_percent_vs_current: -35,
+      query_group_deltas_vs_current: { file_search_path: { p95_delta_percent: -5 } },
+    },
+  ], { runsPerCommand: 3 });
+  assert.match(storageWin, /crosses the DB-size adoption threshold/);
+
+  const partialLatencyWin = bestVariantDecision([
+    { name: "current", search_parity: { status: "passed" }, size_delta_percent_vs_current: 0, query_group_deltas_vs_current: {} },
+    {
+      name: "contentless-delete-rowid",
+      search_parity: { status: "passed" },
+      size_delta_percent_vs_current: -10,
+      query_group_deltas_vs_current: {
+        file_search_path: { p95_delta_percent: -30 },
+        symbol_search_single_token: { p95_delta_percent: -5 },
+        symbol_search_multi_token: { p95_delta_percent: -25 },
+      },
+    },
+  ], { runsPerCommand: 3 });
+  assert.match(partialLatencyWin, /do not cross storage or latency adoption thresholds/);
+
+  const fullLatencyWin = bestVariantDecision([
+    { name: "current", search_parity: { status: "passed" }, size_delta_percent_vs_current: 0, query_group_deltas_vs_current: {} },
+    {
+      name: "contentless-delete-rowid",
+      search_parity: { status: "passed" },
+      size_delta_percent_vs_current: 1,
+      query_group_deltas_vs_current: {
+        file_search_path: { p95_delta_percent: -30 },
+        symbol_search_single_token: { p95_delta_percent: -25 },
+        symbol_search_multi_token: { p95_delta_percent: -20 },
+      },
+    },
+  ], { runsPerCommand: 3 });
+  assert.match(fullLatencyWin, /crosses the p95 query-latency threshold/);
+});
+
+test("markdown report renders FTS variants and parity status", () => {
+  const report = markdownReport({
+    generated_at: "2026-06-21T00:00:00.000Z",
+    node: "v22.19.0",
+    decisions: { fts: "candidate FTS variants preserve parity", build: "build tracked" },
+    scales: [
+      {
+        file_count: 10000,
+        index_time_ms: 100,
+        current_db: { file_bytes: 1000 },
+        contentless_fts_db: { file_bytes: 750 },
+        contentless_fts_size_delta_percent: -25,
+        commands: { code_status: { median_ms: 10, p95_ms: 12, runs: 1 } },
+        query_plans: { file_prefix_like: ["SCAN files"], file_fts_match: ["SCAN files_fts"] },
+        query_groups: { file_search_path: { median_ms: 1, p95_ms: 2, rows: 1, runs: 1 } },
+        fts_variants: [
+          {
+            name: "current",
+            db: { file_bytes: 1000 },
+            size_delta_percent_vs_current: 0,
+            search_parity: { status: "passed" },
+            query_group_deltas_vs_current: {},
+            query_plans: { file_fts_match: ["SCAN files_fts"], symbol_fts_match: ["SCAN symbols_fts"] },
+          },
+          {
+            name: "contentless-delete-rowid",
+            db: { file_bytes: 750 },
+            size_delta_percent_vs_current: -25,
+            search_parity: { status: "passed" },
+            query_group_deltas_vs_current: { file_search_path: { p95_delta_percent: -10 } },
+            query_plans: { file_fts_match: ["SCAN files_fts"], symbol_fts_match: ["SCAN symbols_fts"] },
+          },
+        ],
+      },
+    ],
+    sample_corpora: [],
+  });
+
+  assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
+  assert.match(report, /Variant direct DB deltas vs current/);
+  assert.match(report, /file_search_path p95 -10\.0%/);
 });

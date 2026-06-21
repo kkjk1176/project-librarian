@@ -4,7 +4,9 @@ Project Librarian benchmark evidence is based on actual Codex JSONL usage and lo
 
 ## Code performance efficiency harness
 
-`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes a `sample_corpora` section for checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy`) so synthetic scale evidence and mixed sample evidence stay separate.
+`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes `fts_variants` for benchmark-only current/contentless-delete/external-content FTS comparisons, including DB size deltas, query-plan details, and normalized search parity hashes. The `sample_corpora` section covers checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy`) so synthetic scale evidence and mixed sample evidence stay separate.
+
+Use `--quick` only for harness diagnostics; quick reports are marked diagnostic-only for adoption decisions. Use `--report-dir <path>` for ad hoc reports that should not overwrite checked-in release evidence.
 
 ## Claim ledger
 
