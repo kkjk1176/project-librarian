@@ -452,7 +452,7 @@ test("read-only code evidence modes reject old schema indexes with a rebuild mes
     assert.equal(result.status, 1);
     assert.match(result.stderr, /schema version 3 is incompatible with \d+/);
     assert.match(result.stderr, /inspect: project-librarian --code-index-health/);
-    assert.match(result.stderr, /rebuild: project-librarian --code-index --code-index-full/);
+    assert.match(result.stderr, /rebuild: project-librarian --code-index --code-index-full --acknowledge-small-repo/);
     assert.match(result.stderr, /database: \.project-wiki\/code-evidence\.sqlite/);
     assert.doesNotMatch(result.stderr, /no such column|SQLITE_ERROR/i);
   } finally {
