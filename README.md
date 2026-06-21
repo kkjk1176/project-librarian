@@ -422,7 +422,7 @@ When editing TypeScript under `src/`, rebuild before committing so `dist/` stays
 
 Treat a green `release:check` as a reproducible release-readiness bundle, not a runtime guarantee: it proves those local gates on the current checkout, including that the package dry run stays inside the expected publish boundary (`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, and `SKILL.md`) and excludes source files, tests, repo-local wiki/workflow state, raw benchmark output, and local caches.
 
-Publishing is handled by `.github/workflows/publish.yml` after a GitHub Release is published. The workflow uses npm trusted publishing through GitHub OIDC (`id-token: write`) and `npm publish --access public`, which generates npm provenance automatically; it must not use `NODE_AUTH_TOKEN` or npm token secrets, and release-critical first-party GitHub Actions are pinned to full commit SHAs. `release:check` verifies this workflow contract locally.
+Publishing is handled by `.github/workflows/publish.yml` after a GitHub Release is published. The workflow targets the protected `npm-publish` GitHub Environment, uses npm trusted publishing through GitHub OIDC (`id-token: write`) and `npm publish --access public`, and generates npm provenance automatically; it must not use `NODE_AUTH_TOKEN` or npm token secrets, and release-critical first-party GitHub Actions are pinned to full commit SHAs. `release:check` verifies this workflow contract locally.
 
 Trusted publishing and npm provenance prove the package was published through that GitHub OIDC workflow. They do not prove benchmark correctness, code-evidence freshness in an end-user repository, or a security audit; those remain separate evidence tracks.
 

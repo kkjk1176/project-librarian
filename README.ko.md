@@ -422,7 +422,7 @@ npm pack --dry-run
 
 `release:check` 통과는 런타임 보증이 아니라 재현 가능한 릴리스 준비 근거로 봐야 합니다. 현재 checkout에서 위 로컬 게이트를 통과했음을 증명하며, package dry run이 예상 publish 경계(`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, `SKILL.md`) 안에 머물고 소스 파일, 테스트, 저장소 로컬 위키/워크플로 상태, raw 벤치마크 출력, 로컬 캐시를 제외하는지도 확인합니다.
 
-배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하므로 npm provenance가 자동 생성됩니다. `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 되며, 릴리스 핵심 GitHub 공식 Actions는 전체 commit SHA로 고정합니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
+배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 보호된 `npm-publish` GitHub Environment를 대상으로 하고, GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하므로 npm provenance가 자동 생성됩니다. `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 되며, 릴리스 핵심 GitHub 공식 Actions는 전체 commit SHA로 고정합니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
 
 trusted publishing과 npm provenance는 패키지가 이 GitHub OIDC 워크플로를 통해 게시되었음을 증명합니다. 벤치마크 정확성, 최종 사용자 저장소의 코드 근거 freshness, 보안 감사를 증명하지는 않으며, 그런 항목은 별도의 근거 트랙으로 다룹니다.
 

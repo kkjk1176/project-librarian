@@ -60,11 +60,12 @@ function printJson(value) {
 function requireCompatibleDatabase(database, runtime) {
     const schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
     if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
+        const health = runtime.codeIndexHealth();
         const databasePath = runtime.codeEvidenceDatabasePath();
         runtime.fail([
-            `code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${schema_1.codeIndexSchemaVersion}`,
+            health.message,
             `inspect: project-librarian --code-index-health`,
-            `rebuild: project-librarian --code-index --code-index-full`,
+            `rebuild: ${health.recommended_rebuild_command}`,
             `database: ${databasePath.relativePath}`,
         ].join("\n"));
     }

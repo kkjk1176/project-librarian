@@ -5,6 +5,7 @@ import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-po
 import { isReadOnlySql } from "../code-index-sql";
 import type { CodeContextPackOptions, CodeEvidenceRenderOptions, CodeIndexStaleness } from "../code-index";
 import type { CodeFile, CodeFileFingerprint } from "./extractors/types";
+import type { CodeIndexHealth } from "./index-health";
 import { invalidCodeReportSectionMessage } from "./reports";
 import { codeIndexSchemaVersion, createIndexStatements, incrementalCompatibility, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./schema";
 import { searchSymbols } from "./search";
@@ -18,7 +19,7 @@ export interface CodeIndexModeRuntime {
   codeContextPack(database: SqliteDatabase, query: string, options?: CodeContextPackOptions): string;
   codeEvidenceDatabasePath(): CodeEvidenceDatabasePath;
   codeImpact(database: SqliteDatabase, target: string, options?: CodeEvidenceRenderOptions): Record<string, unknown>;
-  codeIndexHealth(): unknown;
+  codeIndexHealth(): CodeIndexHealth;
   codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness;
   codeReportForRequestedSection(database: SqliteDatabase, requestedSection: string, options?: CodeEvidenceRenderOptions): Record<string, unknown> | undefined;
   codeScopes(): string[];
@@ -45,11 +46,12 @@ function printJson(value: unknown): void {
 function requireCompatibleDatabase(database: SqliteDatabase, runtime: CodeIndexModeRuntime): void {
   const schemaVersion = readMetaValue(database, "schema_version");
   if (schemaVersion !== codeIndexSchemaVersion) {
+    const health = runtime.codeIndexHealth();
     const databasePath = runtime.codeEvidenceDatabasePath();
     runtime.fail([
-      `code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${codeIndexSchemaVersion}`,
+      health.message,
       `inspect: project-librarian --code-index-health`,
-      `rebuild: project-librarian --code-index --code-index-full`,
+      `rebuild: ${health.recommended_rebuild_command}`,
       `database: ${databasePath.relativePath}`,
     ].join("\n"));
   }
