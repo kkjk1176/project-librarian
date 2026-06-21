@@ -304,6 +304,7 @@ grep -q "exists  wiki/inbox/project-candidates.md" capture-inbox-empty-rerun.log
 node "$CLI" --query Smoke > query-smoke.log
 grep -q "Project wiki query \"Smoke\": best match" query-smoke.log
 node "$CLI" --prune-check
+node "$CLI" --prune-check --prune-check-strict
 node "$CLI" --lint
 
 mkdir "$TMPDIR/scoped-index"

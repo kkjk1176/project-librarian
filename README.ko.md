@@ -208,6 +208,7 @@ npx project-librarian@latest install --scope project --agents all
 | 위키 그래프 시각화 생성 | "Project Librarian 위키 그래프 시각화를 생성해줘." | `--wiki-visualize` |
 | 후보 메모 저장 | "이 내용을 Project Librarian 후보 메모로 저장해줘: <내용>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | 오래되었거나 미해결인 위키 페이지 보고 | "Project Librarian에서 오래되었거나 미해결인 페이지를 확인해줘." | `--prune-check` |
+| 신호가 높은 오래되었거나 미해결인 위키 페이지만 보고 | "Project Librarian에서 엄격한 기준으로 오래되었거나 미해결인 페이지를 확인해줘." | `--prune-check --prune-check-strict` |
 | git 설정 변경 없이 훅 파일 설치 | "git 설정은 바꾸지 말고 Project Librarian 훅 파일만 설정해줘." | `--no-git-config` |
 
 코드 근거:
@@ -386,6 +387,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--issue-create --issue-title <title>` | 명시적 사용자 승인 후 `gh`로 GitHub 이슈를 생성합니다. |
 | `--glossary-init` | 선택적 용어집 페이지를 만들고 라우팅합니다. |
 | `--prune-check` | 오래되거나 미해결인 수명 주기 신호가 있는 active 페이지를 보고합니다. |
+| `--prune-check --prune-check-strict` | `updated` 날짜가 오늘보다 이전이라는 이유만으로 선택된 페이지는 제외합니다. |
 | `--review-migration`, `--semantic-migrate` | 마이그레이션 coverage와 수신함 상태를 마이그레이션 검토 파일에 동기화합니다. |
 | `--no-git-config` | `git core.hooksPath`를 바꾸지 않고 훅 파일을 설치합니다. |
 | `--code-index` | 폐기 가능한 코드 근거 인덱스를 빌드합니다. |

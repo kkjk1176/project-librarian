@@ -40,6 +40,7 @@ exports.projectCandidatesContent = projectCandidatesContent;
 exports.appendCaptureInbox = appendCaptureInbox;
 exports.runIssueDraftMode = runIssueDraftMode;
 exports.runIssueCreateMode = runIssueCreateMode;
+exports.buildPruneCandidate = buildPruneCandidate;
 exports.runPruneCheckMode = runPruneCheckMode;
 exports.collectLinkDiagnostics = collectLinkDiagnostics;
 exports.collectQualityDiagnostics = collectQualityDiagnostics;
@@ -69,6 +70,7 @@ const wiki_diagnostics_1 = require("./wiki-diagnostics");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
+const pruneCheckAgeReasonPrefix = "updated before today:";
 function isScopedAutoIndex(file) {
     return /^wiki\/indexes\/auto-[a-z0-9-]+\.md$/.test(file);
 }
@@ -547,27 +549,32 @@ function runIssueCreateMode() {
             fs.rmSync(body.cleanupDir, { recursive: true, force: true });
     }
 }
-function runPruneCheckMode() {
+function buildPruneCandidate(file, text, options = {}) {
+    const status = (0, workspace_1.metadataValue)(text, "status");
+    const updated = (0, workspace_1.metadataValue)(text, "updated");
+    const trigger = (0, workspace_1.metadataValue)(text, "review_trigger");
+    const scope = (0, workspace_1.metadataValue)(text, "scope");
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const reasons = [];
+    const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
+    if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body))
+        reasons.push("contains pending/proposed/undecided signal");
+    if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger))
+        reasons.push(`review trigger: ${trigger}`);
+    if (updated && updated < (options.today ?? workspace_1.today) && status === "active")
+        reasons.push(`${pruneCheckAgeReasonPrefix} ${updated}`);
+    if (options.strict && !reasons.some((reason) => !reason.startsWith(pruneCheckAgeReasonPrefix)))
+        return null;
+    return reasons.length > 0 ? { file, status, updated, reasons } : null;
+}
+function runPruneCheckMode(options = {}) {
     const candidates = [];
     for (const file of (0, wiki_files_1.wikiMarkdownFiles)()) {
-        const text = (0, workspace_1.read)(file);
-        const status = (0, workspace_1.metadataValue)(text, "status");
-        const updated = (0, workspace_1.metadataValue)(text, "updated");
-        const trigger = (0, workspace_1.metadataValue)(text, "review_trigger");
-        const scope = (0, workspace_1.metadataValue)(text, "scope");
-        const body = (0, workspace_1.stripMetadataHeader)(text);
-        const reasons = [];
-        const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
-        if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body))
-            reasons.push("contains pending/proposed/undecided signal");
-        if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger))
-            reasons.push(`review trigger: ${trigger}`);
-        if (updated && updated < workspace_1.today && status === "active")
-            reasons.push(`updated before today: ${updated}`);
-        if (reasons.length > 0)
-            candidates.push({ file, status, updated, reasons });
+        const candidate = buildPruneCandidate(file, (0, workspace_1.read)(file), options);
+        if (candidate)
+            candidates.push(candidate);
     }
-    console.log("Project wiki prune-check");
+    console.log(options.strict ? "Project wiki prune-check (strict)" : "Project wiki prune-check");
     if (candidates.length === 0)
         console.log("no candidates");
     for (const item of candidates) {

@@ -208,6 +208,7 @@ Wiki setup and maintenance:
 | Generate a wiki graph visualizer | "Generate the Project Librarian wiki graph visualizer." | `--wiki-visualize` |
 | Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | Report stale or unresolved wiki pages | "Check Project Librarian for stale or unresolved pages." | `--prune-check` |
+| Report only higher-signal stale or unresolved wiki pages | "Check Project Librarian for strict stale or unresolved pages." | `--prune-check --prune-check-strict` |
 | Install hook files without changing git config | "Set up Project Librarian hook files without changing git config." | `--no-git-config` |
 
 Code evidence:
@@ -386,6 +387,7 @@ Important options:
 | `--issue-create --issue-title <title>` | Create a GitHub issue through `gh` after explicit user approval. |
 | `--glossary-init` | Create and route the optional glossary page. |
 | `--prune-check` | Report active pages with stale or unresolved lifecycle signals. |
+| `--prune-check --prune-check-strict` | Omit pages selected only because their `updated` date is older than today. |
 | `--review-migration`, `--semantic-migrate` | Sync migration coverage and inbox statuses into migration review files. |
 | `--no-git-config` | Install hook files without changing `git core.hooksPath`. |
 | `--code-index` | Build the disposable code evidence index. |
