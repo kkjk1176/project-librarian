@@ -16,7 +16,7 @@ Most users should ask their coding agent to run Project Librarian rather than ru
 Install the reusable skill files once, or ask an agent with shell access to do it:
 
 ```bash
-npx project-librarian install-skill --scope user --agents all
+npx project-librarian@latest install --scope user --agents all
 ```
 
 Then ask Codex, Claude Code, Cursor, or Gemini CLI from the target repository:
@@ -28,10 +28,33 @@ Then ask Codex, Claude Code, Cursor, or Gemini CLI from the target repository:
 The installed skill tells the agent to resolve the local runner and execute the right command from the project root. Prefer a project-local install only when you want that runner stored inside the target repository's agent setup:
 
 ```bash
-npx project-librarian install-skill --scope project --agents all
+npx project-librarian@latest install --scope project --agents all
 ```
 
-`install-skill` only copies the reusable runner and skill files. The agent-run lifecycle command is what creates or updates `AGENTS.md`, agent hooks, `wiki/`, git hook files, diagnostics, and optional code-evidence support.
+`install` copies the reusable runner and skill files. The agent-run lifecycle command is what creates or updates `AGENTS.md`, agent hooks, `wiki/`, git hook files, diagnostics, and optional code-evidence support. `install-skill` remains supported as a compatibility alias.
+
+## Update
+
+To refresh an existing Project Librarian setup without migrating the wiki, run the latest package from the repository root:
+
+```bash
+npx project-librarian@latest update
+```
+
+That updates managed setup files, agent hooks, wiki operating/meta files, and existing project-scoped Project Librarian skill copies for the selected agent surfaces. It preserves the current `wiki/` and rejects migration flags, so it will not rename the wiki to `wiki_legacy*`.
+
+Use `--agents` when you intentionally want to add or refresh a specific project surface:
+
+```bash
+npx project-librarian@latest update --agents cursor
+npx project-librarian@latest update --agents all
+```
+
+User-scoped skill installs are global agent tooling and are not changed by a project update. Refresh them explicitly:
+
+```bash
+npx project-librarian@latest install --scope user --agents all
+```
 
 ## Highlights
 
@@ -119,33 +142,35 @@ Question types (task families):
 
 ## Install Details
 
-Use this section when you need to choose an install scope or target agent. Use `npx` only for initial skill installation:
+Use this section when you need to choose an install scope or target agent. Use `npx` for initial skill installation or for an explicit registry-version project update:
 
 ```bash
-npx project-librarian install-skill --scope user --agents all
+npx project-librarian@latest install --scope user --agents all
 ```
 
 Install into the current repository instead:
 
 ```bash
-npx project-librarian install-skill --scope project --agents all
+npx project-librarian@latest install --scope project --agents all
 ```
 
-`install-skill` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`.
+`install` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`. `install-skill` remains supported as a compatibility alias.
 
 | Situation | Command |
 | --- | --- |
-| Install globally for all supported agents | `npx project-librarian install-skill --scope user --agents all` |
-| Install in the current repository | `npx project-librarian install-skill --scope project --agents all` |
-| Install only Codex | `npx project-librarian install-skill --agents codex` |
-| Install only Claude Code | `npx project-librarian install-skill --agents claude` |
-| Install only Cursor | `npx project-librarian install-skill --agents cursor` |
-| Install only Gemini CLI | `npx project-librarian install-skill --agents gemini` |
-| Preview install output | `npx project-librarian install-skill --scope project --agents all --dry-run` |
+| Install globally for all supported agents | `npx project-librarian@latest install --scope user --agents all` |
+| Install in the current repository | `npx project-librarian@latest install --scope project --agents all` |
+| Install only Codex | `npx project-librarian@latest install --agents codex` |
+| Install only Claude Code | `npx project-librarian@latest install --agents claude` |
+| Install only Cursor | `npx project-librarian@latest install --agents cursor` |
+| Install only Gemini CLI | `npx project-librarian@latest install --agents gemini` |
+| Preview install output | `npx project-librarian@latest install --scope project --agents all --dry-run` |
 
 `--agents` also accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent. `--scope` accepts `user` or `project`.
 
 The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces only when no project-scoped Project Librarian skill install is present. If the repository already has project-scoped skills such as `.codex/skills/project-librarian/` and `.claude/skills/project-librarian/`, the first setup uses that installed agent set by default. Existing non-migration updates preserve the agent surfaces already present in the repository, so a repo that has only Codex and Claude files will not gain Cursor or Gemini files on a plain update. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
+
+`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
 
 ## Runner Paths
 
@@ -172,6 +197,7 @@ Wiki setup and maintenance:
 | --- | --- | --- |
 | Create or update the wiki | "Use Project Librarian to set up or update this repository's planning wiki." | `[init]` |
 | Update existing setup without migration | "Update this repository's Project Librarian setup without migrating the wiki." | `update` |
+| Update from the npm latest package without migration | "Run the latest Project Librarian update for this repository without migrating the wiki." | `npx project-librarian@latest update` |
 | Add a specific agent surface to an existing setup | "Add the Cursor Project Librarian surface without migrating the wiki." | `update --agents cursor` |
 | Migrate existing docs/wiki content | "Use Project Librarian to migrate the existing docs/wiki content." | `--migrate` |
 | Validate generated setup | "Run Project Librarian validation." | `--lint` |
@@ -330,10 +356,12 @@ Use the resolved local runner for automation or direct CLI execution:
 
 ```bash
 node .codex/skills/project-librarian/dist/init-project-wiki.js [init|update] [options]
-node .codex/skills/project-librarian/dist/init-project-wiki.js install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope user|project] [--agents codex|claude|cursor|gemini|all]
 ```
 
-`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed.
+`install-skill` remains a compatibility alias for `install`.
+
+`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files into those project skill directories before refreshing the managed setup.
 
 Important options:
 

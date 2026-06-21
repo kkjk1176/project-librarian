@@ -881,7 +881,7 @@ test("the registered command uses the local runner when the repo contains one", 
   const cwd = makeTmpDir("mcp-runner-");
   try {
     stubCodeEvidenceIndex(cwd);
-    runCli(cwd, ["install-skill", "--scope", "project", "--agents", "claude"]);
+    runCli(cwd, ["install", "--scope", "project", "--agents", "claude"]);
     runCli(cwd, ["--no-git-config"]);
     const config = JSON.parse(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"));
     const entry = config.mcpServers["project-librarian"];

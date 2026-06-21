@@ -7,7 +7,7 @@ exports.argValue = argValue;
 exports.argValues = argValues;
 const agent_surfaces_1 = require("./agent-surfaces");
 exports.rawArgs = process.argv.slice(2);
-const knownCommands = new Set(["init", "update", "install-skill", "mcp"]);
+const knownCommands = new Set(["init", "update", "install", "install-skill", "mcp"]);
 const flagDefinitions = [
     { name: "--acknowledge-small-repo", value: "none" },
     { name: "--adopt-existing", value: "none" },

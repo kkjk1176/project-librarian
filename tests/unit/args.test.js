@@ -17,6 +17,14 @@ test("parseArgs separates install-skill command options", () => {
   assert.equal(parsed.missingValueOptions.length, 0);
 });
 
+test("parseArgs treats install as the user-facing install command", () => {
+  const parsed = parseArgs(["install", "--scope", "project", "--agents=codex"]);
+  assert.equal(parsed.command, "install");
+  assert.deepEqual(parsed.commandArgs, ["--scope", "project", "--agents=codex"]);
+  assert.equal(parsed.unknownCommand, "");
+  assert.equal(parsed.missingValueOptions.length, 0);
+});
+
 test("parseArgs treats update as an explicit init/update command", () => {
   const parsed = parseArgs(["update", "--no-git-config"]);
   assert.equal(parsed.command, "update");

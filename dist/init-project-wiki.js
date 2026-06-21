@@ -16,7 +16,7 @@ function codeIndex() {
 function printUsage() {
     console.log(`Usage:
   project-librarian [init|update] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+  project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all]
   project-librarian mcp
 
 Options:
@@ -59,7 +59,9 @@ Options:
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
-  update                           Run the idempotent wiki/setup update path; rejects migration flags.
+  install                          Install the reusable Project Librarian skill files for selected agents.
+  install-skill                    Compatibility alias for install.
+  update                           Run the idempotent wiki/setup update path, sync existing project-scoped skill installs, and reject migration flags.
   mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
@@ -154,7 +156,7 @@ if (args_1.codeIndexIncrementalMode && args_1.codeIndexFullMode) {
     console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
     process.exit(1);
 }
-if (args_1.command === "install-skill") {
+if (args_1.command === "install" || args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);
 }
@@ -259,6 +261,9 @@ function runInitCommand() {
         : args_1.migrateMode
             ? Array.from(agent_surfaces_1.allAgentSurfaces)
             : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    const projectSkillSyncSurfaces = args_1.command === "update"
+        ? (0, install_skill_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
+        : [];
     const shouldWriteSurface = (surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface);
     const writeCodexSurface = shouldWriteSurface("codex");
     const writeClaudeSurface = shouldWriteSurface("claude");
@@ -284,6 +289,10 @@ function runInitCommand() {
     if (writeGeminiSurface)
         (0, workspace_1.mkdirp)(".gemini/hooks");
     (0, workspace_1.mkdirp)(".githooks");
+    for (const surface of projectSkillSyncSurfaces) {
+        for (const result of (0, install_skill_1.syncProjectSkillInstall)(surface))
+            results.push(result);
+    }
     // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
     // so non-interactive `codex exec` (which does not run SessionStart hooks) still
     // gets compact startup context. Routers are starter files written later in this

@@ -3,7 +3,7 @@
 import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
 import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
-import { runInstallSkillMode } from "./install-skill";
+import { installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
 import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
@@ -26,7 +26,7 @@ function codeIndex(): CodeIndexModule {
 function printUsage(): void {
   console.log(`Usage:
   project-librarian [init|update] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+  project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all]
   project-librarian mcp
 
 Options:
@@ -69,7 +69,9 @@ Options:
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
-  update                           Run the idempotent wiki/setup update path; rejects migration flags.
+  install                          Install the reusable Project Librarian skill files for selected agents.
+  install-skill                    Compatibility alias for install.
+  update                           Run the idempotent wiki/setup update path, sync existing project-scoped skill installs, and reject migration flags.
   mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
@@ -183,7 +185,7 @@ if (codeIndexIncrementalMode && codeIndexFullMode) {
   process.exit(1);
 }
 
-if (command === "install-skill") {
+if (command === "install" || command === "install-skill") {
   runInstallSkillMode();
   process.exit(0);
 }
@@ -288,6 +290,9 @@ const selectedAgentSurfaces = agentTargets.length > 0
   : migrateMode
     ? Array.from(allAgentSurfaces)
     : resolveBootstrapAgentSurfaces(agentTargets, exists, read);
+const projectSkillSyncSurfaces = command === "update"
+  ? installedProjectSkillSurfaces().filter((surface) => includesAgentSurface(selectedAgentSurfaces, surface))
+  : [];
 const shouldWriteSurface = (surface: "codex" | "claude" | "cursor" | "gemini"): boolean => includesAgentSurface(selectedAgentSurfaces, surface);
 const writeCodexSurface = shouldWriteSurface("codex");
 const writeClaudeSurface = shouldWriteSurface("claude");
@@ -311,6 +316,9 @@ if (writeCursorSurface) {
 }
 if (writeGeminiSurface) mkdirp(".gemini/hooks");
 mkdirp(".githooks");
+for (const surface of projectSkillSyncSurfaces) {
+  for (const result of syncProjectSkillInstall(surface)) results.push(result);
+}
 
 // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
 // so non-interactive `codex exec` (which does not run SessionStart hooks) still

@@ -23,6 +23,7 @@ cd "$TMPDIR/help-and-errors"
 node "$CLI" --help > help.log
 grep -q "Usage:" help.log
 grep -Fq "project-librarian [init|update] [options]" help.log
+grep -Fq "project-librarian install [--scope user|project]" help.log
 test ! -e AGENTS.md
 if node "$CLI" unknown-command > unknown-command.log 2>&1; then
   echo "expected unknown command to fail" >&2
@@ -1503,8 +1504,9 @@ grep -q "Use one code evidence mode" bad-code-mode.log
 
 mkdir "$TMPDIR/skill-install"
 cd "$TMPDIR/skill-install"
-HOME="$TMPDIR/home" node "$CLI" install-skill --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
-grep -q "install-skill only installs the reusable skill files" user-skill-install.log
+HOME="$TMPDIR/home" node "$CLI" install --scope user --agents codex,claude,cursor,gemini > user-skill-install.log
+grep -q "install only installs the reusable skill files" user-skill-install.log
+grep -q "install-skill remains supported as an alias" user-skill-install.log
 grep -q "ask your agent to use Project Librarian" user-skill-install.log
 test -f "$TMPDIR/home/.codex/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.codex/skills/project-librarian/dist/init-project-wiki.js"
@@ -1515,8 +1517,8 @@ test -x "$TMPDIR/home/.cursor/skills/project-librarian/dist/init-project-wiki.js
 test -f "$TMPDIR/home/.gemini/skills/project-librarian/SKILL.md"
 test -x "$TMPDIR/home/.gemini/skills/project-librarian/dist/init-project-wiki.js"
 
-node "$CLI" install-skill --scope project --agents all > project-skill-install.log
-grep -q "install-skill only installs the reusable skill files" project-skill-install.log
+node "$CLI" install --scope project --agents all > project-skill-install.log
+grep -q "install only installs the reusable skill files" project-skill-install.log
 grep -q "ask your agent to use Project Librarian" project-skill-install.log
 test -f .codex/skills/project-librarian/SKILL.md
 test -x .codex/skills/project-librarian/dist/init-project-wiki.js
@@ -1526,12 +1528,14 @@ test -f .cursor/skills/project-librarian/SKILL.md
 test -x .cursor/skills/project-librarian/dist/init-project-wiki.js
 test -f .gemini/skills/project-librarian/SKILL.md
 test -x .gemini/skills/project-librarian/dist/init-project-wiki.js
-if node "$CLI" install-skill --scope project --agents both --dry-run > removed-both-skill-install.log 2>&1; then
+if node "$CLI" install --scope project --agents both --dry-run > removed-both-skill-install.log 2>&1; then
   echo "expected removed --agents both alias to fail" >&2
   exit 1
 fi
 grep -q "invalid --agents entry: both" removed-both-skill-install.log
 grep -q "expected codex, claude, cursor, gemini, or all" removed-both-skill-install.log
+node "$CLI" install-skill --scope project --agents codex --dry-run > legacy-install-skill.log
+grep -q "install-skill remains supported as an alias" legacy-install-skill.log
 
 mkdir "$TMPDIR/benchmark"
 cd "$TMPDIR/benchmark"

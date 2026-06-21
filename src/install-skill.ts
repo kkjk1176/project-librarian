@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { AgentSurface } from "./agent-surfaces";
 import { allAgentSurfaces } from "./agent-surfaces";
 import { args, argValue } from "./args";
+import type { ResultRow } from "./types";
 
 type InstallScope = "user" | "project";
 type InstallStatus = "created" | "updated" | "exists" | "dry-run";
@@ -66,6 +67,14 @@ function projectAgentRoot(agent: AgentSurface): string {
   return ".gemini";
 }
 
+function projectSkillRelativeRoot(agent: AgentSurface): string {
+  return path.join(projectAgentRoot(agent), "skills", skillName);
+}
+
+export function projectSkillTarget(agent: AgentSurface): string {
+  return path.join(process.cwd(), projectSkillRelativeRoot(agent));
+}
+
 function installTarget(agent: AgentSurface, scope: InstallScope): string {
   const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
   return path.join(base, "skills", skillName);
@@ -95,26 +104,42 @@ function copyPath(source: string, target: string, dryRun: boolean): InstallStatu
   return existed ? "updated" : "created";
 }
 
+export function installedProjectSkillSurfaces(): AgentSurface[] {
+  return allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
+}
+
+function copyPackageFiles(targetRoot: string, dryRun: boolean, labelRoot = targetRoot): InstallRow[] {
+  const root = packageRoot();
+  return packageFiles.map((relativePath) => {
+    const source = path.join(root, relativePath);
+    const target = path.join(targetRoot, relativePath);
+    return [path.join(labelRoot, relativePath), copyPath(source, target, dryRun)];
+  });
+}
+
+export function syncProjectSkillInstall(agent: AgentSurface): ResultRow[] {
+  return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
+    if (status === "dry-run") throw new Error("project skill sync does not support dry-run status");
+    return [label, status];
+  });
+}
+
 export function runInstallSkillMode(): void {
   const scope = installScope();
   const agents = installAgents();
   const dryRun = args.has("--dry-run");
-  const root = packageRoot();
   const rows: InstallRow[] = [];
 
   for (const agent of agents) {
     const targetRoot = installTarget(agent, scope);
-    for (const relativePath of packageFiles) {
-      const source = path.join(root, relativePath);
-      const target = path.join(targetRoot, relativePath);
-      rows.push([`${agent}:${scope}:${path.join(targetRoot, relativePath)}`, copyPath(source, target, dryRun)]);
-    }
+    rows.push(...copyPackageFiles(targetRoot, dryRun).map(([label, status]) => [`${agent}:${scope}:${label}`, status] as InstallRow));
   }
 
   console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
   console.log(`scope: ${scope}`);
   console.log(`agents: ${agents.join(", ")}`);
-  console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
+  console.log("note: install only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
+  console.log("compatibility: install-skill remains supported as an alias for install.");
   console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
   for (const [label, status] of rows) {
     console.log(`${status.padEnd(7)} ${label}`);

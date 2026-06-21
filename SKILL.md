@@ -60,6 +60,7 @@ Use the command variants as follows:
 - Explicit existing-project update without migration: `$PROJECT_LIBRARIAN update` (rejects `--migrate` and `--adopt-existing`).
 - Existing wiki/docs need migration: `$PROJECT_LIBRARIAN --migrate`.
 - Install hook files without changing git config: `$PROJECT_LIBRARIAN --no-git-config`.
+- Install reusable Project Librarian skill files: `$PROJECT_LIBRARIAN install --scope user|project --agents codex|claude|cursor|gemini|all`. `install-skill` remains a compatibility alias, but prefer `install` in new guidance.
 
 When project terminology becomes important, initialize the optional glossary:
 

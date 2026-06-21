@@ -46,6 +46,10 @@ function exists(root, relativePath) {
   return fs.existsSync(path.join(root, relativePath));
 }
 
+function read(root, relativePath) {
+  return fs.readFileSync(path.join(root, relativePath), "utf8");
+}
+
 function assertCodexClaudeOnly(root) {
   assert.equal(exists(root, "AGENTS.md"), true);
   assert.equal(exists(root, ".codex/hooks.json"), true);
@@ -86,8 +90,8 @@ test("fresh bootstrap with --agents codex,claude creates only Codex and Claude s
 test("project-scoped skill installs constrain the first bootstrap surface default", () => {
   const root = makeTmpDir("surface-skill-default-");
   try {
-    runCommand(root, ["install-skill", "--scope", "project", "--agents", "codex"]);
-    runCommand(root, ["install-skill", "--scope", "project", "--agents", "claude"]);
+    runCommand(root, ["install", "--scope", "project", "--agents", "codex"]);
+    runCommand(root, ["install", "--scope", "project", "--agents", "claude"]);
     assert.equal(exists(root, ".codex/skills/project-librarian/SKILL.md"), true);
     assert.equal(exists(root, ".claude/skills/project-librarian/SKILL.md"), true);
 
@@ -101,14 +105,31 @@ test("project-scoped skill installs constrain the first bootstrap surface defaul
   }
 });
 
+test("explicit update syncs existing project-scoped skill installs from the running package", () => {
+  const root = makeTmpDir("surface-skill-sync-");
+  try {
+    runCommand(root, ["install", "--scope", "project", "--agents", "codex"]);
+    fs.writeFileSync(path.join(root, ".codex", "skills", "project-librarian", "SKILL.md"), "stale skill copy\n");
+
+    const output = runCommand(root, ["update", "--no-git-config"]);
+
+    assert.equal(read(root, ".codex/skills/project-librarian/SKILL.md"), fs.readFileSync(path.resolve(__dirname, "..", "..", "SKILL.md"), "utf8"));
+    assert.match(output, /\.codex\/skills\/project-librarian\/SKILL\.md/);
+    assert.equal(exists(root, ".claude/skills/project-librarian/SKILL.md"), false, "update should not create new project-scoped skill installs by default");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plain re-run preserves existing Codex and Claude surface set", () => {
   const root = makeTmpDir("surface-rerun-");
   try {
     runCli(root, ["--agents", "codex,claude"]);
     runCli(root);
     assertCodexClaudeOnly(root);
-    runCli(root, ["update"]);
+    runCommand(root, ["update", "--no-git-config"]);
     assertCodexClaudeOnly(root);
+    assert.equal(exists(root, ".codex/skills/project-librarian/SKILL.md"), false, "update should not create project-scoped skills when none were installed");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -118,7 +139,7 @@ test("explicit opt-in adds Cursor without implying Gemini or deleting existing s
   const root = makeTmpDir("surface-opt-in-");
   try {
     runCli(root, ["--agents", "codex,claude"]);
-    runCli(root, ["update", "--agents", "cursor"]);
+    runCommand(root, ["update", "--no-git-config", "--agents", "cursor"]);
     assert.equal(exists(root, ".codex/hooks.json"), true);
     assert.equal(exists(root, "CLAUDE.md"), true);
     assert.equal(exists(root, ".cursor/hooks.json"), true);
