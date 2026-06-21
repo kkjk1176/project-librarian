@@ -128,3 +128,9 @@ test("parseArgs handles migration diagnostic modes", () => {
   assert.equal(parsed.migrationQualityCheckMode, true);
   assert.equal(parsed.migrationDoctorMode, true);
 });
+
+test("parseArgs handles strict prune-check mode", () => {
+  const parsed = parseArgs(["--prune-check", "--prune-check-strict"]);
+  assert.equal(parsed.pruneCheckMode, true);
+  assert.equal(parsed.pruneCheckStrictMode, true);
+});

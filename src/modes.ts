@@ -17,6 +17,12 @@ import { staleReviewAge } from "./wiki-diagnostics";
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
+const pruneCheckAgeReasonPrefix = "updated before today:";
+
+interface PruneCheckOptions {
+  strict?: boolean;
+  today?: string;
+}
 
 function isScopedAutoIndex(file: string): boolean {
   return /^wiki\/indexes\/auto-[a-z0-9-]+\.md$/.test(file);
@@ -492,23 +498,28 @@ export function runIssueCreateMode(): void {
   }
 }
 
-export function runPruneCheckMode(): void {
+export function buildPruneCandidate(file: string, text: string, options: PruneCheckOptions = {}): PruneCandidate | null {
+  const status = metadataValue(text, "status");
+  const updated = metadataValue(text, "updated");
+  const trigger = metadataValue(text, "review_trigger");
+  const scope = metadataValue(text, "scope");
+  const body = stripMetadataHeader(text);
+  const reasons = [];
+  const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
+  if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body)) reasons.push("contains pending/proposed/undecided signal");
+  if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger)) reasons.push(`review trigger: ${trigger}`);
+  if (updated && updated < (options.today ?? today) && status === "active") reasons.push(`${pruneCheckAgeReasonPrefix} ${updated}`);
+  if (options.strict && !reasons.some((reason) => !reason.startsWith(pruneCheckAgeReasonPrefix))) return null;
+  return reasons.length > 0 ? { file, status, updated, reasons } : null;
+}
+
+export function runPruneCheckMode(options: PruneCheckOptions = {}): void {
   const candidates: PruneCandidate[] = [];
   for (const file of wikiMarkdownFiles()) {
-    const text = read(file);
-    const status = metadataValue(text, "status");
-    const updated = metadataValue(text, "updated");
-    const trigger = metadataValue(text, "review_trigger");
-    const scope = metadataValue(text, "scope");
-    const body = stripMetadataHeader(text);
-    const reasons = [];
-    const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
-    if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body)) reasons.push("contains pending/proposed/undecided signal");
-    if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger)) reasons.push(`review trigger: ${trigger}`);
-    if (updated && updated < today && status === "active") reasons.push(`updated before today: ${updated}`);
-    if (reasons.length > 0) candidates.push({ file, status, updated, reasons });
+    const candidate = buildPruneCandidate(file, read(file), options);
+    if (candidate) candidates.push(candidate);
   }
-  console.log("Project wiki prune-check");
+  console.log(options.strict ? "Project wiki prune-check (strict)" : "Project wiki prune-check");
   if (candidates.length === 0) console.log("no candidates");
   for (const item of candidates) {
     console.log(`${item.file}  status=${item.status || "-"}  updated=${item.updated || "-"}`);

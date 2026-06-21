@@ -42,6 +42,7 @@ Options:
   --glossary-init                  Create and route the optional glossary page.
   --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing project skill/setup surfaces are preserved by default.
   --prune-check                    Report active pages with stale or unresolved signals.
+  --prune-check-strict             With --prune-check, omit age-only candidates and show only higher-signal lifecycle items.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
@@ -136,6 +137,10 @@ if (args_1.wikiVisualizeOutput && !args_1.wikiVisualizeMode) {
     console.error("--wiki-visualize-out is only supported with --wiki-visualize.");
     process.exit(1);
 }
+if (args_1.pruneCheckStrictMode && !args_1.pruneCheckMode) {
+    console.error("--prune-check-strict is only supported with --prune-check.");
+    process.exit(1);
+}
 if (args_1.codeIndexIncrementalMode && !args_1.codeIndexMode) {
     console.error("--incremental is only supported with --code-index.");
     process.exit(1);
@@ -217,7 +222,7 @@ function runInitCommand() {
         return;
     }
     if (args_1.pruneCheckMode) {
-        (0, modes_1.runPruneCheckMode)();
+        (0, modes_1.runPruneCheckMode)({ strict: args_1.pruneCheckStrictMode });
         process.exit(0);
     }
     if (args_1.reviewMigrationMode) {

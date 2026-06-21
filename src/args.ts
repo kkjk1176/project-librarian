@@ -49,6 +49,7 @@ export interface ParsedArgs {
   missingValueOptions: string[];
   noGitConfigMode: boolean;
   pruneCheckMode: boolean;
+  pruneCheckStrictMode: boolean;
   qualityCheckMode: boolean;
   queryTerm: string;
   rawArgs: string[];
@@ -112,6 +113,7 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--migration-quality-check", value: "none" },
   { name: "--no-git-config", value: "none" },
   { name: "--prune-check", value: "none" },
+  { name: "--prune-check-strict", value: "none" },
   { name: "--quality-check", value: "none" },
   { name: "--query", value: "value" },
   { name: "--refresh-index", value: "none" },
@@ -257,6 +259,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     missingValueOptions: Array.from(flagsWithValues).filter((flag) => hasFlag(flag) && !flagHasValue(commandArgs, flag)),
     noGitConfigMode: args.has("--no-git-config"),
     pruneCheckMode: args.has("--prune-check"),
+    pruneCheckStrictMode: args.has("--prune-check-strict"),
     qualityCheckMode: args.has("--quality-check"),
     queryTerm: argValue("--query"),
     rawArgs: argv,
@@ -304,6 +307,7 @@ export const issueDraftMode = parsedArgs.issueDraftMode;
 export const refreshIndexMode = parsedArgs.refreshIndexMode;
 export const captureInboxMode = parsedArgs.captureInboxMode;
 export const pruneCheckMode = parsedArgs.pruneCheckMode;
+export const pruneCheckStrictMode = parsedArgs.pruneCheckStrictMode;
 export const reviewMigrationMode = parsedArgs.reviewMigrationMode;
 export const noGitConfigMode = parsedArgs.noGitConfigMode;
 export const acknowledgeSmallRepoMode = parsedArgs.acknowledgeSmallRepoMode;
