@@ -221,7 +221,7 @@ function releaseProvenanceStatus() {
     status: "automatic",
     current_control: "npm trusted publishing through GitHub OIDC",
     reason: "npm provenance attestations are generated automatically for packages published through trusted publishing",
-    verification: "release:check validates OIDC permissions, token-free npm publish, a public repository field, and pinned first-party publish actions",
+    verification: "release:check validates OIDC permissions, token-free npm publish, a public repository field, the protected publish environment, and pinned first-party publish actions",
   };
 }
 
@@ -262,6 +262,7 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     { label: "id-token: write", pattern: /\bid-token:\s*write\b/ },
     { label: "contents: read", pattern: /\bcontents:\s*read\b/ },
     { label: "GitHub-hosted runner", pattern: /\bruns-on:\s*ubuntu-latest\b/ },
+    { label: "protected publish environment", pattern: /\benvironment:\s*npm-publish\b/ },
     { label: "npm registry setup-node URL", pattern: /\bregistry-url:\s*['"]?https:\/\/registry\.npmjs\.org['"]?/ },
     { label: "release readiness gate", pattern: /\bnpm\s+run\s+release:check\b/ },
     { label: "npm publish command", pattern: /\bnpm\s+publish\b/ },
@@ -282,8 +283,8 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     action_pinning: actionPinning,
     unpinned_actions: actionPinning.unpinned_actions,
     message: ok
-      ? "publish workflow uses GitHub OIDC trusted publishing without npm token secrets and with full-SHA pinned first-party actions"
-      : "publish workflow is missing trusted publishing requirements, still references token secrets, or has unpinned first-party actions",
+      ? "publish workflow uses GitHub OIDC trusted publishing through the protected publish environment, without npm token secrets, and with full-SHA pinned first-party actions"
+      : "publish workflow is missing trusted publishing requirements, protected publish environment, still references token secrets, or has unpinned first-party actions",
   };
 }
 

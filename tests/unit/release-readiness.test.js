@@ -87,6 +87,7 @@ test("release readiness rejects token-based npm publish workflows", () => {
     "jobs:",
     "  publish:",
     "    runs-on: ubuntu-latest",
+    "    environment: npm-publish",
     "    steps:",
     "      - uses: actions/setup-node@v6",
     "        with:",
@@ -102,6 +103,31 @@ test("release readiness rejects token-based npm publish workflows", () => {
   assert.equal(status.ok, false);
   assert.deepEqual(status.missing, []);
   assert.deepEqual(status.forbidden, ["NODE_AUTH_TOKEN", "NPM_TOKEN", "npm token secret"]);
+});
+
+test("release readiness requires the protected publish environment", () => {
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-workflow-env-")), "publish.yml");
+  fs.writeFileSync(fixture, [
+    "name: Publish Package",
+    "permissions:",
+    "  contents: read",
+    "  id-token: write",
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+    "        with:",
+    "          registry-url: https://registry.npmjs.org",
+    "          package-manager-cache: false",
+    "      - run: npm run release:check",
+    "      - run: npm publish --access public",
+    "",
+  ].join("\n"));
+  const status = trustedPublishingWorkflowStatus(fixture);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.missing, ["protected publish environment"]);
+  assert.deepEqual(status.forbidden, []);
 });
 
 test("release readiness rejects movable first-party GitHub action refs", () => {
