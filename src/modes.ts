@@ -291,19 +291,26 @@ export function projectCandidatesContent(): string {
 `;
 }
 
-export function appendCaptureInbox(): FileStatus {
+export function appendProjectCandidate(input: { category?: string; content?: string; title?: string } = {}): FileStatus {
   mkdirp("wiki/inbox");
   const relativePath = "wiki/inbox/project-candidates.md";
   const existed = exists(relativePath);
   if (!existed) write(relativePath, projectCandidatesContent());
-  if (!captureTitle && !captureContent) return existed ? "exists" : "created";
-  const title = (captureTitle || "Untitled candidate").replace(/\|/g, "/");
-  const content = (captureContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
-  const row = `| ${today} | ${title} | ${captureCategory.replace(/\|/g, "/")} | ${content} | pending |`;
+  const candidateTitle = input.title ?? captureTitle;
+  const candidateContent = input.content ?? captureContent;
+  const candidateCategory = input.category ?? captureCategory;
+  if (!candidateTitle && !candidateContent) return existed ? "exists" : "created";
+  const title = (candidateTitle || "Untitled candidate").replace(/\|/g, "/");
+  const content = (candidateContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
+  const row = `| ${today} | ${title} | ${candidateCategory.replace(/\|/g, "/")} | ${content} | pending |`;
   const current = read(relativePath);
   if (current.includes(row)) return "exists";
   write(relativePath, `${current.trimEnd()}\n${row}\n`);
   return "updated";
+}
+
+export function appendCaptureInbox(): FileStatus {
+  return appendProjectCandidate();
 }
 
 function gitOutput(args: string[]): string {

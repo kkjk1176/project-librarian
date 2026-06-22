@@ -37,6 +37,7 @@ exports.buildRefreshIndexBlock = buildRefreshIndexBlock;
 exports.runQueryMode = runQueryMode;
 exports.runWikiImpactMode = runWikiImpactMode;
 exports.projectCandidatesContent = projectCandidatesContent;
+exports.appendProjectCandidate = appendProjectCandidate;
 exports.appendCaptureInbox = appendCaptureInbox;
 exports.runIssueDraftMode = runIssueDraftMode;
 exports.runIssueCreateMode = runIssueCreateMode;
@@ -338,22 +339,28 @@ function projectCandidatesContent() {
 | --- | --- | --- | --- | --- |
 `;
 }
-function appendCaptureInbox() {
+function appendProjectCandidate(input = {}) {
     (0, workspace_1.mkdirp)("wiki/inbox");
     const relativePath = "wiki/inbox/project-candidates.md";
     const existed = (0, workspace_1.exists)(relativePath);
     if (!existed)
         (0, workspace_1.write)(relativePath, projectCandidatesContent());
-    if (!args_1.captureTitle && !args_1.captureContent)
+    const candidateTitle = input.title ?? args_1.captureTitle;
+    const candidateContent = input.content ?? args_1.captureContent;
+    const candidateCategory = input.category ?? args_1.captureCategory;
+    if (!candidateTitle && !candidateContent)
         return existed ? "exists" : "created";
-    const title = (args_1.captureTitle || "Untitled candidate").replace(/\|/g, "/");
-    const content = (args_1.captureContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
-    const row = `| ${workspace_1.today} | ${title} | ${args_1.captureCategory.replace(/\|/g, "/")} | ${content} | pending |`;
+    const title = (candidateTitle || "Untitled candidate").replace(/\|/g, "/");
+    const content = (candidateContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
+    const row = `| ${workspace_1.today} | ${title} | ${candidateCategory.replace(/\|/g, "/")} | ${content} | pending |`;
     const current = (0, workspace_1.read)(relativePath);
     if (current.includes(row))
         return "exists";
     (0, workspace_1.write)(relativePath, `${current.trimEnd()}\n${row}\n`);
     return "updated";
+}
+function appendCaptureInbox() {
+    return appendProjectCandidate();
 }
 function gitOutput(args) {
     try {

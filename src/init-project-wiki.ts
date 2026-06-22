@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
+import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
 import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
+import { runHandoffClearMode, runHandoffInjectionDisableMode, runHandoffInjectionEnableMode, runHandoffInjectionStatusMode, runHandoffPromoteInboxMode, runHandoffSaveMode, runHandoffShowMode, runHandoffStatusMode } from "./session-handoff";
 import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
 import { writeWikiVisualizer } from "./wiki-visualizer";
@@ -49,6 +50,16 @@ Options:
   --wiki-visualize-out <path>      With --wiki-visualize, write under a custom .project-wiki/ path.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
+  --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
+  --handoff-show                   Print the current local session handoff.
+  --handoff-status                 Print JSON status for the local session handoff.
+  --handoff-clear                  Remove generated session handoff files.
+  --handoff-promote-inbox          Promote selected generated handoff facts into wiki/inbox/project-candidates.md.
+  --handoff-injection-enable       Opt in to capped full handoff injection in startup hooks.
+  --handoff-injection-disable      Remove the generated full handoff injection opt-in.
+  --handoff-injection-status       Print JSON status for the full handoff injection experiment.
+  --goal, --state, --blocked       With --handoff-save, provide resume context fields.
+  --next, --decision               With --handoff-save, repeat for next actions and decisions.
   --glossary-init                  Create and route the optional glossary page.
   --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing project skill/setup surfaces are preserved by default.
   --prune-check                    Report active pages with stale or unresolved signals.
@@ -191,6 +202,27 @@ if (codeIndexIncrementalMode && codeIndexFullMode) {
   process.exit(1);
 }
 
+const activeHandoffModes = [
+  handoffSaveMode ? "--handoff-save" : "",
+  handoffShowMode ? "--handoff-show" : "",
+  handoffStatusMode ? "--handoff-status" : "",
+  handoffClearMode ? "--handoff-clear" : "",
+  handoffPromoteInboxMode ? "--handoff-promote-inbox" : "",
+  handoffInjectionEnableMode ? "--handoff-injection-enable" : "",
+  handoffInjectionDisableMode ? "--handoff-injection-disable" : "",
+  handoffInjectionStatusMode ? "--handoff-injection-status" : "",
+].filter(Boolean);
+
+if (activeHandoffModes.length > 1) {
+  console.error(`Use one session handoff mode at a time: ${activeHandoffModes.join(", ")}.`);
+  process.exit(1);
+}
+
+if (handoffInputMode && !handoffSaveMode) {
+  console.error("--goal, --state, --blocked, --next, --decision, --open-question, --last-success-command, --last-failure-command, and --verification are only supported with --handoff-save.");
+  process.exit(1);
+}
+
 if (command === "install" || command === "install-skill") {
   runInstallSkillMode();
   process.exit(0);
@@ -207,6 +239,24 @@ if (command === "mcp") {
 }
 
 function runInitCommand(): void {
+const activeHandoffMode = activeHandoffModes[0];
+if (activeHandoffMode) {
+  try {
+    if (handoffSaveMode) runHandoffSaveMode();
+    else if (handoffShowMode) runHandoffShowMode();
+    else if (handoffStatusMode) runHandoffStatusMode();
+    else if (handoffClearMode) runHandoffClearMode();
+    else if (handoffPromoteInboxMode) runHandoffPromoteInboxMode();
+    else if (handoffInjectionEnableMode) runHandoffInjectionEnableMode();
+    else if (handoffInjectionDisableMode) runHandoffInjectionDisableMode();
+    else if (handoffInjectionStatusMode) runHandoffInjectionStatusMode();
+    exitAfterStdoutDrain(0);
+  } catch (error: unknown) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+  return;
+}
 const activeCodeModes = activeCodeEvidenceCliModes();
 if (activeCodeModes.length > 1) {
   console.error("Use one code evidence mode at a time: --code-index, --code-index-health, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
