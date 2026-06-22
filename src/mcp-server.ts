@@ -282,6 +282,29 @@ const PROMPTS: PromptDefinition[] = [
     },
   },
   {
+    name: "maintenance_improvement_review",
+    title: "Maintenance Improvement Review",
+    description: "Turn broad maintainability, automation, or efficiency requests into an analyze-first backlog and execution plan.",
+    arguments: [
+      { name: "request", description: "The user's broad improvement or automation request.", required: true },
+      { name: "scope", description: "Optional repository area, package, workflow, or concern to prioritize." },
+    ],
+    get: (args) => {
+      const request = requiredPromptArg(args, "request");
+      const scope = optionalPromptArg(args, "scope", "whole repository unless the user named a narrower scope");
+      return [
+        "Handle this as analyze-first maintenance improvement work, not as a routine bootstrap/update command.",
+        "1. Read project-librarian://wiki/startup, project-librarian://wiki/index, and project-librarian://code/status before deciding the work path.",
+        "2. Inspect repo, wiki, package scripts, CI, tests, release gates, generated surfaces, dependencies, and code-structure evidence relevant to the request.",
+        "3. Produce a ranked backlog with concrete file/command evidence, confidence, risk, and a verification path for each candidate.",
+        "4. Persist a durable plan under wiki/plans/ when project-planning state changes, then refresh the wiki index and run lint when practical.",
+        "5. If execution is requested, implement safe high-priority items first, update generated outputs, and verify with targeted tests plus the smallest broad gate that proves the claim.",
+        `Request: ${request}`,
+        `Scope: ${scope}`,
+      ].join("\n");
+    },
+  },
+  {
     name: "retrieval_quality_review",
     title: "Retrieval Quality Review",
     description: "Review whether wiki/code retrieval evidence is precise, complete, bounded, and stale-aware.",

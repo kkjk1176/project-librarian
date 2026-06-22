@@ -51,6 +51,7 @@ test("MCP protocol fixture preserves initialize/list/ping response shape", () =>
   ]);
   assert.deepEqual(prompts.result.prompts.map((prompt) => prompt.name).sort(), [
     "code_impact_trace",
+    "maintenance_improvement_review",
     "retrieval_quality_review",
     "wiki_taxonomy_update",
   ]);

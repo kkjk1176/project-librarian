@@ -211,6 +211,20 @@ test("the managed AGENTS.md block carries the single-sentence wiki trust contrac
   }
 });
 
+test("the managed AGENTS.md block routes broad improvement automation through analyze-first work", () => {
+  const root = makeTmpDir("p5-improvement-route-");
+  try {
+    runCli(root);
+    const block = managedAgentsBlock(root);
+    assert(block.includes("개선 자동화 시작해"), "managed block should name the Korean improvement automation request shape");
+    assert(block.includes("analyze-first project work"), "managed block should require analyze-first handling");
+    assert(block.includes("ranked backlog with evidence"), "managed block should require evidence-backed prioritization");
+    assert(block.includes("wiki/plans/"), "managed block should persist durable plans when planning state changes");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // B3: SessionStart hook injected-context marker, within file budgets
 // ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ Supported actions:
 - Check for pending, stale, proposed, or undecided wiki pages.
 - Draft a GitHub issue body for problems or side effects found while using the skill.
 - Initialize a project glossary.
+- Turn broad maintenance, automation, efficiency, or "improve this project" requests into an analyze-first backlog and execution plan before editing.
 - Analyze existing code and canonicalize code-backed project behavior, features, policies, constraints, terminology, domain rules, and open questions into the wiki.
 - Build and query an optional SQLite code evidence index for large repositories.
 - Migrate an existing wiki/docs structure.
@@ -47,6 +48,16 @@ Prefer an already installed local runner over network package execution:
 Use `npx` or `npm exec` only when no local runner exists and registry access is explicitly acceptable for the environment. When using npm package execution, pin the package version instead of running an unpinned public package.
 
 If the resolved runner fails, report the real error and stop or fix the cause. Do not manually recreate bootstrap or migration output as a fallback.
+
+Broad improvement automation requests are discovery-and-execution work, not routine bootstrap updates. When the user says something like "improve this project", "start improvement automation", "개선 자동화 시작해", or asks for maintainability/automation/efficiency improvements without naming a concrete lifecycle flag:
+
+- Do not map the request directly to `$PROJECT_LIBRARIAN update` or a single diagnostic command.
+- Inspect the repo's wiki contract, code structure, package scripts, CI, tests, release gates, generated surfaces, dependency posture, and obvious maintenance bottlenecks.
+- Use code-evidence tools or reports when the repo is large or the question is structural; use direct targeted reads for small repos and simple lookups.
+- Produce a ranked backlog with file/command evidence, confidence, expected verification, and risk.
+- Persist durable planning output under `wiki/plans/` when the request changes project-planning state, then refresh the index and run lint when practical.
+- If the user asked to start or continue work, implement safe high-priority items in a branch, update generated outputs, and verify with targeted tests plus the smallest broad gate that proves the claim.
+- Keep unresolved, high-risk, or dependency-changing candidates in the backlog instead of silently skipping them.
 
 2. For project bootstrap requests, choose the matching command and run it from the project root. The examples below use `$PROJECT_LIBRARIAN` to mean the resolved runner from step 1:
 
