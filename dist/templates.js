@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultStarterFilePaths = exports.starterFiles = exports.documentTaxonomy = exports.decisionPolicy = exports.wikiOperatingModel = exports.inboxIndexBlock = exports.glossaryIndexBlock = exports.glossary = exports.index = exports.startup = exports.metadata = exports.wikiAgentsSection = exports.cursorRule = exports.geminiSection = exports.claudeSection = exports.STARTUP_TLDR_MAX_CHARS = exports.startupTldrSyncLabel = exports.codeEvidenceTrustContract = exports.wikiTrustContract = void 0;
+exports.defaultStarterFilePaths = exports.starterFiles = exports.documentTaxonomy = exports.decisionPolicy = exports.wikiOperatingModel = exports.inboxIndexBlock = exports.glossaryIndexBlock = exports.glossary = exports.index = exports.startup = exports.metadata = exports.wikiAgentsSection = exports.cursorRule = exports.geminiSection = exports.claudeSection = exports.STARTUP_TLDR_MAX_CHARS = exports.startupTldrSyncLabel = exports.guidanceClaimEvidenceContract = exports.codeEvidenceTrustContract = exports.wikiTrustContract = void 0;
 exports.extractStartupTldr = extractStartupTldr;
 exports.agentsSection = agentsSection;
 const workspace_1 = require("./workspace");
@@ -16,6 +16,10 @@ exports.wikiTrustContract = "Wiki decision documents are authoritative for proje
 // closing clause is the scale-conditional guidance (2026-06-12 decision, stageR1
 // evidence): on small repos simple lookups measured cheaper via direct reads.
 exports.codeEvidenceTrustContract = "Code-evidence tool and report outputs (`--code-impact`, `--code-report`, and the `project-librarian mcp` tools) are authoritative for code-structure questions: do not re-verify them with repo-wide greps unless `--code-status`/`code_status` reports staleness; on small repos below the measured scale threshold, prefer direct reads over these tools for simple lookups (measured cheaper at small scale).";
+// Guidance-refinement analogue for agent-instruction changes. The measured
+// evidence is scoped to local probe reports, not transferred across models,
+// surfaces, repos, or user projects without their own passing claim gate.
+exports.guidanceClaimEvidenceContract = "Guidance-refinement claims are evidence-scoped: do not promote or claim an agent-instruction improvement unless a local guidance-probe or equivalent report has a passed claim gate with complete measured pairs, variant digests, and zero read-only file changes where requested; otherwise describe it as an unverified candidate.";
 // B1 fallback: label for the auto-synced startup TL;DR sub-block embedded in the
 // managed AGENTS.md marker section. Non-interactive `codex exec` does not run
 // SessionStart hooks (measured 2026-06-10), so AGENTS.md is the only startup
@@ -85,6 +89,7 @@ During conversation:
 - Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
 - ${exports.wikiTrustContract}
 - ${exports.codeEvidenceTrustContract}
+- ${exports.guidanceClaimEvidenceContract}
 <!-- PROJECT-WIKI-FIRST:END -->`;
 }
 exports.claudeSection = `<!-- PROJECT-WIKI-CLAUDE:START -->

@@ -12,6 +12,20 @@ Use `--quick` only for harness diagnostics; quick reports are marked diagnostic-
 
 `npm run benchmark:claim-ledger` summarizes measured reports and payload previews into `release_claimable`, `diagnostic_only`, or `failed` rows per track and corpus. A passing claim gate is not enough for `release_claimable`; the report also needs a clean source-control provenance, explicit model, sanitized pack, `--require-clean`, `--require-claimable`, and enough runs for `min_runs_for_claim`. Payload previews are always `diagnostic_only` because they do not measure Codex output.
 
+## Guidance probe benchmark
+
+`npm run benchmark:guidance:dry-run` validates the guidance probe corpus and writes an ignored manifest/Markdown report under `benchmarks/reports/guidance/` without launching Codex. The default corpus compares `current` and `refined_candidate` variants across startup-router, taxonomy, code-localization, stale-router, read-only, and multi-hop probes.
+
+The `current` variant materializes tracked `AGENTS.md` plus the package's generated `startup` and `index` templates. It does not require the maintainer-local ignored `wiki/startup.md` or `wiki/index.md` files to exist in CI.
+
+Measured runs use the focused runner directly:
+
+```sh
+npm run benchmark:guidance -- --variants current,refined_candidate --runs 3 --model gpt-5.5 --markdown --require-claimable
+```
+
+The measured report records variant digests, probe IDs, expected sources, raw JSONL paths, guidance coverage, localization hit rate, route compliance, unproductive action rate, read-only file-change counts, and a guidance claim gate. Claims are model- and agent-surface-scoped; a Codex-measured candidate does not transfer to Claude, Cursor, or Gemini without its own measured evidence. Use `--candidate-out .project-wiki/guidance-refinement/runs/<run-id>/candidate-guidance.md` when turning failures into the next candidate text. Reports under `benchmarks/reports/guidance/` are ignored by default.
+
 ## Dual-track benchmark
 
 The benchmark measures two product tracks and reports them separately (no merged cross-track headline):

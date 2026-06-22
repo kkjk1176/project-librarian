@@ -903,7 +903,9 @@ test("the managed AGENTS.md block carries the code-evidence trust sentence", () 
     runCli(cwd, ["--no-git-config"]);
     const agents = fs.readFileSync(path.join(cwd, "AGENTS.md"), "utf8");
     assert.ok(agents.includes(distTemplates.codeEvidenceTrustContract), "AGENTS.md must include the code-evidence trust sentence");
+    assert.ok(agents.includes(distTemplates.guidanceClaimEvidenceContract), "AGENTS.md must include the guidance claim evidence sentence");
     assert.match(agents, /`--code-status`\/`code_status` reports staleness/);
+    assert.match(agents, /passed claim gate with complete measured pairs/);
     // It is a single sentence next to the wiki trust contract, not a new section.
     assert.ok(agents.includes(distTemplates.wikiTrustContract), "the wiki trust contract must still be present");
   } finally {

@@ -248,6 +248,9 @@ grep -q '"wiki/index.md", 4500' .codex/hooks/wiki-session-start.js
 # Code-evidence trust contract (B4 analogue) in the managed AGENTS.md block.
 grep -q "Code-evidence tool and report outputs" AGENTS.md
 grep -q -- "\`--code-status\`/\`code_status\` reports staleness" AGENTS.md
+# Guidance-refinement claims stay scoped to measured local evidence.
+grep -q "Guidance-refinement claims are evidence-scoped" AGENTS.md
+grep -q "passed claim gate with complete measured pairs" AGENTS.md
 # Bootstrap-managed MCP registration is scale-gated: this fixture sits below the
 # small-repo threshold with no code-evidence index, so bootstrap reports the skip
 # reason and writes no MCP config.
