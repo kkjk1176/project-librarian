@@ -86,6 +86,7 @@ During conversation:
 - Classify new project-planning content with \`wiki/meta/document-taxonomy.md\` before writing or consolidating it.
 - Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in project wiki canonical or decision docs.
 - Follow \`wiki/AGENTS.md\` for detailed rules when editing files under \`wiki/\`.
+- Treat broad maintenance/improvement automation requests that do not name a concrete command (for example "improve this project", "start improvement automation", or "개선 자동화 시작해") as analyze-first project work, not as a plain bootstrap/update. Inspect repo, wiki, CI, test, release, dependency, and code-structure evidence; produce a ranked backlog with evidence and verification paths; persist the plan in \`wiki/plans/\` when project-planning content changes; then execute safe high-priority items with tests.
 - Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
 - ${exports.wikiTrustContract}
 - ${exports.codeEvidenceTrustContract}

@@ -293,7 +293,7 @@ Disposable code evidence cache:
 
 `project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no extra runtime dependencies) that serves the existing `.project-wiki` code-evidence index read-only. It exposes answer-shaped tools — `code_context_pack`, `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
 
-The server also exposes fixed resources — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, and `project-librarian://code/status` — plus prompt templates for wiki taxonomy updates, code impact traces, and retrieval quality reviews. Resource reads come from a fixed URI registry rather than arbitrary filesystem paths.
+The server also exposes fixed resources — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, and `project-librarian://code/status` — plus prompt templates for wiki taxonomy updates, code impact traces, maintenance improvement reviews, and retrieval quality reviews. Resource reads come from a fixed URI registry rather than arbitrary filesystem paths.
 
 Bootstrap registers the server for Claude Code (`.mcp.json`), Cursor (`.cursor/mcp.json`), and Gemini CLI (`mcpServers` in `.gemini/settings.json`), preserving any existing servers and keys and reporting `exists` on a re-run. When the repository contains a local runner the registration uses `node <runner> mcp`; otherwise it uses the installed `project-librarian mcp` binary.
 
@@ -407,6 +407,7 @@ The source is TypeScript. The committed `dist/` directory is the compiled JavaSc
 npm install
 npm run typecheck
 npm run build
+npm run check:dist
 npm test
 npm run test:coverage
 npm run benchmark:llm:raw-audit
@@ -416,11 +417,11 @@ npm run release:check
 npm pack --dry-run
 ```
 
-When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current.
+When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current. `npm run check:dist` verifies that the checked-in generated files still match the latest build output.
 
 `npm run test:coverage` uses Node's native test coverage with conservative line, branch, and function thresholds so coverage is a regression gate, not only a report.
 
-`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
+`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable/parity checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
 Treat a green `release:check` as a reproducible release-readiness bundle, not a runtime guarantee: it proves those local gates on the current checkout, including that the package dry run stays inside the expected publish boundary (`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, and `SKILL.md`) and excludes source files, tests, repo-local wiki/workflow state, raw benchmark output, and local caches.
 

@@ -211,6 +211,20 @@ test("the managed AGENTS.md block carries the single-sentence wiki trust contrac
   }
 });
 
+test("the managed AGENTS.md block routes broad improvement automation through analyze-first work", () => {
+  const root = makeTmpDir("p5-improvement-route-");
+  try {
+    runCli(root);
+    const block = managedAgentsBlock(root);
+    assert(block.includes("개선 자동화 시작해"), "managed block should name the Korean improvement automation request shape");
+    assert(block.includes("analyze-first project work"), "managed block should require analyze-first handling");
+    assert(block.includes("ranked backlog with evidence"), "managed block should require evidence-backed prioritization");
+    assert(block.includes("wiki/plans/"), "managed block should persist durable plans when planning state changes");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // B3: SessionStart hook injected-context marker, within file budgets
 // ---------------------------------------------------------------------------
@@ -233,6 +247,34 @@ test("every agent SessionStart hook payload carries the injected-context marker"
       assert(typeof ctx === "string" && ctx.length > 0, `${hook} produced no additional context`);
       assert(ctx.includes("ALREADY included"), `${hook} missing injected-context marker`);
       assert(ctx.includes("Do not re-read these two files this session"), `${hook} missing no-duplicate-read instruction`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("SessionStart hooks report missing wiki startup files instead of claiming they were included", () => {
+  const root = makeTmpDir("p5-hookmissing-");
+  try {
+    runCli(root);
+    fs.rmSync(path.join(root, "wiki"), { recursive: true, force: true });
+    const hooks = [
+      ".codex/hooks/wiki-session-start.js",
+      ".claude/hooks/wiki-session-start.js",
+      ".cursor/hooks/wiki-session-start.js",
+      ".gemini/hooks/wiki-session-start.js",
+    ];
+    for (const hook of hooks) {
+      const env = { ...process.env, GEMINI_PROJECT_DIR: root };
+      const out = childProcess.execFileSync(process.execPath, [path.join(root, hook)], { cwd: root, encoding: "utf8", env });
+      const payload = JSON.parse(out);
+      const ctx = payload.hookSpecificOutput ? payload.hookSpecificOutput.additionalContext : payload.additional_context;
+      assert(typeof ctx === "string" && ctx.length > 0, `${hook} produced no additional context`);
+      assert(!ctx.includes("ALREADY included"), `${hook} claimed missing wiki files were included`);
+      assert(!ctx.includes("Do not re-read these two files this session"), `${hook} emitted stale no-duplicate-read guidance`);
+      assert(ctx.includes("not fully included"), `${hook} did not report incomplete startup context`);
+      assert(ctx.includes("wiki/startup.md"), `${hook} did not name missing startup.md`);
+      assert(ctx.includes("wiki/index.md"), `${hook} did not name missing index.md`);
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

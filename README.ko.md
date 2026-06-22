@@ -293,7 +293,7 @@ MCP 서버 등록 (`mcpServers`에 기존 항목 보존하며 병합):
 
 `project-librarian mcp`는 직접 구현한 stdio MCP 서버(줄바꿈 구분 JSON 위의 JSON-RPC 2.0, 추가 런타임 의존성 없음)를 실행해 기존 `.project-wiki` 코드 근거 인덱스를 읽기 전용으로 제공합니다. 답변 형태 도구 — `code_context_pack`, `code_impact`, `code_ownership`(CODEOWNERS 마지막 일치 우선순위), `code_workspace_graph`, `code_search`, `code_status` — 를 노출하며, 각 응답은 한 줄 답변으로 시작해 간결한 경로/심볼/시그니처 근거가 뒤따르고, 응답마다 길이를 제한하며, `code_status`가 인덱스가 오래되었다고 보고하면 경고를 앞에 붙입니다.
 
-서버는 고정 리소스 — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, `project-librarian://code/status` — 와 위키 분류 갱신, 코드 영향 추적, 검색 품질 검토용 프롬프트 템플릿도 제공합니다. 리소스 읽기는 임의 파일 경로가 아니라 고정 URI 레지스트리에서만 처리합니다.
+서버는 고정 리소스 — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, `project-librarian://code/status` — 와 위키 분류 갱신, 코드 영향 추적, 유지보수 개선 검토, 검색 품질 검토용 프롬프트 템플릿도 제공합니다. 리소스 읽기는 임의 파일 경로가 아니라 고정 URI 레지스트리에서만 처리합니다.
 
 부트스트랩은 Claude Code(`.mcp.json`), Cursor(`.cursor/mcp.json`), Gemini CLI(`.gemini/settings.json`의 `mcpServers`)에 서버를 등록하며, 기존 서버와 키를 보존하고 다시 실행하면 `exists`를 보고합니다. 저장소에 로컬 실행 경로가 있으면 `node <runner> mcp`로, 없으면 설치된 `project-librarian mcp` 바이너리로 등록합니다.
 
@@ -407,6 +407,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 npm install
 npm run typecheck
 npm run build
+npm run check:dist
 npm test
 npm run test:coverage
 npm run benchmark:llm:raw-audit
@@ -416,11 +417,11 @@ npm run release:check
 npm pack --dry-run
 ```
 
-`src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요.
+`src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요. `npm run check:dist`는 체크인된 생성 파일이 최신 빌드 출력과 일치하는지 확인합니다.
 
 `npm run test:coverage`는 Node 내장 test coverage에 보수적인 line, branch, function threshold를 적용하므로 coverage를 단순 보고서가 아니라 회귀 게이트로 사용합니다.
 
-`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
+`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부와 소스 동기화, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 
 `release:check` 통과는 런타임 보증이 아니라 재현 가능한 릴리스 준비 근거로 봐야 합니다. 현재 checkout에서 위 로컬 게이트를 통과했음을 증명하며, package dry run이 예상 publish 경계(`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, `SKILL.md`) 안에 머물고 소스 파일, 테스트, 저장소 로컬 위키/워크플로 상태, raw 벤치마크 출력, 로컬 캐시를 제외하는지도 확인합니다.
 

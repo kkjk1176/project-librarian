@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -6,6 +7,7 @@ const test = require("node:test");
 
 const {
   benchmarkClaimStatus,
+  distParityStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
   normalizePackPath,
@@ -75,6 +77,28 @@ test("release readiness validates the trusted publishing workflow", () => {
   assert.deepEqual(status.missing, []);
   assert.deepEqual(status.forbidden, []);
   assert.deepEqual(status.unpinned_actions, []);
+});
+
+test("release readiness checks checked-in dist parity", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "release-dist-parity-"));
+  fs.mkdirSync(path.join(fixture, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(fixture, "dist", "init-project-wiki.js"), "#!/usr/bin/env node\n");
+  childProcess.execFileSync("git", ["init"], { cwd: fixture, stdio: "ignore" });
+  childProcess.execFileSync("git", ["add", "dist"], { cwd: fixture, stdio: "ignore" });
+  childProcess.execFileSync("git", [
+    "-c", "user.name=Project Librarian Test",
+    "-c", "user.email=project-librarian-test@example.invalid",
+    "commit",
+    "-m", "seed dist",
+  ], { cwd: fixture, stdio: "ignore" });
+
+  const status = distParityStatus(fixture);
+  assert.equal(status.ok, true, status.message);
+
+  fs.appendFileSync(path.join(fixture, "dist", "init-project-wiki.js"), "console.log('drift');\n");
+  const dirtyStatus = distParityStatus(fixture);
+  assert.equal(dirtyStatus.ok, false);
+  assert.deepEqual(dirtyStatus.changed_files, ["dist/init-project-wiki.js"]);
 });
 
 test("release readiness rejects token-based npm publish workflows", () => {

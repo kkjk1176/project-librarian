@@ -249,18 +249,35 @@ const files = [
   ["wiki/index.md", 4500],
 ];
 
-const sections = files
-  .map(([relativePath, maxChars]) => {
-    const text = readIfExists(relativePath, maxChars);
+const fileReads = files.map(([relativePath, maxChars]) => {
+  const text = readIfExists(relativePath, maxChars);
+  return { relativePath, text };
+});
+
+const sections = fileReads
+  .map(({ relativePath, text }) => {
     if (!text) return "";
     return \`## \${relativePath}\\n\\n\${text}\`;
   })
   .filter(Boolean);
 
+const missingFiles = fileReads
+  .filter(({ text }) => !text)
+  .map(({ relativePath }) => relativePath);
+
+const inclusionNotice = missingFiles.length === 0
+  ? [
+    "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
+    "Do not re-read these two files this session; route any further reads through the index.",
+  ]
+  : [
+    \`Project wiki startup files were not fully included; missing or empty: \${missingFiles.join(", ")}.\`,
+    "Run Project Librarian to bootstrap or restore the missing wiki files before relying on wiki-first routing.",
+  ];
+
 const additionalContext = [
   "[Project wiki startup review]",
-  "Injected context: wiki/startup.md and wiki/index.md are ALREADY included below this line.",
-  "Do not re-read these two files this session; route any further reads through the index.",
+  ...inclusionNotice,
   "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
   "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",

@@ -239,19 +239,25 @@ test("prompts/list and prompts/get expose bounded workflow templates", () => {
       { jsonrpc: "2.0", id: 1, method: "prompts/list" },
       { jsonrpc: "2.0", id: 2, method: "prompts/get", params: { name: "code_impact_trace", arguments: { term: "healthHandler" } } },
       { jsonrpc: "2.0", id: 3, method: "prompts/get", params: { name: "retrieval_quality_review", arguments: {} } },
-      { jsonrpc: "2.0", id: 4, method: "prompts/get", params: { name: "not_real", arguments: {} } },
+      { jsonrpc: "2.0", id: 4, method: "prompts/get", params: { name: "maintenance_improvement_review", arguments: { request: "개선 자동화 시작해" } } },
+      { jsonrpc: "2.0", id: 5, method: "prompts/get", params: { name: "not_real", arguments: {} } },
     ]);
     assert.deepEqual(responses[0].result.prompts.map((prompt) => prompt.name).sort(), [
       "code_impact_trace",
+      "maintenance_improvement_review",
       "retrieval_quality_review",
       "wiki_taxonomy_update",
     ]);
     const impactPrompt = responses[1].result.messages[0].content.text;
     assert.match(impactPrompt, /Build a code impact trace for "healthHandler"/);
     assert.match(impactPrompt, /Call code_context_pack first/);
+    const improvementPrompt = responses[3].result.messages[0].content.text;
+    assert.match(improvementPrompt, /analyze-first maintenance improvement work/);
+    assert.match(improvementPrompt, /ranked backlog with concrete file\/command evidence/);
+    assert.match(improvementPrompt, /Request: 개선 자동화 시작해/);
     assert.equal(responses[2].error.code, -32602);
     assert.match(responses[2].error.message, /missing required string argument: query/);
-    assert.equal(responses[3].error.code, -32002);
+    assert.equal(responses[4].error.code, -32002);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -345,6 +351,14 @@ test("MCP list contract pins public resources, prompts, tool schemas, and trust 
         arguments: [
           { name: "term", required: true },
           { name: "question", required: false },
+        ],
+      },
+      {
+        name: "maintenance_improvement_review",
+        title: "Maintenance Improvement Review",
+        arguments: [
+          { name: "request", required: true },
+          { name: "scope", required: false },
         ],
       },
       {
