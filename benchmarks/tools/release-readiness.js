@@ -41,6 +41,7 @@ function hasFlag(name) {
 function printUsage() {
   console.log(`Usage:
   node benchmarks/tools/release-readiness.js [--skip-npm-test] [--skip-test-coverage] [--skip-real-corpus-demo] [--skip-benchmark-preview]
+  node benchmarks/tools/release-readiness.js --only-dist-parity
 
 Runs local-only release checks:
   - npm test
@@ -52,9 +53,11 @@ Runs local-only release checks:
   - benchmark claim ledger classification
   - benchmark raw hygiene audit
   - npm pack --dry-run --json package inspection
-  - dist executable and README benchmark-claim labeling checks
+  - dist executable/parity and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
   - release provenance/attestation status
+
+Use --only-dist-parity to run only the generated dist/ drift check.
 
 This script never publishes and never launches a measured Codex benchmark.`);
 }
@@ -234,6 +237,33 @@ function distExecutableStatus(filePath = path.join(repoRoot, "dist", "init-proje
   return { ok: true, message: "dist/init-project-wiki.js is executable" };
 }
 
+function distParityStatus(rootDir = repoRoot) {
+  const result = childProcess.spawnSync("git", ["status", "--porcelain", "--", "dist"], {
+    cwd: rootDir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status === 0 && !(result.stdout || "").trim()) {
+    return { ok: true, message: "checked-in dist/ matches the current source build output" };
+  }
+  if (result.status === 0) {
+    return {
+      ok: false,
+      changed_files: (result.stdout || "")
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => line.replace(/^.. ?/, "").trim())
+        .sort(),
+      message: "dist/ has uncommitted generated output changes; run npm run build and commit the generated files",
+    };
+  }
+  return {
+    ok: false,
+    message: `could not inspect dist/ parity with git diff: ${(result.stderr || result.stdout || "unknown git error").trim()}`,
+  };
+}
+
 function benchmarkClaimStatus(readmeText) {
   const hasFailedGate = /claim gate \*\*failed\*\*/i.test(readmeText);
   const hasPassedGate = /claim gate \*\*passed\*\*/i.test(readmeText);
@@ -303,6 +333,16 @@ function main() {
     return;
   }
 
+  if (hasFlag("--only-dist-parity")) {
+    const distParity = distParityStatus();
+    console.log(`${distParity.ok ? "PASS" : "FAIL"} dist parity: ${distParity.message}`);
+    if (!distParity.ok) {
+      console.error(JSON.stringify(distParity, null, 2));
+      fail("release readiness failed: dist parity");
+    }
+    return;
+  }
+
   const results = [];
   if (!hasFlag("--skip-npm-test")) {
     const npmTest = runCommand("npm test", "npm", ["test"]);
@@ -367,6 +407,13 @@ function main() {
   console.log(`${distStatus.ok ? "PASS" : "FAIL"} dist executable: ${distStatus.message}`);
   if (!distStatus.ok) fail("release readiness failed: dist executable");
 
+  const distParity = distParityStatus();
+  console.log(`${distParity.ok ? "PASS" : "FAIL"} dist parity: ${distParity.message}`);
+  if (!distParity.ok) {
+    console.error(JSON.stringify(distParity, null, 2));
+    fail("release readiness failed: dist parity");
+  }
+
   const readmeStatus = benchmarkClaimStatus(fs.readFileSync(path.join(repoRoot, "README.md"), "utf8"));
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
@@ -387,6 +434,7 @@ function main() {
   console.log(JSON.stringify({
     checks: results.map((result) => ({ label: result.label, status: result.status, ok: result.ok })),
     dist: distStatus,
+    dist_parity: distParity,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
     raw_hygiene: rawHygieneStatus,
@@ -401,6 +449,7 @@ if (require.main === module) {
 
 module.exports = {
   benchmarkClaimStatus,
+  distParityStatus,
   distExecutableStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,

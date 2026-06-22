@@ -407,6 +407,7 @@ The source is TypeScript. The committed `dist/` directory is the compiled JavaSc
 npm install
 npm run typecheck
 npm run build
+npm run check:dist
 npm test
 npm run test:coverage
 npm run benchmark:llm:raw-audit
@@ -416,11 +417,11 @@ npm run release:check
 npm pack --dry-run
 ```
 
-When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current.
+When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current. `npm run check:dist` verifies that the checked-in generated files still match the latest build output.
 
 `npm run test:coverage` uses Node's native test coverage with conservative line, branch, and function thresholds so coverage is a regression gate, not only a report.
 
-`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
+`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable/parity checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
 Treat a green `release:check` as a reproducible release-readiness bundle, not a runtime guarantee: it proves those local gates on the current checkout, including that the package dry run stays inside the expected publish boundary (`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, and `SKILL.md`) and excludes source files, tests, repo-local wiki/workflow state, raw benchmark output, and local caches.
 

@@ -239,6 +239,34 @@ test("every agent SessionStart hook payload carries the injected-context marker"
   }
 });
 
+test("SessionStart hooks report missing wiki startup files instead of claiming they were included", () => {
+  const root = makeTmpDir("p5-hookmissing-");
+  try {
+    runCli(root);
+    fs.rmSync(path.join(root, "wiki"), { recursive: true, force: true });
+    const hooks = [
+      ".codex/hooks/wiki-session-start.js",
+      ".claude/hooks/wiki-session-start.js",
+      ".cursor/hooks/wiki-session-start.js",
+      ".gemini/hooks/wiki-session-start.js",
+    ];
+    for (const hook of hooks) {
+      const env = { ...process.env, GEMINI_PROJECT_DIR: root };
+      const out = childProcess.execFileSync(process.execPath, [path.join(root, hook)], { cwd: root, encoding: "utf8", env });
+      const payload = JSON.parse(out);
+      const ctx = payload.hookSpecificOutput ? payload.hookSpecificOutput.additionalContext : payload.additional_context;
+      assert(typeof ctx === "string" && ctx.length > 0, `${hook} produced no additional context`);
+      assert(!ctx.includes("ALREADY included"), `${hook} claimed missing wiki files were included`);
+      assert(!ctx.includes("Do not re-read these two files this session"), `${hook} emitted stale no-duplicate-read guidance`);
+      assert(ctx.includes("not fully included"), `${hook} did not report incomplete startup context`);
+      assert(ctx.includes("wiki/startup.md"), `${hook} did not name missing startup.md`);
+      assert(ctx.includes("wiki/index.md"), `${hook} did not name missing index.md`);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the B3 marker does not change the per-file startup/index hook budgets", () => {
   const root = makeTmpDir("p5-hookbudget-");
   try {

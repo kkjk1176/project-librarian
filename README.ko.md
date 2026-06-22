@@ -407,6 +407,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 npm install
 npm run typecheck
 npm run build
+npm run check:dist
 npm test
 npm run test:coverage
 npm run benchmark:llm:raw-audit
@@ -416,11 +417,11 @@ npm run release:check
 npm pack --dry-run
 ```
 
-`src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요.
+`src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요. `npm run check:dist`는 체크인된 생성 파일이 최신 빌드 출력과 일치하는지 확인합니다.
 
 `npm run test:coverage`는 Node 내장 test coverage에 보수적인 line, branch, function threshold를 적용하므로 coverage를 단순 보고서가 아니라 회귀 게이트로 사용합니다.
 
-`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
+`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부와 소스 동기화, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 
 `release:check` 통과는 런타임 보증이 아니라 재현 가능한 릴리스 준비 근거로 봐야 합니다. 현재 checkout에서 위 로컬 게이트를 통과했음을 증명하며, package dry run이 예상 publish 경계(`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, `SKILL.md`) 안에 머물고 소스 파일, 테스트, 저장소 로컬 위키/워크플로 상태, raw 벤치마크 출력, 로컬 캐시를 제외하는지도 확인합니다.
 

@@ -14,6 +14,7 @@ test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage
   assert.match(workflow, /node-version:\s*"24\.x"[\s\S]*experimental:\s*false/);
   assert.match(workflow, /node-version:\s*"26\.x"[\s\S]*experimental:\s*true/);
   assert.match(workflow, /continue-on-error:\s*\$\{\{\s*matrix\.experimental\s*\}\}/);
+  assert.match(workflow, /npm run check:dist/);
   assert.match(workflow, /npm run test:coverage/);
 });
 
