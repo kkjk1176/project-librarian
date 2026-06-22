@@ -32,7 +32,12 @@ During conversation:
 - Let `.githooks/prepare-commit-msg` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
 - Wiki decision documents are authoritative for project decisions: do not re-verify them against the repository unless directly conflicting code evidence appears, since the `--doctor` router-truth rule guards against stale routers.
 - Code-evidence tool and report outputs (`--code-impact`, `--code-report`, and the `project-librarian mcp` tools) are authoritative for code-structure questions: do not re-verify them with repo-wide greps unless `--code-status`/`code_status` reports staleness; on small repos below the measured scale threshold, prefer direct reads over these tools for simple lookups (measured cheaper at small scale).
+- Guidance-refinement claims are evidence-scoped: do not promote or claim an agent-instruction improvement unless a local guidance-probe or equivalent report has a passed claim gate with complete measured pairs, variant digests, and zero read-only file changes where requested; otherwise describe it as an unverified candidate.
 <!-- PROJECT-WIKI-FIRST:END -->
+
+## Project Librarian Maintainer Routing
+
+For this repository's benchmark/guidance work, evidence routing is measured and repo-scoped: benchmark evidence, guidance-probe, claim-gate, or read-only benchmark questions should start from `wiki/canonical/benchmark-and-release-evidence-api-contracts.md`; benchmark runner localization should include `benchmarks/codex-llm-metrics.js`, `benchmarks/lib/llm-report.js`, and `benchmarks/lib/codex-jsonl.js`; router-truth/stale-index questions should include `wiki/index.md`, `wiki/meta/document-taxonomy.md`, `--doctor`, and `--code-status`/`code_status`.
 
 ## Local Private Instructions
 
