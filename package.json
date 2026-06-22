@@ -46,6 +46,8 @@
     "benchmark:llm:parse-smoke": "node tests/validators/codex-llm-benchmark-smoke.js",
     "benchmark:llm:prune-raw": "node benchmarks/tools/prune-llm-raw.js",
     "benchmark:llm:raw-audit": "node benchmarks/tools/audit-llm-raw.js",
+    "benchmark:guidance": "npm run build && node benchmarks/tools/guidance-probe-runner.js",
+    "benchmark:guidance:dry-run": "npm run build && node benchmarks/tools/guidance-probe-runner.js --dry-run --markdown",
     "benchmark:injection-sentinel": "node benchmarks/tools/injection-sentinel.js",
     "benchmark:agent-surface-smoke": "node benchmarks/tools/agent-surface-smoke.js",
     "benchmark:claim-ledger": "node benchmarks/tools/benchmark-claim-ledger.js benchmarks/llm/samples/codex-measured-report.json benchmarks/reports/llm/payload-preview.json",

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "probes": [
+    {
+      "probe_id": "startup_router.context_map",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "startup_router",
+      "prompt": "Summarize the compact startup context for this repository and name the router file an agent should read next. Cite exact files. Do not modify files.",
+      "required_terms": ["startup", "router"],
+      "any_terms": [["on demand", "on-demand", "read next", "route map"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": ["wiki/startup.md", "wiki/index.md"],
+      "target_sources": ["wiki/startup.md", "wiki/index.md"],
+      "route_expectations": ["wiki/startup.md", "wiki/index.md"],
+      "coverage_terms": ["compact", "current context", "source of truth"],
+      "read_only": true
+    },
+    {
+      "probe_id": "taxonomy_update.classification",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "taxonomy_update",
+      "prompt": "A user gives new project-planning content about benchmark evidence policy. Explain where it should be recorded before implementation, and cite the governing taxonomy file. Do not modify files.",
+      "required_terms": ["canonical", "taxonomy"],
+      "any_terms": [["current truth", "accepted spec", "operating state"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": ["wiki/meta/document-taxonomy.md"],
+      "target_sources": ["wiki/meta/document-taxonomy.md", "wiki/canonical/benchmark-and-release-evidence-api-contracts.md"],
+      "route_expectations": ["wiki/meta/document-taxonomy.md"],
+      "coverage_terms": ["canonical/", "plans/", "roadmaps/"],
+      "read_only": true
+    },
+    {
+      "probe_id": "code_localization.benchmark_runner",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "code_localization",
+      "prompt": "Where should an agent edit to add a focused benchmark runner for guidance probes? Cite both benchmark runner and benchmark library files. Do not modify files.",
+      "required_terms": ["benchmarks", "runner"],
+      "any_terms": [["benchmarks/tools", "benchmarks/codex-llm-metrics.js"], ["benchmarks/lib", "llm-report"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": ["benchmarks/codex-llm-metrics.js", "benchmarks/lib/llm-report.js", "benchmarks/lib/codex-jsonl.js"],
+      "target_sources": ["benchmarks/tools", "benchmarks/lib"],
+      "route_expectations": ["wiki/canonical/benchmark-and-release-evidence-api-contracts.md"],
+      "coverage_terms": ["codex-jsonl", "llm-report", "raw JSONL"],
+      "read_only": true
+    },
+    {
+      "probe_id": "stale_index_behavior.router_truth",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "stale_index_behavior",
+      "prompt": "If a wiki router seems stale or conflicts with canonical pages, what project check should be used before trusting a broad grep? Cite exact files or commands. Do not modify files.",
+      "required_terms": ["router", "truth"],
+      "any_terms": [["--doctor", "router-truth"], ["wiki/index.md", "canonical"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": ["wiki/index.md", "wiki/meta/document-taxonomy.md"],
+      "target_sources": ["wiki/index.md", "dist/init-project-wiki.js"],
+      "route_expectations": ["wiki/index.md"],
+      "coverage_terms": ["doctor", "link-check", "lint"],
+      "read_only": true
+    },
+    {
+      "probe_id": "read_only_answer.no_mutation",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "read_only_answer",
+      "prompt": "Answer whether the benchmark guidance probe work can be evaluated without modifying repository files, and cite the evidence contract. Do not modify files.",
+      "required_terms": ["read-only", "benchmark"],
+      "any_terms": [["zero file changes", "do not modify", "no file changes"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": ["wiki/canonical/benchmark-and-release-evidence-api-contracts.md"],
+      "target_sources": ["wiki/canonical/benchmark-and-release-evidence-api-contracts.md"],
+      "route_expectations": ["wiki/canonical/benchmark-and-release-evidence-api-contracts.md"],
+      "coverage_terms": ["file changes", "claim", "evidence"],
+      "read_only": true
+    },
+    {
+      "probe_id": "multi_hop_synthesis.guidance_claim",
+      "track": "wiki",
+      "agent_surface": "codex",
+      "task_family": "multi_hop_synthesis",
+      "prompt": "Explain what evidence is required before claiming a refined guidance variant is better than baseline, and connect it to the detailed implementation plan. Cite exact files. Do not modify files.",
+      "required_terms": ["baseline", "candidate", "evidence"],
+      "any_terms": [["coverage", "localization"], ["model", "surface"]],
+      "forbidden_terms": ["I cannot access"],
+      "expected_sources": [
+        "wiki/canonical/benchmark-and-release-evidence-api-contracts.md",
+        "wiki/plans/failure-refined-agent-guidance-plan.md"
+      ],
+      "target_sources": [
+        "wiki/canonical/benchmark-and-release-evidence-api-contracts.md",
+        "wiki/plans/failure-refined-agent-guidance-plan.md"
+      ],
+      "route_expectations": ["wiki/index.md"],
+      "coverage_terms": ["variant digest", "complete measured probe pairs", "claim gate"],
+      "read_only": true
+    }
+  ]
+}

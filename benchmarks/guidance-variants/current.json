@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "variants": [
+    {
+      "variant_id": "current",
+      "label": "Current generated guidance",
+      "agent_surfaces": ["codex"],
+      "source_files": [
+        "AGENTS.md",
+        "wiki/startup.md",
+        "wiki/index.md"
+      ],
+      "notes": "Current repo-local startup and router guidance."
+    },
+    {
+      "variant_id": "minimal_static",
+      "label": "Minimal static guidance",
+      "agent_surfaces": ["codex"],
+      "inline_guidance": "Read the project planning wiki before answering project-specific questions. Start with wiki/startup.md and wiki/index.md, then read linked canonical, roadmap, plan, decision, source, or meta pages only when the task needs them. Do not modify files during read-only investigation tasks.",
+      "notes": "Small static baseline used to compare against the generated guidance surface."
+    },
+    {
+      "variant_id": "refined_candidate",
+      "label": "Failure-refined candidate",
+      "agent_surfaces": ["codex"],
+      "inline_guidance": "For Project Librarian tasks, treat wiki/startup.md as compact current context and wiki/index.md as the route map. Before broad repository search, identify the lifecycle area and target wiki directory: canonical for current truth, roadmaps for broad future scope, plans for execution detail, decisions for rationale, sources for external evidence, and meta for wiki operating rules. For code-impact questions, use canonical implementation or code-evidence pages first, then inspect named files. For planning changes, record accepted current truth in a focused canonical page before implementation. Keep read-only benchmark tasks free of file changes and cite exact files used.",
+      "notes": "Initial candidate distilled from failure modes in guidance-probe planning."
+    }
+  ]
+}
