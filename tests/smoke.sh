@@ -81,6 +81,14 @@ grep -q -- "--code-impact" help.log
 grep -q -- "--code-context-pack" help.log
 grep -q -- "--code-parser" help.log
 grep -q -- "--code-report-section" help.log
+grep -q -- "--handoff-save" help.log
+grep -q -- "--handoff-show" help.log
+grep -q -- "--handoff-status" help.log
+grep -q -- "--handoff-clear" help.log
+grep -q -- "--handoff-promote-inbox" help.log
+grep -q -- "--handoff-injection-enable" help.log
+grep -q -- "--handoff-injection-disable" help.log
+grep -q -- "--handoff-injection-status" help.log
 grep -q "project-librarian mcp" help.log
 grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
 grep -Fq 'run `$PROJECT_LIBRARIAN --issue-draft --issue-title' "$ROOT/SKILL.md"
@@ -130,6 +138,11 @@ if node "$CLI" --acknowledge-small-repo > lone-acknowledge-small-repo.log 2>&1; 
   exit 1
 fi
 grep -q -- "--acknowledge-small-repo is only supported with --code-index" lone-acknowledge-small-repo.log
+if node "$CLI" --goal "No handoff mode" > lone-handoff-input.log 2>&1; then
+  echo "expected handoff input without --handoff-save to fail" >&2
+  exit 1
+fi
+grep -q -- "only supported with --handoff-save" lone-handoff-input.log
 if node "$CLI" --code-report --code-report-section > missing-code-report-section.log 2>&1; then
   echo "expected missing --code-report-section value to fail" >&2
   exit 1
@@ -294,6 +307,36 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":4,"method":"prompts/list"}' \
   | node "$CLI" mcp 2>/dev/null > mcp-handshake.ndjson
 node -e 'const fs=require("fs"); const lines=fs.readFileSync("mcp-handshake.ndjson","utf8").trim().split(/\n/).map((l)=>JSON.parse(l)); const init=lines.find((m)=>m.id===1); if (!init||init.result.protocolVersion!=="2025-06-18"||!init.result.capabilities.tools||!init.result.capabilities.resources||!init.result.capabilities.prompts) process.exit(1); if (init.result.serverInfo.name!=="project-librarian") process.exit(1); const list=lines.find((m)=>m.id===2); const names=list.result.tools.map((t)=>t.name).sort().join(","); if (names!=="code_context_pack,code_impact,code_ownership,code_search,code_status,code_workspace_graph") process.exit(1); for (const t of list.result.tools) if (!t.description.includes("do not re-verify with repo-wide greps unless `code_status` reports staleness")) process.exit(1); const resources=lines.find((m)=>m.id===3).result.resources.map((r)=>r.uri).sort().join(","); if (resources!=="project-librarian://code/status,project-librarian://wiki/index,project-librarian://wiki/startup") process.exit(1); const prompts=lines.find((m)=>m.id===4).result.prompts.map((p)=>p.name).sort().join(","); if (prompts!=="code_impact_trace,retrieval_quality_review,wiki_taxonomy_update") process.exit(1)'
+
+node "$CLI" --handoff-save --goal "Smoke handoff sk-test1234567890abcdef" --state "Smoke state should stay out of startup" --next "Inspect handoff" --decision "Pointer only" > handoff-save.log
+grep -q "Project Librarian handoff written" handoff-save.log
+test -f .project-wiki/session/last-handoff.md
+grep -q "\[REDACTED_OPENAI_KEY\]" .project-wiki/session/last-handoff.md
+node .codex/hooks/wiki-session-start.js > hook-with-handoff.json
+grep -q ".project-wiki/session/last-handoff.md" hook-with-handoff.json
+grep -q "project-librarian --handoff-show" hook-with-handoff.json
+if grep -q "Smoke state should stay out of startup" hook-with-handoff.json; then
+  echo "expected startup hook to point to handoff without injecting full handoff" >&2
+  exit 1
+fi
+node "$CLI" --handoff-show > handoff-show.log
+grep -q "Project Librarian handoff: updated" handoff-show.log
+node "$CLI" --handoff-status > handoff-status.json
+node -e 'const s=require("./handoff-status.json"); if (!s.exists || !s.safeToInject || s.path!==".project-wiki/session/last-handoff.md") process.exit(1)'
+node "$CLI" --handoff-promote-inbox > handoff-promote.log
+grep -q "promoted to wiki inbox" handoff-promote.log
+grep -q "session-handoff" wiki/inbox/project-candidates.md
+node "$CLI" --handoff-injection-status > handoff-injection-before.json
+node -e 'const s=require("./handoff-injection-before.json"); if (s.enabled || s.safeToInject) process.exit(1)'
+node "$CLI" --handoff-injection-enable > handoff-injection-enable.log
+grep -q "full injection enabled" handoff-injection-enable.log
+node .codex/hooks/wiki-session-start.js > hook-with-full-handoff.json
+grep -q "Full Session Handoff" hook-with-full-handoff.json
+grep -q "Smoke handoff" hook-with-full-handoff.json
+node "$CLI" --handoff-injection-disable > handoff-injection-disable.log
+grep -q "injection-state.json=removed" handoff-injection-disable.log
+node "$CLI" --handoff-clear > handoff-clear.log
+grep -q "last-handoff.md=removed" handoff-clear.log
 
 node "$CLI" --glossary-init
 test -f wiki/canonical/glossary.md

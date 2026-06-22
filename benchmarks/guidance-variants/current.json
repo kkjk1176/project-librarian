@@ -6,10 +6,9 @@
       "label": "Current generated guidance",
       "agent_surfaces": ["codex"],
       "source_files": [
-        "AGENTS.md",
-        "wiki/startup.md",
-        "wiki/index.md"
+        "AGENTS.md"
       ],
+      "inline_guidance": "This source checkout ignores generated wiki/ files, so the current benchmark variant uses AGENTS.md plus the generated startup/index contract: read wiki/startup.md for compact current context and wiki/index.md as the router, then route to canonical, plans, decisions, sources, inbox, or meta pages only when the task needs them.",
       "notes": "Current repo-local startup and router guidance."
     },
     {

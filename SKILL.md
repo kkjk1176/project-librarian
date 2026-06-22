@@ -19,6 +19,7 @@ Supported actions:
 - Search project wiki content.
 - Refresh the wiki index.
 - Capture a candidate note into the wiki inbox.
+- Save, show, inspect, promote, inject, or clear generated local session handoff state under `.project-wiki/session/`.
 - Check for pending, stale, proposed, or undecided wiki pages.
 - Draft a GitHub issue body for problems or side effects found while using the skill.
 - Initialize a project glossary.
@@ -79,6 +80,12 @@ Map lifecycle requests to these internal operations:
 - Search the wiki: `$PROJECT_LIBRARIAN --query "search terms"`.
 - Refresh wiki routing/index: `$PROJECT_LIBRARIAN --refresh-index`.
 - Capture a project candidate: `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate title" --content "Candidate content"`.
+- Save generated session handoff state: `$PROJECT_LIBRARIAN --handoff-save --goal "Goal" --state "Current state" --next "Next action"`.
+- Show the last generated session handoff: `$PROJECT_LIBRARIAN --handoff-show`.
+- Inspect generated session handoff status: `$PROJECT_LIBRARIAN --handoff-status`.
+- Clear generated session handoff state: `$PROJECT_LIBRARIAN --handoff-clear`.
+- Promote selected generated handoff facts to the wiki inbox: `$PROJECT_LIBRARIAN --handoff-promote-inbox`.
+- Enable, disable, or inspect the capped full handoff injection experiment: `$PROJECT_LIBRARIAN --handoff-injection-enable`, `$PROJECT_LIBRARIAN --handoff-injection-disable`, or `$PROJECT_LIBRARIAN --handoff-injection-status`.
 - Check stale/pending pages: `$PROJECT_LIBRARIAN --prune-check`.
 - Draft a GitHub issue body for a skill problem or side effect: `$PROJECT_LIBRARIAN --issue-draft --issue-title "Issue title"`.
 - After explicit user approval in a GitHub-backed repository, create the issue through GitHub CLI: `$PROJECT_LIBRARIAN --issue-create --issue-title "Issue title"`.
@@ -121,7 +128,9 @@ Use `--lint` for read-only validation:
 $PROJECT_LIBRARIAN --lint
 ```
 
-Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
+Use `--query`, `--handoff-show`, `--handoff-status`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--handoff-save`, `--handoff-clear`, `--glossary-init`, and `--migrate` only when updating local project-librarian files is intended.
+
+Session handoff files are generated local reference data, not canonical wiki truth. Do not promote handoff content into `wiki/canonical/`, `wiki/plans/`, or `wiki/decisions/` automatically; capture stable project-planning facts through the inbox/taxonomy workflow first.
 
 Use `--review-migration` or `--semantic-migrate` after migration coverage or compatible inbox rows are processed. It syncs unit coverage and safe file-level inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
@@ -309,6 +318,10 @@ These modes preserve this project's stricter source-of-truth boundaries:
 - `--issue-draft --issue-title "..."`: read-only Markdown problem-report draft for skill failures, side effects, confusing behavior, or generated-file surprises. It does not create a GitHub issue or require network access.
 - `--refresh-index`: updates a managed auto-discovered block in `wiki/index.md` for wiki files not routed by the hand-written index.
 - `--capture-inbox --title "..." --content "..."`: appends a project-candidate row to `wiki/inbox/project-candidates.md` and routes the inbox from `wiki/index.md`.
+- `--handoff-save --goal "..." --state "..." --next "..."`: writes generated local resume context under `.project-wiki/session/`; repeat `--next`, `--decision`, `--blocked`, `--open-question`, and `--verification` as needed.
+- `--handoff-show`, `--handoff-status`, `--handoff-clear`: print, inspect, or remove generated handoff state. Startup hooks only mention that a handoff exists; they do not inject the full handoff by default.
+- `--handoff-promote-inbox`: appends selected generated handoff facts to `wiki/inbox/project-candidates.md` as pending candidate material. It does not write canonical, plan, or decision pages.
+- `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status`: opt in, opt out, or inspect the capped full handoff injection experiment. Keep it off by default unless measured resume behavior justifies the added startup context.
 - `--prune-check`: read-only report of active wiki pages with pending/proposed/stale review signals.
 
 Captured inbox entries are not canonical. Fold them into `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, or `wiki/meta/` only after review.

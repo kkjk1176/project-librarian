@@ -134,3 +134,45 @@ test("parseArgs handles strict prune-check mode", () => {
   assert.equal(parsed.pruneCheckMode, true);
   assert.equal(parsed.pruneCheckStrictMode, true);
 });
+
+test("parseArgs handles session handoff modes and fields", () => {
+  const parsed = parseArgs([
+    "--handoff-save",
+    "--goal=Ship handoff",
+    "--state",
+    "Implementation started",
+    "--blocked",
+    "none",
+    "--next",
+    "Add tests",
+    "--next=Run build",
+    "--decision",
+    "Pointer only",
+    "--open-question",
+    "Benchmark later?",
+    "--last-success-command",
+    "npm run build",
+    "--last-failure-command",
+    "npm test",
+    "--verification",
+    "unit tests",
+  ]);
+  assert.equal(parsed.handoffSaveMode, true);
+  assert.equal(parsed.handoffInputMode, true);
+  assert.equal(parsed.handoffGoal, "Ship handoff");
+  assert.equal(parsed.handoffState, "Implementation started");
+  assert.deepEqual(parsed.handoffBlocked, ["none"]);
+  assert.deepEqual(parsed.handoffNextActions, ["Add tests", "Run build"]);
+  assert.deepEqual(parsed.handoffDecisions, ["Pointer only"]);
+  assert.deepEqual(parsed.handoffOpenQuestions, ["Benchmark later?"]);
+  assert.equal(parsed.handoffLastSuccessCommand, "npm run build");
+  assert.equal(parsed.handoffLastFailureCommand, "npm test");
+  assert.deepEqual(parsed.handoffVerification, ["unit tests"]);
+});
+
+test("parseArgs handles session handoff promotion and injection modes", () => {
+  assert.equal(parseArgs(["--handoff-promote-inbox"]).handoffPromoteInboxMode, true);
+  assert.equal(parseArgs(["--handoff-injection-enable"]).handoffInjectionEnableMode, true);
+  assert.equal(parseArgs(["--handoff-injection-disable"]).handoffInjectionDisableMode, true);
+  assert.equal(parseArgs(["--handoff-injection-status"]).handoffInjectionStatusMode, true);
+});

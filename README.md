@@ -63,6 +63,7 @@ npx project-librarian@latest install --scope user --agents all
 - **Structured wiki writing.** New project content is classified through `wiki/meta/document-taxonomy.md` before it is written or consolidated, so PRDs, policies, UX, data, APIs, QA, release, and operations notes do not collapse into one catch-all page.
 - **Inspectable wiki graph.** `--wiki-visualize` writes a self-contained HTML graph under `.project-wiki/`, showing page types, router depth, backlinks, and decision references without adding to startup context.
 - **Measured, not hand-wavy.** Every performance claim comes from hermetic Codex benchmarks — and the cases where it costs *more* are shown right next to the wins.
+- **Local session handoff.** `--handoff-save` writes generated resume notes under `.project-wiki/session/`; startup hooks only point to it, so rolling execution memory does not become canonical wiki truth.
 - **Optional code evidence.** A regenerable SQLite index plus answer-shaped MCP tools answer impact, ownership, and workspace-graph questions, with zero extra runtime dependencies.
 - **Safe to re-run.** Bootstrap is idempotent and preservation-first; diagnostics flag broken routes, unreachable pages, and stale truth before they mislead an agent.
 
@@ -80,6 +81,7 @@ Project Librarian gives agents two local sources of truth:
 | `.codex/`, `.claude/`, `.cursor/`, and `.gemini/` hooks | Automatic startup context for Codex, Claude Code, Cursor, and Gemini CLI without loading the full wiki. |
 | `GEMINI.md` and `.cursor/rules/` | Gemini CLI and Cursor instruction files that route agents to the same compact wiki-first contract. |
 | `.project-wiki/code-evidence.sqlite` | Regenerable code evidence for files, symbols, imports, routes, ownership, workspace graph, reports, and impact checks. |
+| `.project-wiki/session/last-handoff.md` | Optional generated local handoff for the last session's goal, state, blockers, next actions, decisions, commands, and verification. It is reference data, not project truth. |
 | `.project-wiki/wiki-graph.html` | Optional static wiki graph visualizer with derived concept types, router reachability, links, backlinks, and decision references. |
 | Diagnostics and migration modes | Link checks, quality checks, migration inboxes, stale-signal reports, and issue drafts when the workflow exposes a problem. |
 
@@ -207,6 +209,10 @@ Wiki setup and maintenance:
 | Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for decisions/release-policy." | `--wiki-impact "decisions/release-policy"` |
 | Generate a wiki graph visualizer | "Generate the Project Librarian wiki graph visualizer." | `--wiki-visualize` |
 | Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
+| Save a session handoff | "Save a Project Librarian session handoff for the current work." | `--handoff-save --goal "..." --state "..." --next "..."` |
+| Resume from a handoff | "Show the last Project Librarian session handoff." | `--handoff-show` |
+| Promote handoff candidates | "Promote the last Project Librarian handoff to the wiki inbox." | `--handoff-promote-inbox` |
+| Opt in to full handoff injection | "Enable the Project Librarian full handoff injection experiment." | `--handoff-injection-enable` |
 | Report stale or unresolved wiki pages | "Check Project Librarian for stale or unresolved pages." | `--prune-check` |
 | Report only higher-signal stale or unresolved wiki pages | "Check Project Librarian for strict stale or unresolved pages." | `--prune-check --prune-check-strict` |
 | Install hook files without changing git config | "Set up Project Librarian hook files without changing git config." | `--no-git-config` |
@@ -383,6 +389,10 @@ Important options:
 | `--wiki-visualize-out <path>` | With `--wiki-visualize`, write to a custom repository-relative path under `.project-wiki/`. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
 | `--capture-inbox --title <title> --content <content>` | Append a candidate note to the wiki inbox. |
+| `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, and `--verification` as needed. |
+| `--handoff-show`, `--handoff-status`, `--handoff-clear` | Print, inspect, or remove generated session handoff state. Startup hooks mention the handoff when it exists but do not inject the full file by default. |
+| `--handoff-promote-inbox` | Append selected generated handoff facts to `wiki/inbox/project-candidates.md` as a pending candidate. It does not write canonical, plan, or decision pages. |
+| `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status` | Opt in, opt out, or inspect the capped full handoff injection experiment. Default startup behavior remains pointer-only. |
 | `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |
 | `--issue-create --issue-title <title>` | Create a GitHub issue through `gh` after explicit user approval. |
 | `--glossary-init` | Create and route the optional glossary page. |

@@ -15,6 +15,7 @@ const requiredPackFiles = [
   "README.ko.md",
   "SKILL.md",
   "dist/init-project-wiki.js",
+  "dist/session-handoff.js",
   "package.json",
 ];
 
@@ -46,6 +47,7 @@ Runs local-only release checks:
   - npm test
   - native Node test coverage
   - benchmark JSONL parser smoke
+  - session handoff resume preview
   - multi-agent generated-surface smoke
   - real-corpus offline demo
   - benchmark release payload preview
@@ -322,6 +324,11 @@ function main() {
   printStep(parseSmoke);
   results.push(parseSmoke);
   if (!parseSmoke.ok) fail("release readiness failed: benchmark parser smoke");
+
+  const handoffResumePreview = runCommand("session handoff resume preview", "npm", ["run", "benchmark:handoff-resume:preview"]);
+  printStep(handoffResumePreview);
+  results.push(handoffResumePreview);
+  if (!handoffResumePreview.ok) fail("release readiness failed: session handoff resume preview");
 
   const agentSurfaceSmoke = runCommand("agent surface smoke", "npm", ["run", "benchmark:agent-surface-smoke"]);
   printStep(agentSurfaceSmoke);

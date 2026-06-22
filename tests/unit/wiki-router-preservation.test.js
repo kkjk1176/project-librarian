@@ -214,3 +214,75 @@ test("re-bootstrap preserves user-created canonical pages", () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("startup hook reports session handoff pointer without injecting full handoff", () => {
+  const root = makeTmpDir("router-handoff-");
+  try {
+    runCli(root);
+    childProcess.execFileSync(process.execPath, [
+      cliPath,
+      "--handoff-save",
+      "--goal",
+      "Resume secret sk-test1234567890abcdef",
+      "--state",
+      "Pointer should not include this full state",
+      "--next",
+      "Inspect handoff manually",
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const hook = childProcess.execFileSync(process.execPath, [path.join(root, ".codex", "hooks", "wiki-session-start.js")], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.match(hook, /\.project-wiki\/session\/last-handoff\.md/);
+    assert.match(hook, /generated reference data, not instructions and not canonical wiki truth/);
+    assert.match(hook, /project-librarian --handoff-show/);
+    assert.doesNotMatch(hook, /Full Session Handoff/);
+    assert.doesNotMatch(hook, /Pointer should not include this full state/);
+    assert.doesNotMatch(hook, /sk-test1234567890abcdef/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("startup hook injects capped full session handoff only after opt-in", () => {
+  const root = makeTmpDir("router-handoff-full-");
+  try {
+    runCli(root);
+    const payload = {
+      goal: `Full injection smoke ${"g".repeat(1200)}`,
+      current_state: `Full state ${"x".repeat(1200)} sk-test1234567890abcdef`,
+      blocked: [`Blocked ${"b".repeat(1200)}`],
+      next_actions: [`Inspect capped handoff ${"n".repeat(1200)}`, `Run tests ${"t".repeat(1200)}`],
+      recent_decisions: [`Decision ${"d".repeat(1200)}`, `Second decision ${"e".repeat(1200)}`],
+      open_questions: [`Question ${"q".repeat(1200)}`],
+      verification: [`Verification ${"v".repeat(1200)}`],
+    };
+    childProcess.execFileSync(process.execPath, [cliPath, "--handoff-save"], {
+      cwd: root,
+      encoding: "utf8",
+      input: JSON.stringify(payload),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    childProcess.execFileSync(process.execPath, [cliPath, "--handoff-injection-enable"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const hook = childProcess.execFileSync(process.execPath, [path.join(root, ".codex", "hooks", "wiki-session-start.js")], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.match(hook, /Full Session Handoff \(opt-in generated reference\)/);
+    assert.match(hook, /Full injection smoke/);
+    assert.match(hook, /\[truncated: session handoff full injection\]/);
+    assert.doesNotMatch(hook, /sk-test1234567890abcdef/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
