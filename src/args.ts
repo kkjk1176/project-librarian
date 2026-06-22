@@ -35,6 +35,24 @@ export interface ParsedArgs {
   fixMode: boolean;
   glossaryMode: boolean;
   helpMode: boolean;
+  handoffBlocked: string[];
+  handoffClearMode: boolean;
+  handoffDecisions: string[];
+  handoffGoal: string;
+  handoffInputMode: boolean;
+  handoffLastFailureCommand: string;
+  handoffLastSuccessCommand: string;
+  handoffNextActions: string[];
+  handoffOpenQuestions: string[];
+  handoffInjectionDisableMode: boolean;
+  handoffInjectionEnableMode: boolean;
+  handoffInjectionStatusMode: boolean;
+  handoffPromoteInboxMode: boolean;
+  handoffSaveMode: boolean;
+  handoffShowMode: boolean;
+  handoffState: string;
+  handoffStatusMode: boolean;
+  handoffVerification: string[];
   issueBodyFile: string;
   issueCreateMode: boolean;
   issueDraftMode: boolean;
@@ -101,6 +119,23 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--dry-run", value: "none" },
   { name: "--fix", value: "none" },
   { name: "--glossary-init", value: "none" },
+  { name: "--blocked", value: "value" },
+  { name: "--decision", value: "value" },
+  { name: "--goal", value: "value" },
+  { name: "--handoff-clear", value: "none" },
+  { name: "--handoff-injection-disable", value: "none" },
+  { name: "--handoff-injection-enable", value: "none" },
+  { name: "--handoff-injection-status", value: "none" },
+  { name: "--handoff-promote-inbox", value: "none" },
+  { name: "--handoff-save", value: "none" },
+  { name: "--handoff-show", value: "none" },
+  { name: "--handoff-status", value: "none" },
+  { name: "--last-failure-command", value: "value" },
+  { name: "--last-success-command", value: "value" },
+  { name: "--next", value: "value" },
+  { name: "--open-question", value: "value" },
+  { name: "--state", value: "value" },
+  { name: "--verification", value: "value" },
   { name: "--issue-body-file", value: "value" },
   { name: "--issue-create", value: "none" },
   { name: "--issue-draft", value: "none" },
@@ -211,6 +246,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const codeQuerySql = argValueFromAny("--code-query");
   const codeSearchSymbol = argValueFromAny("--code-search-symbol");
   const parsedAgentTargets = parseAgentSurfaceValues(argValues("--agents"));
+  const handoffInputMode = [
+    "--blocked",
+    "--decision",
+    "--goal",
+    "--last-failure-command",
+    "--last-success-command",
+    "--next",
+    "--open-question",
+    "--state",
+    "--verification",
+  ].some(hasFlag);
   return {
     acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
     agentTargets: parsedAgentTargets.surfaces,
@@ -245,6 +291,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
     fixMode: args.has("--fix"),
     glossaryMode: args.has("--glossary-init"),
     helpMode: argv.includes("--help") || argv.includes("-h"),
+    handoffBlocked: argValues("--blocked"),
+    handoffClearMode: args.has("--handoff-clear"),
+    handoffDecisions: argValues("--decision"),
+    handoffGoal: argValue("--goal"),
+    handoffInputMode,
+    handoffLastFailureCommand: argValue("--last-failure-command"),
+    handoffLastSuccessCommand: argValue("--last-success-command"),
+    handoffNextActions: argValues("--next"),
+    handoffOpenQuestions: argValues("--open-question"),
+    handoffInjectionDisableMode: args.has("--handoff-injection-disable"),
+    handoffInjectionEnableMode: args.has("--handoff-injection-enable"),
+    handoffInjectionStatusMode: args.has("--handoff-injection-status"),
+    handoffPromoteInboxMode: args.has("--handoff-promote-inbox"),
+    handoffSaveMode: args.has("--handoff-save"),
+    handoffShowMode: args.has("--handoff-show"),
+    handoffState: argValue("--state"),
+    handoffStatusMode: args.has("--handoff-status"),
+    handoffVerification: argValues("--verification"),
     issueBodyFile: argValue("--issue-body-file"),
     issueCreateMode: args.has("--issue-create"),
     issueDraftMode: args.has("--issue-draft"),
@@ -302,6 +366,24 @@ export const qualityCheckMode = parsedArgs.qualityCheckMode;
 export const doctorMode = parsedArgs.doctorMode;
 export const fixMode = parsedArgs.fixMode;
 export const glossaryMode = parsedArgs.glossaryMode;
+export const handoffBlocked = parsedArgs.handoffBlocked;
+export const handoffClearMode = parsedArgs.handoffClearMode;
+export const handoffDecisions = parsedArgs.handoffDecisions;
+export const handoffGoal = parsedArgs.handoffGoal;
+export const handoffInputMode = parsedArgs.handoffInputMode;
+export const handoffLastFailureCommand = parsedArgs.handoffLastFailureCommand;
+export const handoffLastSuccessCommand = parsedArgs.handoffLastSuccessCommand;
+export const handoffNextActions = parsedArgs.handoffNextActions;
+export const handoffOpenQuestions = parsedArgs.handoffOpenQuestions;
+export const handoffInjectionDisableMode = parsedArgs.handoffInjectionDisableMode;
+export const handoffInjectionEnableMode = parsedArgs.handoffInjectionEnableMode;
+export const handoffInjectionStatusMode = parsedArgs.handoffInjectionStatusMode;
+export const handoffPromoteInboxMode = parsedArgs.handoffPromoteInboxMode;
+export const handoffSaveMode = parsedArgs.handoffSaveMode;
+export const handoffShowMode = parsedArgs.handoffShowMode;
+export const handoffState = parsedArgs.handoffState;
+export const handoffStatusMode = parsedArgs.handoffStatusMode;
+export const handoffVerification = parsedArgs.handoffVerification;
 export const issueCreateMode = parsedArgs.issueCreateMode;
 export const issueDraftMode = parsedArgs.issueDraftMode;
 export const refreshIndexMode = parsedArgs.refreshIndexMode;

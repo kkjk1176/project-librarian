@@ -37,6 +37,7 @@ test("release readiness package inspection requires shipped surface and rejects 
     "README.ko.md",
     "SKILL.md",
     "dist/init-project-wiki.js",
+    "dist/session-handoff.js",
     "package.json",
   ]);
   assert.equal(ok.ok, true);
@@ -47,6 +48,7 @@ test("release readiness package inspection requires shipped surface and rejects 
     "README.ko.md",
     "SKILL.md",
     "dist/init-project-wiki.js",
+    "dist/session-handoff.js",
     "package.json",
     "wiki/startup.md",
     ".omx/state/session.json",

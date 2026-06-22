@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckStrictMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.invalidAgentTargets = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.agentTargets = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = void 0;
+exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckStrictMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.handoffVerification = exports.handoffStatusMode = exports.handoffState = exports.handoffShowMode = exports.handoffSaveMode = exports.handoffPromoteInboxMode = exports.handoffInjectionStatusMode = exports.handoffInjectionEnableMode = exports.handoffInjectionDisableMode = exports.handoffOpenQuestions = exports.handoffNextActions = exports.handoffLastSuccessCommand = exports.handoffLastFailureCommand = exports.handoffInputMode = exports.handoffGoal = exports.handoffDecisions = exports.handoffClearMode = exports.handoffBlocked = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.invalidAgentTargets = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.agentTargets = exports.parsedArgs = exports.rawArgs = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -34,6 +34,23 @@ const flagDefinitions = [
     { name: "--dry-run", value: "none" },
     { name: "--fix", value: "none" },
     { name: "--glossary-init", value: "none" },
+    { name: "--blocked", value: "value" },
+    { name: "--decision", value: "value" },
+    { name: "--goal", value: "value" },
+    { name: "--handoff-clear", value: "none" },
+    { name: "--handoff-injection-disable", value: "none" },
+    { name: "--handoff-injection-enable", value: "none" },
+    { name: "--handoff-injection-status", value: "none" },
+    { name: "--handoff-promote-inbox", value: "none" },
+    { name: "--handoff-save", value: "none" },
+    { name: "--handoff-show", value: "none" },
+    { name: "--handoff-status", value: "none" },
+    { name: "--last-failure-command", value: "value" },
+    { name: "--last-success-command", value: "value" },
+    { name: "--next", value: "value" },
+    { name: "--open-question", value: "value" },
+    { name: "--state", value: "value" },
+    { name: "--verification", value: "value" },
     { name: "--issue-body-file", value: "value" },
     { name: "--issue-create", value: "none" },
     { name: "--issue-draft", value: "none" },
@@ -138,6 +155,17 @@ function parseArgs(argv) {
     const codeQuerySql = argValueFromAny("--code-query");
     const codeSearchSymbol = argValueFromAny("--code-search-symbol");
     const parsedAgentTargets = (0, agent_surfaces_1.parseAgentSurfaceValues)(argValues("--agents"));
+    const handoffInputMode = [
+        "--blocked",
+        "--decision",
+        "--goal",
+        "--last-failure-command",
+        "--last-success-command",
+        "--next",
+        "--open-question",
+        "--state",
+        "--verification",
+    ].some(hasFlag);
     return {
         acknowledgeSmallRepoMode: args.has("--acknowledge-small-repo"),
         agentTargets: parsedAgentTargets.surfaces,
@@ -172,6 +200,24 @@ function parseArgs(argv) {
         fixMode: args.has("--fix"),
         glossaryMode: args.has("--glossary-init"),
         helpMode: argv.includes("--help") || argv.includes("-h"),
+        handoffBlocked: argValues("--blocked"),
+        handoffClearMode: args.has("--handoff-clear"),
+        handoffDecisions: argValues("--decision"),
+        handoffGoal: argValue("--goal"),
+        handoffInputMode,
+        handoffLastFailureCommand: argValue("--last-failure-command"),
+        handoffLastSuccessCommand: argValue("--last-success-command"),
+        handoffNextActions: argValues("--next"),
+        handoffOpenQuestions: argValues("--open-question"),
+        handoffInjectionDisableMode: args.has("--handoff-injection-disable"),
+        handoffInjectionEnableMode: args.has("--handoff-injection-enable"),
+        handoffInjectionStatusMode: args.has("--handoff-injection-status"),
+        handoffPromoteInboxMode: args.has("--handoff-promote-inbox"),
+        handoffSaveMode: args.has("--handoff-save"),
+        handoffShowMode: args.has("--handoff-show"),
+        handoffState: argValue("--state"),
+        handoffStatusMode: args.has("--handoff-status"),
+        handoffVerification: argValues("--verification"),
         issueBodyFile: argValue("--issue-body-file"),
         issueCreateMode: args.has("--issue-create"),
         issueDraftMode: args.has("--issue-draft"),
@@ -228,6 +274,24 @@ exports.qualityCheckMode = exports.parsedArgs.qualityCheckMode;
 exports.doctorMode = exports.parsedArgs.doctorMode;
 exports.fixMode = exports.parsedArgs.fixMode;
 exports.glossaryMode = exports.parsedArgs.glossaryMode;
+exports.handoffBlocked = exports.parsedArgs.handoffBlocked;
+exports.handoffClearMode = exports.parsedArgs.handoffClearMode;
+exports.handoffDecisions = exports.parsedArgs.handoffDecisions;
+exports.handoffGoal = exports.parsedArgs.handoffGoal;
+exports.handoffInputMode = exports.parsedArgs.handoffInputMode;
+exports.handoffLastFailureCommand = exports.parsedArgs.handoffLastFailureCommand;
+exports.handoffLastSuccessCommand = exports.parsedArgs.handoffLastSuccessCommand;
+exports.handoffNextActions = exports.parsedArgs.handoffNextActions;
+exports.handoffOpenQuestions = exports.parsedArgs.handoffOpenQuestions;
+exports.handoffInjectionDisableMode = exports.parsedArgs.handoffInjectionDisableMode;
+exports.handoffInjectionEnableMode = exports.parsedArgs.handoffInjectionEnableMode;
+exports.handoffInjectionStatusMode = exports.parsedArgs.handoffInjectionStatusMode;
+exports.handoffPromoteInboxMode = exports.parsedArgs.handoffPromoteInboxMode;
+exports.handoffSaveMode = exports.parsedArgs.handoffSaveMode;
+exports.handoffShowMode = exports.parsedArgs.handoffShowMode;
+exports.handoffState = exports.parsedArgs.handoffState;
+exports.handoffStatusMode = exports.parsedArgs.handoffStatusMode;
+exports.handoffVerification = exports.parsedArgs.handoffVerification;
 exports.issueCreateMode = exports.parsedArgs.issueCreateMode;
 exports.issueDraftMode = exports.parsedArgs.issueDraftMode;
 exports.refreshIndexMode = exports.parsedArgs.refreshIndexMode;

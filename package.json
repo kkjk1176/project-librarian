@@ -49,6 +49,7 @@
     "benchmark:guidance": "npm run build && node benchmarks/tools/guidance-probe-runner.js",
     "benchmark:guidance:dry-run": "npm run build && node benchmarks/tools/guidance-probe-runner.js --dry-run --markdown",
     "benchmark:injection-sentinel": "node benchmarks/tools/injection-sentinel.js",
+    "benchmark:handoff-resume:preview": "node benchmarks/tools/session-handoff-resume-preview.js",
     "benchmark:agent-surface-smoke": "node benchmarks/tools/agent-surface-smoke.js",
     "benchmark:claim-ledger": "node benchmarks/tools/benchmark-claim-ledger.js benchmarks/llm/samples/codex-measured-report.json benchmarks/reports/llm/payload-preview.json",
     "benchmark:real-corpus:demo": "npm run build && node benchmarks/tools/real-corpus-offline-demo.js",
