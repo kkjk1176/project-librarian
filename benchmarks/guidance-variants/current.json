@@ -6,9 +6,17 @@
       "label": "Current generated guidance",
       "agent_surfaces": ["codex"],
       "source_files": [
-        "AGENTS.md",
-        "wiki/startup.md",
-        "wiki/index.md"
+        "AGENTS.md"
+      ],
+      "generated_sources": [
+        {
+          "path": "wiki/startup.md",
+          "template": "startup"
+        },
+        {
+          "path": "wiki/index.md",
+          "template": "index"
+        }
       ],
       "notes": "Current repo-local startup and router guidance."
     },

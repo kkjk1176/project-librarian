@@ -4,6 +4,11 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
+const generatedTemplateSources = {
+  startup: "startup",
+  index: "index",
+};
+
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
@@ -23,6 +28,34 @@ function normalizeRelativePath(value) {
   return normalized;
 }
 
+function validateGeneratedSource(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("guidance variant generated source must be an object");
+  }
+  const sourcePath = normalizeRelativePath(raw.path);
+  if (!raw.template || typeof raw.template !== "string") {
+    throw new Error(`guidance variant generated source ${sourcePath} requires template`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(generatedTemplateSources, raw.template)) {
+    throw new Error(`unknown guidance variant generated source template for ${sourcePath}: ${raw.template}`);
+  }
+  return {
+    path: sourcePath,
+    template: raw.template,
+  };
+}
+
+function assertUniqueSourcePaths(variantId, sources) {
+  const seen = new Set();
+  for (const source of sources) {
+    const sourcePath = typeof source === "string" ? source : source.path;
+    if (seen.has(sourcePath)) {
+      throw new Error(`guidance variant ${variantId} declares duplicate source path: ${sourcePath}`);
+    }
+    seen.add(sourcePath);
+  }
+}
+
 function validateVariant(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("guidance variant must be an object");
@@ -34,15 +67,18 @@ function validateVariant(raw) {
     throw new Error(`invalid guidance variant_id: ${raw.variant_id}`);
   }
   const sourceFiles = Array.isArray(raw.source_files) ? raw.source_files.map(normalizeRelativePath) : [];
+  const generatedSources = Array.isArray(raw.generated_sources) ? raw.generated_sources.map(validateGeneratedSource) : [];
+  assertUniqueSourcePaths(raw.variant_id, [...sourceFiles, ...generatedSources]);
   const inlineGuidance = typeof raw.inline_guidance === "string" ? raw.inline_guidance : "";
-  if (sourceFiles.length === 0 && inlineGuidance.trim().length === 0) {
-    throw new Error(`guidance variant ${raw.variant_id} needs source_files or inline_guidance`);
+  if (sourceFiles.length === 0 && generatedSources.length === 0 && inlineGuidance.trim().length === 0) {
+    throw new Error(`guidance variant ${raw.variant_id} needs source_files, generated_sources, or inline_guidance`);
   }
   return {
     variant_id: raw.variant_id,
     label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : raw.variant_id,
     agent_surfaces: Array.isArray(raw.agent_surfaces) ? raw.agent_surfaces.map(String) : ["codex"],
     source_files: sourceFiles,
+    generated_sources: generatedSources,
     inline_guidance: inlineGuidance,
     notes: typeof raw.notes === "string" ? raw.notes : "",
   };
@@ -78,6 +114,32 @@ function readSourceFiles(root, sourceFiles) {
     const content = fs.readFileSync(absolute, "utf8");
     return {
       path: relative,
+      source_type: "file",
+      sha256: sha256(content),
+      char_count: content.length,
+      content,
+    };
+  });
+}
+
+function loadTemplateSource(templateName) {
+  const templatesPath = path.resolve(__dirname, "..", "..", "dist", "templates.js");
+  const templates = require(templatesPath);
+  const exportName = generatedTemplateSources[templateName];
+  const content = templates[exportName];
+  if (typeof content !== "string" || content.length === 0) {
+    throw new Error(`guidance variant generated source template has no string export: ${templateName}`);
+  }
+  return content;
+}
+
+function readGeneratedSources(generatedSources) {
+  return generatedSources.map((source) => {
+    const content = loadTemplateSource(source.template);
+    return {
+      path: source.path,
+      source_type: "generated_template",
+      template: source.template,
       sha256: sha256(content),
       char_count: content.length,
       content,
@@ -97,7 +159,10 @@ function renderVariantGuidance(variant, sourceContents) {
 }
 
 function resolveGuidanceVariant(variant, { root }) {
-  const source_contents = readSourceFiles(root, variant.source_files);
+  const source_contents = [
+    ...readSourceFiles(root, variant.source_files),
+    ...readGeneratedSources(variant.generated_sources),
+  ];
   const guidance_text = renderVariantGuidance(variant, source_contents);
   return {
     ...variant,

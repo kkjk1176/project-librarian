@@ -43,6 +43,36 @@ test("guidance probes and variants load with current repo sources", () => {
   assert.equal(variants.variants.length, 2);
   assert(variants.variants[0].digest.value.length >= 32);
   assert(variants.variants[0].source_contents.some((source) => source.path === "AGENTS.md"));
+  assert(variants.variants[0].source_contents.some(
+    (source) => source.path === "wiki/startup.md" && source.source_type === "generated_template",
+  ));
+  assert(variants.variants[0].source_contents.some(
+    (source) => source.path === "wiki/index.md" && source.source_type === "generated_template",
+  ));
+});
+
+test("current guidance variant does not require ignored live wiki files", () => {
+  const dir = tmpDir();
+  fs.mkdirSync(path.join(dir, "benchmarks", "guidance-variants"), { recursive: true });
+  fs.copyFileSync(path.join(root, "AGENTS.md"), path.join(dir, "AGENTS.md"));
+  fs.copyFileSync(
+    defaultGuidanceVariantsPath(root),
+    path.join(dir, "benchmarks", "guidance-variants", "current.json"),
+  );
+
+  const variants = resolveGuidanceVariants({
+    root: dir,
+    variantsPath: defaultGuidanceVariantsPath(dir),
+    variantIds: ["current"],
+  });
+  assert.equal(variants.variants.length, 1);
+  assert(!fs.existsSync(path.join(dir, "wiki", "startup.md")));
+  assert(variants.variants[0].source_contents.some(
+    (source) => source.path === "wiki/startup.md" && source.template === "startup",
+  ));
+  assert(variants.variants[0].source_contents.some(
+    (source) => source.path === "wiki/index.md" && source.template === "index",
+  ));
 });
 
 test("guidance prompt includes variant digest and probe task", () => {
