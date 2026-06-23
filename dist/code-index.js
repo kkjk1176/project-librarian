@@ -114,7 +114,7 @@ function normalizedMtimeMs(stat) {
     return Number(stat.mtimeMs.toFixed(3));
 }
 function readCodeFileFingerprint(relativePath) {
-    const stat = fs.statSync((0, workspace_1.abs)(relativePath));
+    const { stat } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
     return {
         mtimeMs: normalizedMtimeMs(stat),
         path: relativePath,
@@ -122,7 +122,8 @@ function readCodeFileFingerprint(relativePath) {
     };
 }
 function readCodeFile(relativePath, parserMode = "default") {
-    const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
+    const { absolutePath } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    const text = fs.readFileSync(absolutePath, "utf8");
     const fingerprint = readCodeFileFingerprint(relativePath);
     const language = (0, code_index_file_policy_1.fileLanguage)(relativePath) || "config";
     return {
@@ -383,7 +384,7 @@ function prepareOutputPath() {
     const databasePath = codeEvidenceDatabasePath();
     (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
     (0, workspace_1.mkdirp)(code_index_file_policy_1.codeEvidenceDirectory);
-    fs.writeFileSync((0, workspace_1.abs)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
+    (0, workspace_1.write)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`, "*\n!.gitignore\n");
 }
 function codeIndexModeRuntime() {
     return {

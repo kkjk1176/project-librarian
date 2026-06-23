@@ -80,24 +80,117 @@ function installTarget(agent: AgentSurface, scope: InstallScope): string {
   return path.join(base, "skills", skillName);
 }
 
+function assertNoTargetSymlink(targetRoot: string, target: string, includeLeaf: boolean): void {
+  const rootResolved = path.resolve(targetRoot);
+  const targetResolved = path.resolve(target);
+  if (targetResolved !== rootResolved && !targetResolved.startsWith(`${rootResolved}${path.sep}`)) {
+    fail(`skill install target escaped target root: ${target}`);
+  }
+  if (fs.existsSync(rootResolved) && fs.lstatSync(rootResolved).isSymbolicLink()) {
+    fail("skill install refuses to follow destination symlink: .");
+  }
+  const relative = path.relative(rootResolved, targetResolved);
+  const parts = relative ? relative.split(path.sep).filter(Boolean) : [];
+  const checkedParts = includeLeaf ? parts : parts.slice(0, -1);
+  let current = rootResolved;
+  for (const part of checkedParts) {
+    current = path.join(current, part);
+    if (!fs.existsSync(current)) continue;
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) {
+      fail(`skill install refuses to follow destination symlink: ${path.relative(rootResolved, current) || "."}`);
+    }
+    if (current !== targetResolved && !stat.isDirectory()) {
+      fail(`skill install target has a non-directory path component: ${path.relative(rootResolved, current)}`);
+    }
+  }
+}
+
+function isInsidePath(base: string, target: string): boolean {
+  const baseResolved = path.resolve(base);
+  const targetResolved = path.resolve(target);
+  return targetResolved === baseResolved || targetResolved.startsWith(`${baseResolved}${path.sep}`);
+}
+
+function mkdirFromBaseNoSymlink(base: string, target: string): void {
+  const baseResolved = path.resolve(base);
+  const targetResolved = path.resolve(target);
+  if (!isInsidePath(baseResolved, targetResolved)) {
+    fail(`skill install target escaped checked base: ${target}`);
+  }
+  let current = baseResolved;
+  const parts = path.relative(baseResolved, targetResolved).split(path.sep).filter(Boolean);
+  for (const part of parts) {
+    current = path.join(current, part);
+    if (fs.existsSync(current)) {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        fail(`skill install refuses to follow destination symlink: ${path.relative(baseResolved, current)}`);
+      }
+      if (!stat.isDirectory()) {
+        fail(`skill install target has a non-directory path component: ${path.relative(baseResolved, current)}`);
+      }
+      continue;
+    }
+    fs.mkdirSync(current);
+  }
+}
+
+function mkdirpNoTargetSymlink(targetRoot: string, target: string): void {
+  const rootResolved = path.resolve(targetRoot);
+  const targetResolved = path.resolve(target);
+  const cwdResolved = path.resolve(process.cwd());
+  if (isInsidePath(cwdResolved, rootResolved)) {
+    mkdirFromBaseNoSymlink(cwdResolved, rootResolved);
+  } else {
+    fs.mkdirSync(rootResolved, { recursive: true });
+  }
+  const relative = path.relative(rootResolved, targetResolved);
+  let current = rootResolved;
+  if (!relative) {
+    if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) {
+      fail("skill install refuses to follow destination symlink: .");
+    }
+    if (!fs.existsSync(current)) fs.mkdirSync(current);
+    return;
+  }
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    if (fs.existsSync(current)) {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) {
+        fail(`skill install refuses to follow destination symlink: ${path.relative(rootResolved, current)}`);
+      }
+      if (!stat.isDirectory()) {
+        fail(`skill install target has a non-directory path component: ${path.relative(rootResolved, current)}`);
+      }
+      continue;
+    }
+    fs.mkdirSync(current);
+  }
+}
+
 function sameFile(source: string, target: string): boolean {
-  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return false;
+  if (!fs.existsSync(target)) return false;
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink() || !stat.isFile()) return false;
   return fs.readFileSync(source).equals(fs.readFileSync(target));
 }
 
-function copyPath(source: string, target: string, dryRun: boolean): InstallStatus {
+function copyPath(source: string, target: string, targetRoot: string, dryRun: boolean): InstallStatus {
   if (!fs.existsSync(source)) fail(`missing package file: ${source}`);
   const existed = fs.existsSync(target);
   if (dryRun) return "dry-run";
   const sourceStat = fs.statSync(source);
+  assertNoTargetSymlink(targetRoot, target, true);
   if (sourceStat.isDirectory()) {
-    fs.mkdirSync(target, { recursive: true });
+    mkdirpNoTargetSymlink(targetRoot, target);
     for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-      copyPath(path.join(source, entry.name), path.join(target, entry.name), false);
+      copyPath(path.join(source, entry.name), path.join(target, entry.name), targetRoot, false);
     }
     return existed ? "updated" : "created";
   }
-  fs.mkdirSync(path.dirname(target), { recursive: true });
+  mkdirpNoTargetSymlink(targetRoot, path.dirname(target));
   if (sameFile(source, target)) return "exists";
   fs.copyFileSync(source, target);
   fs.chmodSync(target, sourceStat.mode);
@@ -113,7 +206,7 @@ function copyPackageFiles(targetRoot: string, dryRun: boolean, labelRoot = targe
   return packageFiles.map((relativePath) => {
     const source = path.join(root, relativePath);
     const target = path.join(targetRoot, relativePath);
-    return [path.join(labelRoot, relativePath), copyPath(source, target, dryRun)];
+    return [path.join(labelRoot, relativePath), copyPath(source, target, targetRoot, dryRun)];
   });
 }
 

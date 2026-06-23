@@ -15,7 +15,7 @@ import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo,
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
 import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
 import { searchSymbols } from "./code-index/search";
-import { abs, mkdirp, normalizePath, root } from "./workspace";
+import { abs, mkdirp, normalizePath, requireContainedProjectFile, root, write } from "./workspace";
 
 export { codeownerRules, evidenceCoverage, matchedCodeownerRules, ownershipContext, ownershipInfo, searchSymbols, workspaceDependencyGraph, workspaceSummary };
 export { codeIndexSnapshot };
@@ -93,7 +93,7 @@ function normalizedMtimeMs(stat: fs.Stats): number {
 }
 
 function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
-  const stat = fs.statSync(abs(relativePath));
+  const { stat } = requireContainedProjectFile(relativePath, "code-index file");
   return {
     mtimeMs: normalizedMtimeMs(stat),
     path: relativePath,
@@ -102,7 +102,8 @@ function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
 }
 
 function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
-  const text = fs.readFileSync(abs(relativePath), "utf8");
+  const { absolutePath } = requireContainedProjectFile(relativePath, "code-index file");
+  const text = fs.readFileSync(absolutePath, "utf8");
   const fingerprint = readCodeFileFingerprint(relativePath);
   const language = fileLanguage(relativePath) || "config";
   return {
@@ -377,7 +378,7 @@ function prepareOutputPath(): void {
   const databasePath = codeEvidenceDatabasePath();
   mkdirp(path.dirname(databasePath.relativePath));
   mkdirp(codeEvidenceDirectory);
-  fs.writeFileSync(abs(`${codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
+  write(`${codeEvidenceDirectory}/.gitignore`, "*\n!.gitignore\n");
 }
 
 function codeIndexModeRuntime(): CodeIndexModeRuntime {

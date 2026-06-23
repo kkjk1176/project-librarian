@@ -31,6 +31,19 @@ function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function symlinkOrSkip(t, target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath);
+    return true;
+  } catch (error) {
+    if (["EACCES", "EPERM"].includes(error.code)) {
+      t.skip(`symlink unavailable: ${error.message}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
 function runCli(cwd, args) {
   const result = childProcess.spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
@@ -111,6 +124,8 @@ test("code index file policy excludes ignored and sensitive paths", () => {
   assert.equal(fileLanguage(".env.example"), "config");
   assert.equal(shouldIndexFile(".env.example"), true);
   assert.equal(shouldIndexFile(".env.local"), false);
+  assert.equal(shouldIndexFile(".mcp.json"), false);
+  assert.equal(shouldIndexFile(".tooling/secrets.json"), false);
   assert.equal(shouldIndexFile("config/service-token.yaml"), false);
   assert.equal(shouldIndexFile("config/service.yaml"), true);
   assert.equal(ignoredDirectories.has("dist"), true);
@@ -118,6 +133,35 @@ test("code index file policy excludes ignored and sensitive paths", () => {
   assert.equal(ignoredDirs.has("dist"), true);
   assert.equal(ignoredDirs.has(".project-wiki"), false);
   assert.equal(isIgnoredCodePath("dist/init-project-wiki.js"), true);
+});
+
+test("code index skips symlinked git paths and hidden MCP config before FTS persistence", (t) => {
+  const cwd = makeTmpDir("code-index-symlink-secret-");
+  const outside = path.join(os.tmpdir(), `project-librarian-code-index-outside-${Date.now()}.js`);
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(outside, "export const leakedSecret = 'outside';\n");
+    if (!symlinkOrSkip(t, outside, path.join(cwd, "src", "external.js"))) return;
+    fs.writeFileSync(path.join(cwd, "src", "keep.js"), "export const keep = true;\n");
+    fs.writeFileSync(path.join(cwd, ".mcp.json"), JSON.stringify({ token: "mcp-secret-value" }, null, 2));
+    childProcess.spawnSync("git", ["add", "src/external.js"], { cwd });
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo"]);
+
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      const files = database.prepare("select path from files order by path").all().map((row) => row.path);
+      assert.deepEqual(files, ["src/keep.js"]);
+      const contents = database.prepare("select content from files_fts").all().map((row) => row.content).join("\n");
+      assert.doesNotMatch(contents, /outside|mcp-secret-value/);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
+  }
 });
 
 test("code index discovery skips ignored, oversized, non-indexable, and disappeared git paths", () => {
@@ -421,6 +465,32 @@ test("code report sections expose focused routes, parsers, workspaces, and inval
     assert.match(invalid.stderr, /invalid --code-report-section: not-a-section; expected one of: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, edges/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code report skips symlinked ownership metadata outside the repository", (t) => {
+  const cwd = makeTmpDir("code-report-symlink-metadata-");
+  const outside = makeTmpDir("code-report-symlink-metadata-outside-");
+  try {
+    fs.mkdirSync(path.join(cwd, ".github"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "packages", "leaked"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({ name: "report-symlink-metadata", workspaces: ["packages/*"] }, null, 2));
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+    fs.writeFileSync(path.join(outside, "CODEOWNERS"), "* @outside-owner\n");
+    fs.writeFileSync(path.join(outside, "package.json"), JSON.stringify({ name: "@outside/leaked" }, null, 2));
+    if (!symlinkOrSkip(t, path.join(outside, "CODEOWNERS"), path.join(cwd, ".github", "CODEOWNERS"))) return;
+    if (!symlinkOrSkip(t, path.join(outside, "package.json"), path.join(cwd, "packages", "leaked", "package.json"))) return;
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const workspaces = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "workspaces"]));
+    assert.deepEqual(workspaces.data.codeowners, []);
+    assert.ok(!workspaces.data.workspace_packages.some((row) => row.name === "@outside/leaked" || row.root === "packages/leaked"));
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 

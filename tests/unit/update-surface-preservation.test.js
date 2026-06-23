@@ -25,6 +25,13 @@ function runCommand(cwd, args = []) {
   });
 }
 
+function runCommandResult(cwd, args = []) {
+  return childProcess.spawnSync(process.execPath, [cliPath, ...args], {
+    cwd,
+    encoding: "utf8",
+  });
+}
+
 function runCliFailure(cwd, args = []) {
   try {
     runCli(cwd, args);
@@ -40,6 +47,19 @@ function runCliFailure(cwd, args = []) {
 
 function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function symlinkOrSkip(t, target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath);
+    return true;
+  } catch (error) {
+    if (["EACCES", "EPERM"].includes(error.code)) {
+      t.skip(`symlink unavailable: ${error.message}`);
+      return false;
+    }
+    throw error;
+  }
 }
 
 function exists(root, relativePath) {
@@ -162,5 +182,42 @@ test("invalid --agents value fails before writing project files", () => {
     assert.equal(exists(root, "wiki"), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bootstrap refuses to overwrite symlinked managed files outside the project", (t) => {
+  const root = makeTmpDir("surface-symlink-write-");
+  const outside = path.join(os.tmpdir(), `project-librarian-outside-${Date.now()}.md`);
+  try {
+    fs.writeFileSync(outside, "external sentinel\n");
+    if (!symlinkOrSkip(t, outside, path.join(root, "AGENTS.md"))) return;
+
+    const result = runCommandResult(root, ["--no-git-config"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /refuses to follow symlink/);
+    assert.equal(fs.readFileSync(outside, "utf8"), "external sentinel\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
+  }
+});
+
+test("project skill install refuses destination symlink traversal", (t) => {
+  const root = makeTmpDir("surface-skill-symlink-");
+  const outside = path.join(os.tmpdir(), `project-librarian-skill-outside-${Date.now()}.md`);
+  try {
+    fs.writeFileSync(outside, "external skill sentinel\n");
+    fs.mkdirSync(path.join(root, ".codex", "skills", "project-librarian"), { recursive: true });
+    if (!symlinkOrSkip(t, outside, path.join(root, ".codex", "skills", "project-librarian", "SKILL.md"))) return;
+
+    const result = runCommandResult(root, ["install", "--scope", "project", "--agents", "codex"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /refuses to follow destination symlink/);
+    assert.equal(fs.readFileSync(outside, "utf8"), "external skill sentinel\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
   }
 });
