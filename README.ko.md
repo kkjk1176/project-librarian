@@ -64,7 +64,7 @@ npx project-librarian@latest install --scope user --agents all
 - **검토 가능한 위키 그래프.** `--wiki-visualize`는 `.project-wiki/` 아래에 독립 실행형 HTML 그래프를 작성해, 시작 컨텍스트를 늘리지 않고 페이지 유형·라우터 깊이·역링크·결정 참조를 보여줍니다.
 - **막연한 표현이 아니라 측정값.** 모든 성능 주장은 격리된 Codex 벤치마크에서 나오며, 손해를 본 경우도 이긴 경우 바로 옆에 보여 줍니다.
 - **로컬 세션 핸드오프.** `--handoff-save`는 `.project-wiki/session/` 아래에 생성형 재개 메모를 저장합니다. 시작 훅은 존재만 알려주므로 실행 로그가 canonical 위키 정본으로 섞이지 않습니다.
-- **선택적 코드 근거.** 재생성 가능한 SQLite 인덱스와 답변 형태 MCP 도구가 영향·소유권·워크스페이스 그래프 질문에 답하며, 추가 런타임 의존성이 전혀 없습니다.
+- **선택적 코드 근거.** 재생성 가능한 SQLite 인덱스와 답변 형태 MCP 도구가 영향·소유권·워크스페이스 그래프 질문에 답하며, MCP SDK 의존성은 추가하지 않습니다.
 - **다시 실행해도 안전.** 부트스트랩은 멱등하고 기존 내용 보존을 우선하며, 진단은 깨진 경로·도달 불가 페이지·오래된 사실을 에이전트가 오해하기 전에 잡아냅니다.
 
 ## 존재 이유
@@ -297,7 +297,9 @@ MCP 서버 등록 (`mcpServers`에 기존 항목 보존하며 병합):
 
 ## 코드 근거 MCP 서버
 
-`project-librarian mcp`는 직접 구현한 stdio MCP 서버(줄바꿈 구분 JSON 위의 JSON-RPC 2.0, 추가 런타임 의존성 없음)를 실행해 기존 `.project-wiki` 코드 근거 인덱스를 읽기 전용으로 제공합니다. 답변 형태 도구 — `code_context_pack`, `code_impact`, `code_ownership`(CODEOWNERS 마지막 일치 우선순위), `code_workspace_graph`, `code_search`, `code_status` — 를 노출하며, 각 응답은 한 줄 답변으로 시작해 간결한 경로/심볼/시그니처 근거가 뒤따르고, 응답마다 길이를 제한하며, `code_status`가 인덱스가 오래되었다고 보고하면 경고를 앞에 붙입니다.
+`project-librarian mcp`는 직접 구현한 stdio MCP 서버(줄바꿈 구분 JSON 위의 JSON-RPC 2.0, MCP SDK 의존성 없음)를 실행해 기존 `.project-wiki` 코드 근거 인덱스를 읽기 전용으로 제공합니다. 패키지의 필수 런타임 의존성은 `typescript`이며, 코드 근거 기능은 Node의 `node:sqlite`도 사용하고 Tree-sitter 문법 패키지는 선택 사항입니다. 답변 형태 도구 — `code_context_pack`, `code_impact`, `code_ownership`(CODEOWNERS 마지막 일치 우선순위), `code_workspace_graph`, `code_search`, `code_status` — 를 노출하며, 각 응답은 한 줄 답변으로 시작해 간결한 경로/심볼/시그니처 근거가 뒤따르고, 응답마다 길이를 제한하며, `code_status`가 인덱스가 오래되었다고 보고하면 경고를 앞에 붙입니다.
+
+`--code-report`, `--code-impact`, `--code-context-pack`, MCP 도구 출력을 현재 코드 구조 근거로 인용하기 전에는 `project-librarian --code-status` 또는 MCP `code_status`를 실행해 `stale_files: 0`인지 확인하세요. 오래된 보고서는 재빌드가 필요하다는 신호이지 권위 있는 프로젝트 진실이 아닙니다.
 
 서버는 고정 리소스 — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, `project-librarian://code/status` — 와 위키 분류 갱신, 코드 영향 추적, 유지보수 개선 검토, 검색 품질 검토용 프롬프트 템플릿도 제공합니다. 리소스 읽기는 임의 파일 경로가 아니라 고정 URI 레지스트리에서만 처리합니다.
 
@@ -430,6 +432,8 @@ npm pack --dry-run
 `src/` 아래 TypeScript를 수정할 때는 커밋 전에 빌드해 `dist/`를 최신 상태로 유지하세요. `npm run check:dist`는 체크인된 생성 파일이 최신 빌드 출력과 일치하는지 확인합니다.
 
 `npm run test:coverage`는 Node 내장 test coverage에 보수적인 line, branch, function threshold를 적용하므로 coverage를 단순 보고서가 아니라 회귀 게이트로 사용합니다.
+
+지원 런타임 하한은 Node.js 22.13+입니다. TypeScript가 지원 사용자에게 없는 API를 허용하지 않도록 개발용 타입 정의는 Node 22 지원 계약에 맞추거나 Node 22 호환성 검사를 함께 둬야 합니다.
 
 `npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부와 소스 동기화, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 

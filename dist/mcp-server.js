@@ -1,10 +1,10 @@
 "use strict";
 // Hand-rolled MCP stdio server for the code-evidence index.
 //
-// Why hand-rolled: the product holds a zero-runtime-dependency posture (only
-// node:sqlite plus optional tree-sitter grammars). Adopting @modelcontextprotocol/sdk
-// would add a hard runtime dependency, so we implement the small slice of MCP we
-// need directly: JSON-RPC 2.0 over newline-delimited JSON on stdio.
+// Why hand-rolled: the package keeps the MCP surface dependency-light. Code
+// evidence already depends on node:sqlite, the package's TypeScript dependency,
+// and optional tree-sitter grammars; adopting @modelcontextprotocol/sdk would add
+// another hard runtime dependency for a small stdio slice.
 //
 // Transport: MCP stdio transport carries one JSON-RPC message per line on stdin
 // and stdout (newline-delimited JSON, "ndjson"); stderr is free for logging. We

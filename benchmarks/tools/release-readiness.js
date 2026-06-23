@@ -324,6 +324,28 @@ function benchmarkClaimStatus(readmeText) {
   return { ok: false, status: "ambiguous", message: "README benchmark section lacks clear diagnostic/release-claim boundary language" };
 }
 
+function codeEvidenceFreshnessDocStatus(readmeText) {
+  const hasStatusCommand = /project-librarian --code-status|--code-status/.test(readmeText);
+  const hasMcpStatus = /\bcode_status\b/.test(readmeText);
+  const hasFreshMetric = /stale_files:\s*0/.test(readmeText);
+  const hasAuthoritativeBoundary = /Stale reports are pointers for rebuild, not authoritative project truth/i.test(readmeText);
+  const hasEvidenceSurfaces = /--code-report/.test(readmeText) && /--code-impact/.test(readmeText) && /--code-context-pack/.test(readmeText);
+  const missing = [
+    ["--code-status", hasStatusCommand],
+    ["code_status", hasMcpStatus],
+    ["stale_files: 0", hasFreshMetric],
+    ["stale reports boundary", hasAuthoritativeBoundary],
+    ["code-evidence surfaces", hasEvidenceSurfaces],
+  ].filter(([, ok]) => !ok).map(([label]) => label);
+  return {
+    ok: missing.length === 0,
+    missing,
+    message: missing.length === 0
+      ? "README requires fresh code-evidence status before citing report/tool output"
+      : `README code-evidence freshness contract is missing: ${missing.join(", ")}`,
+  };
+}
+
 function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github", "workflows", "publish.yml")) {
   if (!fs.existsSync(filePath)) {
     return { ok: false, missing: ["publish workflow"], forbidden: [], unpinned_actions: [], message: ".github/workflows/publish.yml is missing" };
@@ -462,9 +484,14 @@ function main() {
     fail("release readiness failed: dist parity");
   }
 
-  const readmeStatus = benchmarkClaimStatus(fs.readFileSync(path.join(repoRoot, "README.md"), "utf8"));
+  const readmeText = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+  const readmeStatus = benchmarkClaimStatus(readmeText);
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
+
+  const codeEvidenceFreshnessStatus = codeEvidenceFreshnessDocStatus(readmeText);
+  console.log(`${codeEvidenceFreshnessStatus.ok ? "PASS" : "FAIL"} README code-evidence freshness: ${codeEvidenceFreshnessStatus.message}`);
+  if (!codeEvidenceFreshnessStatus.ok) fail("release readiness failed: README code-evidence freshness");
 
   const rawHygieneStatus = rawCodexHomeHygieneStatus();
   console.log(`${rawHygieneStatus.candidate_count > 0 ? "WARN" : "PASS"} raw hygiene audit: ${rawHygieneStatus.message}`);
@@ -516,6 +543,7 @@ function main() {
     dist_parity: distParity,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
+    readme_code_evidence_freshness: codeEvidenceFreshnessStatus,
     raw_hygiene: rawHygieneStatus,
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
@@ -530,6 +558,7 @@ if (require.main === module) {
 
 module.exports = {
   benchmarkClaimStatus,
+  codeEvidenceFreshnessDocStatus,
   distParityStatus,
   distExecutableStatus,
   githubActionReferencePinningStatus,

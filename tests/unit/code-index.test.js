@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
+const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
@@ -9,6 +10,7 @@ const { openDatabase } = require("../../dist/code-index-db.js");
 const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
 const { searchFiles, shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
+const { treeSitterBackends } = require("../../dist/code-index/extractors/tree-sitter.js");
 const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
@@ -43,6 +45,10 @@ function runCliResult(cwd, args) {
     cwd,
     encoding: "utf8",
   });
+}
+
+function assertNoSqliteExperimentalWarning(result, label) {
+  assert.doesNotMatch(result.stderr, /ExperimentalWarning: SQLite|SQLite is an experimental feature/i, label);
 }
 
 function openSnapshotDatabase(databasePath) {
@@ -435,6 +441,32 @@ test("incremental mode rejects parser-mode mismatches before loading optional pa
   }
 });
 
+test("tree-sitter mode fails loudly when an optional parser package is unavailable", () => {
+  const backend = treeSitterBackends((message) => {
+    throw new Error(message);
+  }).find((candidate) => candidate.profile === "tree-sitter-javascript");
+  assert.ok(backend);
+
+  const originalLoad = Module._load;
+  Module._load = function patchedLoad(request, ...args) {
+    if (request === "@sengac/tree-sitter") throw new Error("mock missing parser package");
+    return originalLoad.call(this, request, ...args);
+  };
+  try {
+    assert.throws(
+      () => backend.index({
+        language: "javascript",
+        path: "src/app.js",
+        profile: "tree-sitter-javascript",
+        text: "export const app = true;\n",
+      }, {}),
+      /--code-parser tree-sitter requires optional package @sengac\/tree-sitter;.*mock missing parser package/,
+    );
+  } finally {
+    Module._load = originalLoad;
+  }
+});
+
 test("read-only code evidence modes reject old schema indexes with a rebuild message", () => {
   const cwd = makeTmpDir("code-index-old-schema-");
   try {
@@ -530,6 +562,28 @@ test("code status stays fresh when only file timestamps change", () => {
     const byMetric = new Map(rows.map((row) => [row.metric, row.value]));
     assert.equal(byMetric.get("stale_files"), 0);
     assert.equal(byMetric.get("stale_changed_files"), 0);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code evidence CLI suppresses the known node:sqlite ExperimentalWarning", () => {
+  const cwd = makeTmpDir("code-status-sqlite-warning-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+
+    const index = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+    assert.equal(index.status, 0, index.stderr || index.stdout);
+    assertNoSqliteExperimentalWarning(index, "--code-index must not leak node:sqlite warning");
+
+    const status = runCliResult(cwd, ["--code-status"]);
+    assert.equal(status.status, 0, status.stderr || status.stdout);
+    assertNoSqliteExperimentalWarning(status, "--code-status must not leak node:sqlite warning");
+
+    const report = runCliResult(cwd, ["--code-report", "--code-report-section", "coverage"]);
+    assert.equal(report.status, 0, report.stderr || report.stdout);
+    assertNoSqliteExperimentalWarning(report, "--code-report must not leak node:sqlite warning");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
