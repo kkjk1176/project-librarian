@@ -87,6 +87,7 @@ function run(command, args, options = {}) {
   const result = childProcess.spawnSync(command, args, {
     cwd: options.cwd ?? repoRoot,
     encoding: "utf8",
+    env: { ...process.env, ...(options.env ?? {}) },
     stdio: options.stdio ?? "pipe",
   });
   const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000;
@@ -94,6 +95,25 @@ function run(command, args, options = {}) {
     throw new Error(`${command} ${args.join(" ")} failed (${result.status}): ${result.stderr || result.stdout}`);
   }
   return { elapsedMs, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+}
+
+function parseCodeIndexPhaseTimings(stderr) {
+  const marker = "code_index_phase_timings ";
+  const line = stderr.split(/\r?\n/).reverse().find((entry) => entry.startsWith(marker));
+  if (!line) return null;
+  try {
+    return JSON.parse(line.slice(marker.length));
+  } catch (error) {
+    throw new Error(`invalid code index phase timings JSON: ${error.message}`);
+  }
+}
+
+function runCodeIndexCommand(cwd, args) {
+  const result = run(process.execPath, [cliPath, ...args], {
+    cwd,
+    env: { PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1" },
+  });
+  return { ...result, phase_timings: parseCodeIndexPhaseTimings(result.stderr) };
 }
 
 function percentile(values, p) {
@@ -843,6 +863,9 @@ function markdownReport(result) {
     lines.push(`### ${scale.file_count} files`);
     lines.push("");
     lines.push(`- Index time: ${scale.index_time_ms.toFixed(1)} ms`);
+    if (scale.phase_timings) {
+      lines.push(`- Index phases: ${formatPhaseTimings(scale.phase_timings)}`);
+    }
     lines.push(`- Current DB size: ${scale.current_db.file_bytes} bytes`);
     lines.push(`- Contentless FTS experiment size: ${scale.contentless_fts_db.file_bytes} bytes (${scale.contentless_fts_size_delta_percent.toFixed(1)}%)`);
     if (scale.fts_variants) {
@@ -899,6 +922,9 @@ function markdownReport(result) {
     lines.push(`### ${sample.name} (${sample.corpus_kind})`);
     lines.push(`- Indexed files: ${sample.current_db.rows.files}`);
     lines.push(`- Index time: ${sample.index_time_ms.toFixed(1)} ms`);
+    if (sample.phase_timings) {
+      lines.push(`- Index phases: ${formatPhaseTimings(sample.phase_timings)}`);
+    }
     lines.push(`- Current DB size: ${sample.current_db.file_bytes} bytes`);
     for (const [command, timing] of Object.entries(sample.commands)) {
       lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
@@ -908,6 +934,23 @@ function markdownReport(result) {
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function formatPhaseTimings(phaseTimings) {
+  const labels = {
+    discover_files_ms: "discover",
+    compatibility_ms: "compat",
+    prepare_output_ms: "prepare",
+    fingerprints_ms: "fingerprints",
+    read_files_ms: "read",
+    sqlite_write_ms: "sqlite",
+    native_helper_ms: "native",
+    total_ms: "total",
+  };
+  return Object.entries(labels)
+    .filter(([key]) => typeof phaseTimings[key] === "number")
+    .map(([key, label]) => `${label} ${phaseTimings[key].toFixed(1)} ms`)
+    .join(", ");
 }
 
 function main() {
@@ -930,7 +973,7 @@ function main() {
       const cwd = path.join(tmpRoot, `repo-${scale}`);
       mkdirp(cwd);
       writeFixture(cwd, scale);
-      const indexRun = run(process.execPath, [cliPath, "--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "package.json"], { cwd });
+      const indexRun = runCodeIndexCommand(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-scope", "package.json"]);
       const width = String(scale).length;
       const target = `handler${String(scale - 1).padStart(width, "0")}`;
       const dbPath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
@@ -954,6 +997,7 @@ function main() {
       result.scales.push({
         file_count: scale,
         index_time_ms: indexRun.elapsedMs,
+        phase_timings: indexRun.phase_timings,
         current_db: currentDb,
         contentless_fts_db: contentlessFtsDb,
         contentless_fts_size_delta_percent: ((contentlessFtsDb.file_bytes - currentDb.file_bytes) / currentDb.file_bytes) * 100,
@@ -967,12 +1011,13 @@ function main() {
     }
     for (const sample of sampleCorpusDefinitions()) {
       const cwd = materializeSampleCorpus(sample, tmpRoot);
-      const indexRun = run(process.execPath, [cliPath, "--code-index", "--acknowledge-small-repo", "--code-scope", "."], { cwd });
+      const indexRun = runCodeIndexCommand(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "."]);
       const dbPath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
       result.sample_corpora.push({
         name: sample.name,
         corpus_kind: sample.corpus_kind,
         index_time_ms: indexRun.elapsedMs,
+        phase_timings: indexRun.phase_timings,
         current_db: databaseStats(dbPath),
         commands: measureSampleCommands(cwd, sample),
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, sample.terms),
@@ -1007,6 +1052,7 @@ module.exports = {
   markdownReport,
   measureDatabaseQueryGroupsForTerms,
   normalizeRows,
+  parseCodeIndexPhaseTimings,
   sampleCorpusDefinitions,
   summarizeTimings,
 };

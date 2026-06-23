@@ -78,6 +78,7 @@ grep -q -- "--dry-run" help.log
 grep -q -- "--incremental" help.log
 grep -q -- "--acknowledge-small-repo" help.log
 grep -q -- "--code-index-full" help.log
+grep -q -- "--code-index-engine" help.log
 grep -q -- "--code-impact" help.log
 grep -q -- "--code-context-pack" help.log
 grep -q -- "--code-parser" help.log
@@ -124,6 +125,16 @@ if node "$CLI" --code-parser > missing-code-parser.log 2>&1; then
   exit 1
 fi
 grep -q "missing value for option: --code-parser" missing-code-parser.log
+if node "$CLI" --code-index-engine > missing-code-index-engine.log 2>&1; then
+  echo "expected missing --code-index-engine value to fail" >&2
+  exit 1
+fi
+grep -q "missing value for option: --code-index-engine" missing-code-index-engine.log
+if node "$CLI" --code-index-engine native-rust > lone-code-index-engine.log 2>&1; then
+  echo "expected --code-index-engine without --code-index to fail" >&2
+  exit 1
+fi
+grep -q -- "--code-index-engine is only supported with --code-index" lone-code-index-engine.log
 if node "$CLI" --code-parser tree-sitter > lone-code-parser.log 2>&1; then
   echo "expected --code-parser without --code-index to fail" >&2
   exit 1
@@ -1339,6 +1350,16 @@ if node "$CLI" --code-index --code-parser made-up --code-scope src > bad-code-pa
   exit 1
 fi
 grep -q "invalid --code-parser" bad-code-parser.log
+if node "$CLI" --code-index --code-index-engine made-up --code-scope src > bad-code-index-engine.log 2>&1; then
+  echo "expected invalid --code-index-engine to fail" >&2
+  exit 1
+fi
+grep -q "invalid --code-index-engine" bad-code-index-engine.log
+if PROJECT_LIBRARIAN_NATIVE_INDEXER= node "$CLI" --code-index --acknowledge-small-repo --code-index-engine native-rust --code-scope src > native-rust-missing-helper.log 2>&1; then
+  echo "expected native-rust engine without helper to fail" >&2
+  exit 1
+fi
+grep -q "requires PROJECT_LIBRARIAN_NATIVE_INDEXER" native-rust-missing-helper.log
 if node "$CLI" --code-query "with changed as (delete from files returning path) select path from changed" > bad-code-query.log 2>&1; then
   echo "expected writable-looking --code-query to fail" >&2
   exit 1

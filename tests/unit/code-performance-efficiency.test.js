@@ -8,6 +8,7 @@ const {
   bestVariantDecision,
   markdownReport,
   normalizeRows,
+  parseCodeIndexPhaseTimings,
   sampleCorpusDefinitions,
 } = require("../../benchmarks/tools/code-performance-efficiency.js");
 
@@ -117,6 +118,14 @@ test("variant decision requires parity before threshold adoption", () => {
   assert.match(fullLatencyWin, /crosses the p95 query-latency threshold/);
 });
 
+test("parses opt-in code index phase timings", () => {
+  assert.deepEqual(
+    parseCodeIndexPhaseTimings("notice\ncode_index_phase_timings {\"discover_files_ms\":1.25,\"total_ms\":9}\n"),
+    { discover_files_ms: 1.25, total_ms: 9 },
+  );
+  assert.equal(parseCodeIndexPhaseTimings("no timings\n"), null);
+});
+
 test("markdown report renders FTS variants and parity status", () => {
   const report = markdownReport({
     generated_at: "2026-06-21T00:00:00.000Z",
@@ -126,6 +135,7 @@ test("markdown report renders FTS variants and parity status", () => {
       {
         file_count: 10000,
         index_time_ms: 100,
+        phase_timings: { discover_files_ms: 1, read_files_ms: 2, sqlite_write_ms: 3, total_ms: 10 },
         current_db: { file_bytes: 1000 },
         contentless_fts_db: { file_bytes: 750 },
         contentless_fts_size_delta_percent: -25,
@@ -156,6 +166,7 @@ test("markdown report renders FTS variants and parity status", () => {
   });
 
   assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
+  assert.match(report, /Index phases: discover 1\.0 ms, read 2\.0 ms, sqlite 3\.0 ms, total 10\.0 ms/);
   assert.match(report, /Variant direct DB deltas vs current/);
   assert.match(report, /file_search_path p95 -10\.0%/);
 });

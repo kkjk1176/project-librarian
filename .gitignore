@@ -3,6 +3,8 @@ node_modules/
 .DS_Store
 coverage/
 tmp/
+target/
+native/indexer-rs/target/
 *.log
 benchmarks/reports/*.json
 benchmarks/reports/*.md

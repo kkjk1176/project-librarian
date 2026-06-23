@@ -11,6 +11,7 @@ const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SM
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
 const { searchFiles, shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
 const { treeSitterBackends } = require("../../dist/code-index/extractors/tree-sitter.js");
+const { buildNativeCodeIndexJob, runNativeCodeIndexHelper } = require("../../dist/code-index/native-helper.js");
 const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
@@ -53,10 +54,11 @@ function runCli(cwd, args) {
   return result.stdout;
 }
 
-function runCliResult(cwd, args) {
+function runCliResult(cwd, args, options = {}) {
   return childProcess.spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
     encoding: "utf8",
+    env: { ...process.env, ...(options.env ?? {}) },
   });
 }
 
@@ -70,12 +72,55 @@ function openSnapshotDatabase(databasePath) {
   });
 }
 
+function normalizedNativeParitySnapshot(snapshot) {
+  return {
+    ...snapshot,
+    edges: snapshot.edges.map(({ evidence, ...row }) => row),
+    symbols: snapshot.symbols.map(({ signature, ...row }) => row),
+  };
+}
+
 function initGitRepository(cwd) {
   const result = childProcess.spawnSync("git", ["init", "-q"], {
     cwd,
     encoding: "utf8",
   });
   assert.equal(result.status, 0, `git init failed (${result.status}): ${result.stderr}`);
+}
+
+function writeExecutableHelper(filePath, content) {
+  fs.writeFileSync(filePath, content);
+  fs.chmodSync(filePath, 0o755);
+}
+
+function commandAvailable(command) {
+  const result = childProcess.spawnSync(command, ["--version"], {
+    encoding: "utf8",
+  });
+  return result.status === 0;
+}
+
+function nativeIndexerBinaryPath() {
+  const binary = process.platform === "win32" ? "project-librarian-indexer.exe" : "project-librarian-indexer";
+  return path.resolve(__dirname, "..", "..", "native", "indexer-rs", "target", "debug", binary);
+}
+
+function buildNativeIndexerOrSkip(t) {
+  if (!commandAvailable("cargo")) {
+    t.skip("cargo unavailable");
+    return "";
+  }
+  if (!commandAvailable("sqlite3")) {
+    t.skip("sqlite3 unavailable");
+    return "";
+  }
+  const manifestPath = path.resolve(__dirname, "..", "..", "native", "indexer-rs", "Cargo.toml");
+  const result = childProcess.spawnSync("cargo", ["build", "--quiet", "--manifest-path", manifestPath], {
+    cwd: path.resolve(__dirname, "..", ".."),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return nativeIndexerBinaryPath();
 }
 
 function assertTopFile(rows, expectedPath, label, topN = 1) {
@@ -654,6 +699,244 @@ test("code evidence CLI suppresses the known node:sqlite ExperimentalWarning", (
     const report = runCliResult(cwd, ["--code-report", "--code-report-section", "coverage"]);
     assert.equal(report.status, 0, report.stderr || report.stdout);
     assertNoSqliteExperimentalWarning(report, "--code-report must not leak node:sqlite warning");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code index phase timings are opt-in stderr JSON", () => {
+  const cwd = makeTmpDir("code-index-phase-timings-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"], {
+      env: { PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const line = result.stderr.split(/\r?\n/).find((entry) => entry.startsWith("code_index_phase_timings "));
+    assert.ok(line, "expected code_index_phase_timings stderr line");
+    const timings = JSON.parse(line.replace("code_index_phase_timings ", ""));
+    assert.equal(typeof timings.discover_files_ms, "number");
+    assert.equal(typeof timings.read_files_ms, "number");
+    assert.equal(typeof timings.sqlite_write_ms, "number");
+    assert.equal(typeof timings.total_ms, "number");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native-rust code index engine fails explicitly without deleting the existing TS index", () => {
+  const cwd = makeTmpDir("code-index-native-engine-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+    const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+    assert.equal(fs.existsSync(databasePath), true);
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "native-rust"], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: "" },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /requires PROJECT_LIBRARIAN_NATIVE_INDEXER/);
+    assert.equal(fs.existsSync(databasePath), true);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native helper wrapper fails on non-zero exits and malformed JSON summaries", () => {
+  const cwd = makeTmpDir("code-index-native-helper-wrapper-");
+  try {
+    const job = buildNativeCodeIndexJob({
+      database_path: path.join(cwd, "code.sqlite"),
+      files: [],
+      parser_mode: "default",
+      schema_version: "4",
+      scopes: ["src"],
+    });
+    const nonZeroHelper = path.join(cwd, "non-zero-helper.js");
+    writeExecutableHelper(nonZeroHelper, [
+      "#!/usr/bin/env node",
+      "process.stderr.write('helper boom');",
+      "process.exit(42);",
+      "",
+    ].join("\n"));
+    assert.throws(
+      () => runNativeCodeIndexHelper(job, { helperPath: nonZeroHelper }),
+      /native code index helper failed \(42\): helper boom/,
+    );
+
+    const malformedHelper = path.join(cwd, "malformed-helper.js");
+    writeExecutableHelper(malformedHelper, [
+      "#!/usr/bin/env node",
+      "process.stdout.write('not-json');",
+      "",
+    ].join("\n"));
+    assert.throws(
+      () => runNativeCodeIndexHelper(job, { helperPath: malformedHelper }),
+      /native code index helper returned invalid JSON/,
+    );
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native-rust helper prototype builds a bounded JS/TS code index", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-native-rust-prototype-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), [
+      'import { makeUser } from "./user";',
+      'export function healthHandler() { return makeUser("ok"); }',
+      'app.get("/health", healthHandler);',
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "user.ts"), [
+      "export const makeUser = (name) => name;",
+      "",
+    ].join("\n"));
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-index-engine", "native-rust", "--code-scope", "src"], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /engine: native-rust/);
+
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      const snapshot = codeIndexSnapshot(database);
+      assert(snapshot.files.some((row) => row.path === "src/app.ts" && row.profile === "typescript-ast"));
+      assert(snapshot.files.some((row) => row.path === "src/user.ts" && row.profile === "typescript-ast"));
+      assert(snapshot.symbols.some((row) => row.name === "healthHandler" && row.kind === "function"));
+      assert(snapshot.symbols.some((row) => row.name === "makeUser" && row.kind === "function"));
+      assert(snapshot.imports.some((row) => row.from_file === "src/app.ts" && row.to_ref === "./user" && row.imported === "makeUser"));
+      assert(snapshot.routes.some((row) => row.file_path === "src/app.ts" && row.method === "GET" && row.route === "/health" && row.handler === "healthHandler"));
+      assert(snapshot.edges.some((row) => row.kind === "route_to_handler" && row.source === "GET /health" && row.target === "healthHandler"));
+    } finally {
+      database.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native-rust helper matches the TypeScript engine for supported JS/TS snapshot rows", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-native-rust-parity-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), [
+      'import { makeUser } from "./user";',
+      "export interface User { name: string }",
+      "export type UserId = string;",
+      "export enum Role { Admin }",
+      'export function healthHandler() { return "ok"; }',
+      "class ApiController {",
+      '  getUser() { return "ok"; }',
+      "}",
+      'app.get("/health", healthHandler);',
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "user.ts"), [
+      'export function makeUser() { return "ok"; }',
+      "",
+    ].join("\n"));
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-out", ".project-wiki/ts.sqlite"]);
+    const nativeResult = runCliResult(cwd, [
+      "--code-index",
+      "--acknowledge-small-repo",
+      "--code-index-engine",
+      "native-rust",
+      "--code-scope",
+      "src",
+      "--code-index-out",
+      ".project-wiki/native.sqlite",
+    ], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
+    });
+    assert.equal(nativeResult.status, 0, nativeResult.stderr || nativeResult.stdout);
+    assert.match(nativeResult.stdout, /engine: native-rust/);
+    assert.match(nativeResult.stdout, /native_files: 2/);
+    assert.match(nativeResult.stdout, /typescript_files: 0/);
+
+    const tsDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "ts.sqlite"));
+    const nativeDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "native.sqlite"));
+    try {
+      assert.deepEqual(
+        normalizedNativeParitySnapshot(codeIndexSnapshot(nativeDatabase)),
+        normalizedNativeParitySnapshot(codeIndexSnapshot(tsDatabase)),
+      );
+    } finally {
+      nativeDatabase.close();
+      tsDatabase.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScript", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-native-rust-mixed-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "cmd"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), [
+      'export function healthHandler() { return "ok"; }',
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "scripts", "tool.py"), [
+      "import os",
+      "def load_config(path):",
+      "    return path",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "cmd", "main.go"), [
+      "package main",
+      'import "fmt"',
+      "func main() {",
+      "    fmt.Println(\"ok\")",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({
+      scripts: { test: "node --test" },
+      dependencies: { express: "^4.0.0" },
+    }, null, 2));
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-index-engine", "native-rust"], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /engine: mixed-native-rust/);
+    assert.match(result.stdout, /files: 4/);
+    assert.match(result.stdout, /native_files: 1/);
+    assert.match(result.stdout, /typescript_files: 3/);
+    assert.match(result.stdout, /typescript_profiles: config, go-light, python-light/);
+
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      const snapshot = codeIndexSnapshot(database);
+      assert(snapshot.files.some((row) => row.path === "src/app.ts" && row.profile === "typescript-ast"));
+      assert(snapshot.files.some((row) => row.path === "scripts/tool.py" && row.profile === "python-light"));
+      assert(snapshot.files.some((row) => row.path === "cmd/main.go" && row.profile === "go-light"));
+      assert(snapshot.files.some((row) => row.path === "package.json" && row.profile === "config"));
+      assert(snapshot.symbols.some((row) => row.file_path === "src/app.ts" && row.name === "healthHandler"));
+      assert(snapshot.symbols.some((row) => row.file_path === "scripts/tool.py" && row.name === "load_config"));
+      assert(snapshot.symbols.some((row) => row.file_path === "cmd/main.go" && row.name === "main"));
+      assert(snapshot.configs.some((row) => row.file_path === "package.json" && row.key === "script:test"));
+    } finally {
+      database.close();
+    }
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

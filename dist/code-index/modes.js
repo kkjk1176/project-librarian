@@ -70,17 +70,53 @@ function requireCompatibleDatabase(database, runtime) {
         ].join("\n"));
     }
 }
+function elapsedMs(started) {
+    return Number(process.hrtime.bigint() - started) / 1_000_000;
+}
+function measurePhase(timings, key, fn) {
+    const started = process.hrtime.bigint();
+    try {
+        return fn();
+    }
+    finally {
+        timings[key] = Number(((timings[key] ?? 0) + elapsedMs(started)).toFixed(3));
+    }
+}
+function emitCodeIndexPhaseTimings(timings) {
+    if (process.env.PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS !== "1")
+        return;
+    console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
+}
 function runCodeIndexMode(runtime) {
+    const totalStarted = process.hrtime.bigint();
+    const phaseTimings = {};
     const databasePath = runtime.codeEvidenceDatabasePath();
     const scopes = runtime.codeScopes();
     const parserMode = runtime.selectedCodeParserMode();
+    const engine = runtime.selectedCodeIndexEngine();
     // Scale gate before ANY write or database work: below the measured threshold
     // the build halts with the evidence-citing warning unless --acknowledge-small-repo
     // was passed (2026-06-12 scale-aware guidance decision).
-    const discoveredFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes);
+    const discoveredFiles = measurePhase(phaseTimings, "discover_files_ms", () => (0, code_index_file_policy_1.discoverCodeFiles)(scopes));
     const scaleGate = (0, code_index_file_policy_1.smallRepoCodeIndexGate)(discoveredFiles.length, args_1.acknowledgeSmallRepoMode);
     if (!scaleGate.proceed)
         runtime.fail(scaleGate.warning);
+    if (engine === "native-rust") {
+        if (args_1.codeIndexIncrementalMode) {
+            runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");
+        }
+        try {
+            measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, scopes }));
+            phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
+            emitCodeIndexPhaseTimings(phaseTimings);
+            return;
+        }
+        catch (error) {
+            phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
+            emitCodeIndexPhaseTimings(phaseTimings);
+            throw error;
+        }
+    }
     const existingIndex = fs.existsSync(databasePath.absolutePath);
     if (args_1.codeIndexIncrementalMode && !existingIndex) {
         runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
@@ -88,26 +124,30 @@ function runCodeIndexMode(runtime) {
     let incremental = false;
     if (existingIndex && !args_1.codeIndexFullMode) {
         let compatibility = { compatible: false, reason: "compatibility was not checked" };
-        const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
-        try {
-            compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
-        }
-        finally {
-            existingDatabase.close();
-        }
+        measurePhase(phaseTimings, "compatibility_ms", () => {
+            const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
+            try {
+                compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
+            }
+            finally {
+                existingDatabase.close();
+            }
+        });
         incremental = !args_1.codeIndexFullMode && compatibility.compatible;
         if (args_1.codeIndexIncrementalMode && !compatibility.compatible)
             runtime.fail(`--incremental cannot update ${databasePath.relativePath}: ${compatibility.reason}`);
     }
-    runtime.prepareOutputPath();
-    if (!incremental)
-        runtime.removeDatabaseFiles(databasePath.absolutePath);
+    measurePhase(phaseTimings, "prepare_output_ms", () => {
+        runtime.prepareOutputPath();
+        if (!incremental)
+            runtime.removeDatabaseFiles(databasePath.absolutePath);
+    });
     const database = runtime.openDatabase(databasePath.absolutePath);
     try {
         if (!incremental)
             (0, schema_1.setupDatabase)(database);
         const statements = (0, schema_1.createIndexStatements)(database);
-        const currentFingerprints = discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath));
+        const currentFingerprints = measurePhase(phaseTimings, "fingerprints_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath)));
         let reindexedFiles;
         let deletedPaths;
         let indexedPaths = new Set();
@@ -129,25 +169,28 @@ function runCodeIndexMode(runtime) {
                     unchangedFiles += 1;
                     continue;
                 }
-                reindexedFiles.push(runtime.readCodeFile(file.path, parserMode));
+                reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode)));
             }
         }
         else {
             deletedPaths = [];
-            reindexedFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
+            reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode)));
         }
-        database.exec("BEGIN");
-        if (!incremental)
-            statements.insertMeta.run("created_at", new Date().toISOString());
-        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
-        for (const filePath of deletedPaths)
-            (0, schema_1.removeIndexedFile)(filePath, statements);
-        for (const file of reindexedFiles) {
-            if (incremental && indexedPaths.has(file.path))
-                (0, schema_1.removeIndexedFile)(file.path, statements);
-            runtime.indexCodeFile(file, statements);
-        }
-        database.exec("COMMIT");
+        measurePhase(phaseTimings, "sqlite_write_ms", () => {
+            database.exec("BEGIN");
+            if (!incremental)
+                statements.insertMeta.run("created_at", new Date().toISOString());
+            (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
+            for (const filePath of deletedPaths)
+                (0, schema_1.removeIndexedFile)(filePath, statements);
+            for (const file of reindexedFiles) {
+                if (incremental && indexedPaths.has(file.path))
+                    (0, schema_1.removeIndexedFile)(file.path, statements);
+                runtime.indexCodeFile(file, statements);
+            }
+            database.exec("COMMIT");
+        });
+        phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
         console.log("Project wiki code evidence index complete.");
         console.log(`database: ${databasePath.relativePath}`);
         console.log(`mode: ${incremental ? "incremental" : "full"}`);
@@ -157,6 +200,7 @@ function runCodeIndexMode(runtime) {
         console.log(`reindexed_files: ${reindexedFiles.length}`);
         console.log(`deleted_files: ${deletedPaths.length}`);
         console.log(`unchanged_files: ${unchangedFiles}`);
+        emitCodeIndexPhaseTimings(phaseTimings);
     }
     catch (error) {
         try {

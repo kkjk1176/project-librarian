@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexEngine, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase } from "./code-index-db";
 import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
@@ -10,7 +10,8 @@ import { createExtractionBackendRegistry, extractionProfile } from "./code-index
 import { oneLine } from "./code-index/extractors/shared";
 import type { CodeFile, CodeFileFingerprint } from "./code-index/extractors/types";
 import { formatCodeIndexHealthRemediation, inspectCodeIndexHealth, type CodeIndexHealth } from "./code-index/index-health";
-import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexHealthMode as runCodeIndexHealthModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexModeRuntime } from "./code-index/modes";
+import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexHealthMode as runCodeIndexHealthModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexEngine, type CodeIndexModeRuntime, type NativeCodeIndexModeRequest } from "./code-index/modes";
+import { buildNativeCodeIndexJob, requireNativeCodeIndexHelperPath, runNativeCodeIndexHelper } from "./code-index/native-helper";
 import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
 import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
@@ -88,6 +89,13 @@ function selectedCodeParserMode(): CodeParserMode {
   fail(`invalid --code-parser: ${codeParser}; expected one of: default, tree-sitter`);
 }
 
+function selectedCodeIndexEngine(): CodeIndexEngine {
+  const requested = codeIndexEngine.trim().toLowerCase();
+  if (!requested || requested === "typescript") return "typescript";
+  if (requested === "native-rust") return "native-rust";
+  fail(`invalid --code-index-engine: ${codeIndexEngine}; expected one of: typescript, native-rust`);
+}
+
 function normalizedMtimeMs(stat: fs.Stats): number {
   return Number(stat.mtimeMs.toFixed(3));
 }
@@ -160,6 +168,120 @@ function removeDatabaseFiles(databasePath: string): void {
   for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   }
+}
+
+function moveDatabaseFiles(sourcePath: string, targetPath: string): void {
+  const backupPath = `${targetPath}.backup-${process.pid}-${Date.now()}`;
+  removeDatabaseFiles(backupPath);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const target = `${targetPath}${suffix}`;
+    if (fs.existsSync(target)) fs.renameSync(target, `${backupPath}${suffix}`);
+  }
+  try {
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const source = `${sourcePath}${suffix}`;
+      if (fs.existsSync(source)) fs.renameSync(source, `${targetPath}${suffix}`);
+    }
+    removeDatabaseFiles(backupPath);
+  } catch (error) {
+    removeDatabaseFiles(targetPath);
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const backup = `${backupPath}${suffix}`;
+      if (fs.existsSync(backup)) fs.renameSync(backup, `${targetPath}${suffix}`);
+    }
+    throw error;
+  }
+}
+
+function removeTemporaryDatabaseFiles(databasePath: string): void {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const filePath = `${databasePath}${suffix}`;
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+}
+
+function nativeCodeIndexFileFor(filePath: string, parserMode: CodeParserMode) {
+  const fingerprint = readCodeFileFingerprint(filePath);
+  const language = fileLanguage(filePath) || "config";
+  return {
+    ...fingerprint,
+    language,
+    profile: extractionProfile(filePath, language, parserMode),
+  };
+}
+
+function nativeEligibleProfile(profile: string): boolean {
+  return profile === "typescript-ast";
+}
+
+function appendTypeScriptPartitionToNativeDatabase(databasePath: string, filePaths: string[], parserMode: CodeParserMode): number {
+  if (filePaths.length === 0) return 0;
+  const database = openDatabase(databasePath);
+  try {
+    const statements = createIndexStatements(database);
+    database.exec("BEGIN");
+    for (const filePath of filePaths) indexCodeFile(readCodeFile(filePath, parserMode), statements);
+    database.exec("COMMIT");
+    return filePaths.length;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures after helper-created database errors.
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void {
+  let helperPath = "";
+  try {
+    helperPath = requireNativeCodeIndexHelperPath();
+  } catch (error: unknown) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  prepareOutputPath();
+  const tempDatabasePath = `${request.databasePath.absolutePath}.native-${process.pid}-${Date.now()}.tmp`;
+  removeDatabaseFiles(tempDatabasePath);
+  const manifestFiles = request.discoveredFiles.map((filePath) => nativeCodeIndexFileFor(filePath, request.parserMode));
+  const nativeFiles = manifestFiles.filter((file) => nativeEligibleProfile(file.profile));
+  const typescriptFiles = manifestFiles.filter((file) => !nativeEligibleProfile(file.profile));
+  const typescriptProfiles = [...new Set(typescriptFiles.map((file) => file.profile))].sort();
+  const job = buildNativeCodeIndexJob({
+    database_path: tempDatabasePath,
+    files: nativeFiles,
+    parser_mode: request.parserMode,
+    schema_version: codeIndexSchemaVersion,
+    scopes: request.scopes,
+  });
+  let summary;
+  let typescriptIndexedFiles = 0;
+  try {
+    summary = runNativeCodeIndexHelper(job, { helperPath });
+    if (!fs.existsSync(tempDatabasePath)) {
+      fail(`native code index helper did not create database: ${tempDatabasePath}`);
+    }
+    typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles.map((file) => file.path), request.parserMode);
+    moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
+  } catch (error: unknown) {
+    removeTemporaryDatabaseFiles(tempDatabasePath);
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  console.log("Project wiki code evidence index complete.");
+  console.log(`database: ${request.databasePath.relativePath}`);
+  console.log("mode: full");
+  console.log(`parser_mode: ${request.parserMode}`);
+  console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+  console.log(`scopes: ${request.scopes.join(", ")}`);
+  console.log(`files: ${manifestFiles.length}`);
+  console.log(`native_files: ${nativeFiles.length}`);
+  console.log(`typescript_files: ${typescriptIndexedFiles}`);
+  if (typescriptProfiles.length > 0) console.log(`typescript_profiles: ${typescriptProfiles.join(", ")}`);
+  console.log(`reindexed_files: ${manifestFiles.length}`);
+  console.log(`deleted_files: ${summary.deleted_files ?? 0}`);
+  console.log(`unchanged_files: ${summary.unchanged_files ?? 0}`);
 }
 
 export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
@@ -398,6 +520,8 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     readCodeFile,
     removeDatabaseFiles,
     requireExistingIndex,
+    runNativeCodeIndexMode,
+    selectedCodeIndexEngine,
     selectedCodeParserMode,
     warnIfCodeIndexStale,
   };
