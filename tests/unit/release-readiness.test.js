@@ -17,6 +17,7 @@ const {
   releaseProvenanceStatus,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
+  workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
 test("release readiness parses npm pack JSON and normalizes package paths", () => {
@@ -81,6 +82,35 @@ test("release readiness validates the trusted publishing workflow", () => {
   assert.deepEqual(status.unpinned_actions, []);
 });
 
+test("release readiness validates minimal permissions for current workflows", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  for (const workflow of [
+    ".github/workflows/benchmark.yml",
+    ".github/workflows/branch-policy.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-review.yml",
+    ".github/workflows/publish.yml",
+  ]) {
+    const status = workflowPermissionStatus(path.join(root, workflow));
+    assert.equal(status.ok, true, `${workflow}: ${status.message}`);
+    assert.equal(status.permissions.contents, "read", workflow);
+  }
+});
+
+test("release readiness validates full-SHA action pinning for current workflows", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  for (const workflow of [
+    ".github/workflows/benchmark.yml",
+    ".github/workflows/branch-policy.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-review.yml",
+    ".github/workflows/publish.yml",
+  ]) {
+    const status = githubActionReferencePinningStatus(path.join(root, workflow));
+    assert.equal(status.ok, true, `${workflow}: ${JSON.stringify(status.unpinned_actions)}`);
+  }
+});
+
 test("release readiness checks checked-in dist parity", () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "release-dist-parity-"));
   fs.mkdirSync(path.join(fixture, "dist"), { recursive: true });
@@ -131,6 +161,34 @@ test("release readiness rejects token-based npm publish workflows", () => {
   assert.deepEqual(status.forbidden, ["NODE_AUTH_TOKEN", "NPM_TOKEN", "npm token secret"]);
 });
 
+test("release readiness rejects unbounded release-tool upgrades", () => {
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-workflow-npm-latest-")), "publish.yml");
+  fs.writeFileSync(fixture, [
+    "name: Publish Package",
+    "permissions:",
+    "  contents: read",
+    "  id-token: write",
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    environment: npm-publish",
+    "    steps:",
+    "      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+    "        with:",
+    "          registry-url: https://registry.npmjs.org",
+    "          package-manager-cache: false",
+    "      - run: npm ci",
+    "      - run: npm install --global npm@latest",
+    "      - run: npm run release:check",
+    "      - run: npm publish --access public",
+    "",
+  ].join("\n"));
+  const status = trustedPublishingWorkflowStatus(fixture);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.forbidden, ["unbounded npm latest install"]);
+});
+
 test("release readiness requires the protected publish environment", () => {
   const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-workflow-env-")), "publish.yml");
   fs.writeFileSync(fixture, [
@@ -165,17 +223,40 @@ test("release readiness rejects movable first-party GitHub action refs", () => {
     "    steps:",
     "      - uses: actions/checkout@v6",
     "      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+    "      - uses: github/codeql-action/init@v4",
     "      - uses: ./local-action",
     "",
   ].join("\n"));
 
   const status = githubActionReferencePinningStatus(fixture);
   assert.equal(status.ok, false);
-  assert.deepEqual(status.unpinned_actions, [{ action: "actions/checkout", ref: "v6" }]);
+  assert.deepEqual(status.unpinned_actions, [
+    { action: "actions/checkout", ref: "v6" },
+    { action: "github/codeql-action/init", ref: "v4" },
+  ]);
   assert.deepEqual(status.inspected_actions, [
     { action: "actions/checkout", ref: "v6" },
     { action: "actions/setup-node", ref: "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" },
+    { action: "github/codeql-action/init", ref: "v4" },
   ]);
+});
+
+test("release readiness rejects broad workflow permissions", () => {
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-workflow-permissions-")), "workflow.yml");
+  fs.writeFileSync(fixture, [
+    "name: Unsafe",
+    "permissions: write-all",
+    "jobs:",
+    "  test:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - run: echo unsafe",
+    "",
+  ].join("\n"));
+  const status = workflowPermissionStatus(fixture);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.missing, ["contents: read"]);
+  assert.deepEqual(status.forbidden, ["permissions: write-all"]);
 });
 
 test("release readiness raw hygiene audit is non-destructive", () => {

@@ -30,7 +30,6 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
       - run: npm ci
-      - run: npm install --global npm@latest
       - run: npm run release:check
       - name: Dry-run package contents
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
