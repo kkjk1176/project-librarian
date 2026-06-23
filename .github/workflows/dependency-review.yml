@@ -15,5 +15,5 @@ jobs:
     name: Dependency review
     runs-on: ubuntu-latest
     steps:
-      # actions/dependency-review-action@v5.0.0 pinned on 2026-06-23.
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
