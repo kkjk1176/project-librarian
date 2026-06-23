@@ -1142,10 +1142,17 @@ struct ContextFrame {
     name: String,
 }
 
+struct PendingCallExpression {
+    context: String,
+    line: usize,
+    parts: Vec<String>,
+}
+
 fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
     let mut extracted = Extracted::default();
     let mut context_stack: Vec<ContextFrame> = Vec::new();
     let mut pending_decorator_routes: Vec<DecoratorRoute> = Vec::new();
+    let mut pending_call: Option<PendingCallExpression> = None;
     for (index, raw_line) in text.split('\n').enumerate() {
         let line_number = index + 1;
         let line = one_line(raw_line);
@@ -1211,10 +1218,49 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
             });
             extracted.imports.push(import);
         }
+        if let Some(call) = pending_call.as_mut() {
+            call.parts.push(trimmed.trim_end_matches(';').to_string());
+            if let Some((evidence, target)) = finish_pending_property_call(&call.parts) {
+                extracted.edges.push(EdgeRow {
+                    evidence,
+                    kind: "call".to_string(),
+                    line: call.line,
+                    source: if call.context.is_empty() {
+                        file.path.clone()
+                    } else {
+                        call.context.clone()
+                    },
+                    source_kind: if call.context.is_empty() {
+                        "file".to_string()
+                    } else {
+                        "symbol".to_string()
+                    },
+                    target,
+                    target_kind: "symbol".to_string(),
+                });
+                pending_call = None;
+            }
+        } else if let Some(start) = pending_property_call_start(trimmed) {
+            pending_call = Some(PendingCallExpression {
+                context: line_symbol
+                    .as_ref()
+                    .filter(|symbol| is_context_symbol(symbol))
+                    .map(|symbol| symbol.name.clone())
+                    .unwrap_or_else(|| current_context.clone()),
+                line: line_number,
+                parts: vec![start],
+            });
+        }
         let mut is_route_line = false;
         if let Some(route) = route_from_line(trimmed, line_number) {
             is_route_line = true;
             let evidence = trimmed.trim_end_matches(';').to_string();
+            let route_call_context = line_symbol
+                .as_ref()
+                .filter(|symbol| is_context_symbol(symbol))
+                .map(|symbol| symbol.name.clone())
+                .unwrap_or_else(|| current_context.clone());
+            let route_call_has_context = !route_call_context.is_empty();
             extracted.edges.push(EdgeRow {
                 evidence: evidence.clone(),
                 kind: "route_to_handler".to_string(),
@@ -1228,8 +1274,16 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
                 evidence,
                 kind: "call".to_string(),
                 line: line_number,
-                source: file.path.clone(),
-                source_kind: "file".to_string(),
+                source: if route_call_context.is_empty() {
+                    file.path.clone()
+                } else {
+                    route_call_context
+                },
+                source_kind: if route_call_has_context {
+                    "symbol".to_string()
+                } else {
+                    "file".to_string()
+                },
                 target: format!(
                     "{}.{}",
                     route_receiver(trimmed).unwrap_or("app"),
@@ -1266,6 +1320,27 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
         update_context_stack(&mut context_stack, line_symbol.as_ref(), trimmed);
     }
     extracted
+}
+
+fn pending_property_call_start(line: &str) -> Option<String> {
+    line.strip_prefix("return ")
+        .map(str::trim)
+        .filter(|rest| rest.starts_with('[') && !rest.contains("]."))
+        .map(|rest| rest.trim_end_matches(';').to_string())
+}
+
+fn finish_pending_property_call(parts: &[String]) -> Option<(String, String)> {
+    let expression = parts.join(" ");
+    if !expression.contains("].") || !expression.contains('(') {
+        return None;
+    }
+    let evidence = expression.trim_end_matches(';').to_string();
+    let paren_index = evidence.rfind('(')?;
+    let target = evidence[..paren_index].trim().to_string();
+    if target.is_empty() {
+        return None;
+    }
+    Some((evidence, target))
 }
 
 struct CallRow {
@@ -1358,7 +1433,23 @@ fn call_target_before_paren(line: &str, paren_index: usize) -> Option<(usize, St
     if start == end {
         return None;
     }
+    if line[start..end].starts_with('.') {
+        start = property_receiver_start(line, start);
+    }
     Some((start, line[start..end].to_string()))
+}
+
+fn property_receiver_start(line: &str, dot_start: usize) -> usize {
+    let bytes = line.as_bytes();
+    let mut start = dot_start;
+    while start > 0 {
+        let previous = bytes[start - 1] as char;
+        if previous.is_whitespace() || matches!(previous, '=' | '(' | ',' | '?' | ':' | ';' | '{') {
+            break;
+        }
+        start -= 1;
+    }
+    start
 }
 
 fn should_skip_call_target(
@@ -1367,7 +1458,9 @@ fn should_skip_call_target(
     target: &str,
     declared_symbol: Option<&SymbolRow>,
 ) -> bool {
-    if target == "require"
+    if target.starts_with('.')
+        || target.starts_with("].")
+        || target == "require"
         || matches!(
             target,
             "if" | "for" | "while" | "switch" | "catch" | "function" | "class" | "new"
@@ -1465,25 +1558,99 @@ fn symbol_row(
 }
 
 fn method_symbol_from_line(line: &str, line_number: usize) -> Option<SymbolRow> {
-    let name = take_identifier(line);
-    if name.is_empty()
-        || matches!(
-            name.as_str(),
-            "if" | "for" | "while" | "switch" | "catch" | "function"
+    let mut search_from = 0;
+    while let Some(relative_index) = line[search_from..].find('(') {
+        let paren_index = search_from + relative_index;
+        let Some((name_start, name)) = identifier_before_paren(line, paren_index) else {
+            search_from = paren_index + 1;
+            continue;
+        };
+        if !is_method_name(&name) || !is_method_candidate_start(line, name_start) {
+            search_from = paren_index + 1;
+            continue;
+        }
+        let Some(close_paren) = matching_delimiter(line, paren_index, '(', ')') else {
+            search_from = paren_index + 1;
+            continue;
+        };
+        let Some(open_brace) = method_body_brace_index(line, close_paren + 1) else {
+            search_from = paren_index + 1;
+            continue;
+        };
+        let signature_end = matching_delimiter(line, open_brace, '{', '}')
+            .map(|index| index + 1)
+            .unwrap_or(line.len());
+        return Some(SymbolRow {
+            kind: "method".to_string(),
+            line: line_number,
+            name,
+            signature: line[name_start..signature_end].trim().to_string(),
+        });
+    }
+    None
+}
+
+fn identifier_before_paren(line: &str, paren_index: usize) -> Option<(usize, String)> {
+    let bytes = line.as_bytes();
+    let mut end = paren_index;
+    while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    let mut start = end;
+    while start > 0 {
+        let ch = bytes[start - 1] as char;
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+            start -= 1;
+        } else {
+            break;
+        }
+    }
+    if start == end {
+        return None;
+    }
+    Some((start, line[start..end].to_string()))
+}
+
+fn is_method_name(name: &str) -> bool {
+    !name.is_empty()
+        && !matches!(
+            name,
+            "if" | "for" | "while" | "switch" | "catch" | "function" | "return"
         )
-    {
+}
+
+fn is_method_candidate_start(line: &str, name_start: usize) -> bool {
+    line[..name_start]
+        .chars()
+        .rev()
+        .find(|ch| !ch.is_whitespace())
+        .map(|ch| matches!(ch, '{' | ',' | ';'))
+        .unwrap_or(true)
+}
+
+fn method_body_brace_index(line: &str, start: usize) -> Option<usize> {
+    let suffix = &line[start..];
+    let brace_offset = suffix.find('{')?;
+    let before_brace = suffix[..brace_offset].trim();
+    if before_brace.contains("=>") || before_brace.contains('?') {
         return None;
     }
-    let rest = line[name.len()..].trim_start();
-    if !rest.starts_with('(') || !line.contains('{') || line.contains("=>") || line.contains('.') {
-        return None;
+    Some(start + brace_offset)
+}
+
+fn matching_delimiter(line: &str, open_index: usize, open: char, close: char) -> Option<usize> {
+    let mut depth = 0i32;
+    for (offset, ch) in line[open_index..].char_indices() {
+        if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(open_index + offset);
+            }
+        }
     }
-    Some(SymbolRow {
-        kind: "method".to_string(),
-        line: line_number,
-        name,
-        signature: line.to_string(),
-    })
+    None
 }
 
 fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {

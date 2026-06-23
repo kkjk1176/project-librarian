@@ -1005,6 +1005,57 @@ test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScr
   }
 });
 
+test("native-rust helper matches TypeScript for checked-in mixed sample corpora", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const samplesRoot = path.resolve(__dirname, "..", "..", "benchmarks", "samples");
+  for (const sample of ["mixed-monorepo", "web-service"]) {
+    const cwd = makeTmpDir(`code-index-native-rust-sample-${sample}-`);
+    try {
+      fs.cpSync(path.join(samplesRoot, sample), cwd, { recursive: true });
+      runCli(cwd, [
+        "--code-index",
+        "--acknowledge-small-repo",
+        "--code-scope",
+        ".",
+        "--code-index-out",
+        ".project-wiki/ts.sqlite",
+      ]);
+      const nativeResult = runCliResult(cwd, [
+        "--code-index",
+        "--acknowledge-small-repo",
+        "--code-index-engine",
+        "native-rust",
+        "--code-scope",
+        ".",
+        "--code-index-out",
+        ".project-wiki/native.sqlite",
+      ], {
+        env: {
+          PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath,
+          PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: "sqlite-direct",
+        },
+      });
+      assert.equal(nativeResult.status, 0, nativeResult.stderr || nativeResult.stdout);
+
+      const tsDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "ts.sqlite"));
+      const nativeDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "native.sqlite"));
+      try {
+        assert.deepEqual(
+          normalizedNativeParitySnapshot(codeIndexSnapshot(nativeDatabase)),
+          normalizedNativeParitySnapshot(codeIndexSnapshot(tsDatabase)),
+          `${sample} native snapshot should match TypeScript`,
+        );
+      } finally {
+        nativeDatabase.close();
+        tsDatabase.close();
+      }
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  }
+});
+
 test("--code-index-out accepts project-wiki paths and rejects paths outside the evidence directory", () => {
   const cwd = makeTmpDir("code-index-out-");
   try {
