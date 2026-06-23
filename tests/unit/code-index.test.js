@@ -836,7 +836,7 @@ test("native-rust helper matches the TypeScript engine for supported JS/TS snaps
       "export interface User { name: string }",
       "export type UserId = string;",
       "export enum Role { Admin }",
-      'export function healthHandler() { return "ok"; }',
+      "export function healthHandler() { return makeUser(); }",
       "class ApiController {",
       '  getUser() { return "ok"; }',
       "}",

@@ -9,6 +9,11 @@ const { DatabaseSync } = require("node:sqlite");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const cliPath = path.join(repoRoot, "dist", "init-project-wiki.js");
+
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
+
 function optionValue(name, fallback) {
   const index = process.argv.indexOf(name);
   if (index === -1) return fallback;
@@ -22,8 +27,8 @@ function optionValue(name, fallback) {
 const reportDir = path.resolve(repoRoot, optionValue("--report-dir", path.join("benchmarks", "reports", "code-performance-efficiency")));
 const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code-index", "search.js"));
 const { SMALL_REPO_FILE_THRESHOLD } = require(path.join(repoRoot, "dist", "code-index-file-policy.js"));
-const defaultScales = process.argv.includes("--full") ? [3000, 10000, 50000] : [3000, 10000];
-const runsPerCommand = process.argv.includes("--quick") ? 1 : 3;
+const defaultScales = hasFlag("--full") ? [3000, 10000, 50000] : [3000, 10000];
+const runsPerCommand = hasFlag("--quick") ? 1 : 3;
 
 function sampleCorpusDefinitions() {
   return [
@@ -97,6 +102,58 @@ function run(command, args, options = {}) {
   return { elapsedMs, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
+function commandAvailable(command) {
+  const result = childProcess.spawnSync(command, ["--version"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: "ignore",
+  });
+  return result.status === 0;
+}
+
+function nativeIndexerBinaryPath() {
+  const binary = process.platform === "win32" ? "project-librarian-indexer.exe" : "project-librarian-indexer";
+  return path.join(repoRoot, "native", "indexer-rs", "target", "debug", binary);
+}
+
+function nativeHelperRequest() {
+  if (process.argv.includes("--native-helper")) return optionValue("--native-helper", "auto");
+  if (hasFlag("--compare-native")) return "auto";
+  return "";
+}
+
+function resolveNativeHelper() {
+  const requested = nativeHelperRequest();
+  if (!requested) {
+    return { requested: false, enabled: false };
+  }
+  if (requested !== "auto") {
+    const helperPath = path.resolve(repoRoot, requested);
+    if (!fs.existsSync(helperPath)) {
+      throw new Error(`native helper does not exist: ${helperPath}`);
+    }
+    return { requested: true, enabled: true, mode: "explicit", helper_path: helperPath };
+  }
+
+  const missing = ["cargo", "sqlite3"].filter((command) => !commandAvailable(command));
+  if (missing.length > 0) {
+    return {
+      requested: true,
+      enabled: false,
+      mode: "auto",
+      skipped_reason: `missing required command(s): ${missing.join(", ")}`,
+    };
+  }
+
+  const manifestPath = path.join(repoRoot, "native", "indexer-rs", "Cargo.toml");
+  run("cargo", ["build", "--manifest-path", manifestPath, "--offline"]);
+  const helperPath = nativeIndexerBinaryPath();
+  if (!fs.existsSync(helperPath)) {
+    throw new Error(`native helper build did not produce binary: ${helperPath}`);
+  }
+  return { requested: true, enabled: true, mode: "auto", helper_path: helperPath };
+}
+
 function parseCodeIndexPhaseTimings(stderr) {
   const marker = "code_index_phase_timings ";
   const line = stderr.split(/\r?\n/).reverse().find((entry) => entry.startsWith(marker));
@@ -108,10 +165,21 @@ function parseCodeIndexPhaseTimings(stderr) {
   }
 }
 
-function runCodeIndexCommand(cwd, args) {
+function parseCodeIndexOutput(stdout) {
+  const parsed = {};
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = line.match(/^([a-z_]+):\s*(.*)$/);
+    if (!match) continue;
+    const value = match[2].trim();
+    parsed[match[1]] = /^\d+$/.test(value) ? Number(value) : value;
+  }
+  return parsed;
+}
+
+function runCodeIndexCommand(cwd, args, options = {}) {
   const result = run(process.execPath, [cliPath, ...args], {
     cwd,
-    env: { PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1" },
+    env: { PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1", ...(options.env ?? {}) },
   });
   return { ...result, phase_timings: parseCodeIndexPhaseTimings(result.stderr) };
 }
@@ -775,6 +843,47 @@ function queryGroupDeltas(baselineGroups, candidateGroups) {
   }));
 }
 
+function codeScopeArgs(scopes) {
+  return scopes.flatMap((scope) => ["--code-scope", scope]);
+}
+
+function rowCountDeltas(baselineRows, candidateRows) {
+  const tables = Array.from(new Set([
+    ...Object.keys(baselineRows ?? {}),
+    ...Object.keys(candidateRows ?? {}),
+  ])).sort();
+  return Object.fromEntries(tables.map((table) => [table, Number(candidateRows?.[table] ?? 0) - Number(baselineRows?.[table] ?? 0)]));
+}
+
+function measureNativeIndex(cwd, scopes, nativeHelper, baseline) {
+  if (!nativeHelper?.enabled) return null;
+  const relativeDbPath = ".project-wiki/code-evidence-native.sqlite";
+  const nativeRun = runCodeIndexCommand(cwd, [
+    "--code-index",
+    "--acknowledge-small-repo",
+    "--code-index-engine",
+    "native-rust",
+    ...codeScopeArgs(scopes),
+    "--code-index-out",
+    relativeDbPath,
+  ], {
+    env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: nativeHelper.helper_path },
+  });
+  const stdoutSummary = parseCodeIndexOutput(nativeRun.stdout);
+  const db = databaseStats(path.join(cwd, relativeDbPath));
+  return {
+    engine: stdoutSummary.engine ?? "native-rust",
+    index_time_ms: nativeRun.elapsedMs,
+    index_time_delta_percent_vs_typescript: timingDeltaPercent(baseline.index_time_ms, nativeRun.elapsedMs),
+    phase_timings: nativeRun.phase_timings,
+    db,
+    row_deltas_vs_typescript: rowCountDeltas(baseline.db.rows, db.rows),
+    native_files: typeof stdoutSummary.native_files === "number" ? stdoutSummary.native_files : null,
+    typescript_files: typeof stdoutSummary.typescript_files === "number" ? stdoutSummary.typescript_files : null,
+    typescript_profiles: typeof stdoutSummary.typescript_profiles === "string" ? stdoutSummary.typescript_profiles : "",
+  };
+}
+
 function buildFtsVariantSummaries(currentDbPath, variants, terms) {
   const currentGroups = measureDatabaseQueryGroupsForTerms(currentDbPath, terms, { searchMode: "current" });
   return variants.map((variant) => {
@@ -844,6 +953,32 @@ function measureBuildCommands() {
   return measured;
 }
 
+function formatSignedPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function appendNativeIndexLines(lines, nativeIndex) {
+  if (!nativeIndex) return;
+  lines.push(`- Native index (${nativeIndex.engine}): ${nativeIndex.index_time_ms.toFixed(1)} ms (${formatSignedPercent(nativeIndex.index_time_delta_percent_vs_typescript)} vs TypeScript)`);
+  if (nativeIndex.phase_timings) {
+    lines.push(`- Native index phases: ${formatPhaseTimings(nativeIndex.phase_timings)}`);
+  }
+  if (typeof nativeIndex.native_files === "number" || typeof nativeIndex.typescript_files === "number") {
+    const parts = [];
+    if (typeof nativeIndex.native_files === "number") parts.push(`native_files ${nativeIndex.native_files}`);
+    if (typeof nativeIndex.typescript_files === "number") parts.push(`typescript_files ${nativeIndex.typescript_files}`);
+    if (nativeIndex.typescript_profiles) parts.push(`typescript_profiles ${nativeIndex.typescript_profiles}`);
+    lines.push(`- Native partition: ${parts.join(", ")}`);
+  }
+  const rowDeltas = Object.entries(nativeIndex.row_deltas_vs_typescript ?? {})
+    .map(([table, delta]) => `${table} ${delta >= 0 ? "+" : ""}${delta}`)
+    .join(", ");
+  if (rowDeltas) {
+    lines.push(`- Native row deltas vs TypeScript: ${rowDeltas}`);
+  }
+}
+
 function markdownReport(result) {
   const lines = [
     "# Code Performance Efficiency Report",
@@ -855,10 +990,13 @@ function markdownReport(result) {
     "",
     `- FTS decision: ${result.decisions.fts}`,
     `- Build decision: ${result.decisions.build}`,
-    "",
-    "## Scales",
-    "",
   ];
+  if (result.native_comparison?.requested) {
+    lines.push(result.native_comparison.enabled
+      ? `- Native comparison: enabled (${result.native_comparison.mode}, ${result.native_comparison.helper_path})`
+      : `- Native comparison: skipped (${result.native_comparison.skipped_reason})`);
+  }
+  lines.push("", "## Scales", "");
   for (const scale of result.scales) {
     lines.push(`### ${scale.file_count} files`);
     lines.push("");
@@ -866,6 +1004,7 @@ function markdownReport(result) {
     if (scale.phase_timings) {
       lines.push(`- Index phases: ${formatPhaseTimings(scale.phase_timings)}`);
     }
+    appendNativeIndexLines(lines, scale.native_index);
     lines.push(`- Current DB size: ${scale.current_db.file_bytes} bytes`);
     lines.push(`- Contentless FTS experiment size: ${scale.contentless_fts_db.file_bytes} bytes (${scale.contentless_fts_size_delta_percent.toFixed(1)}%)`);
     if (scale.fts_variants) {
@@ -925,6 +1064,7 @@ function markdownReport(result) {
     if (sample.phase_timings) {
       lines.push(`- Index phases: ${formatPhaseTimings(sample.phase_timings)}`);
     }
+    appendNativeIndexLines(lines, sample.native_index);
     lines.push(`- Current DB size: ${sample.current_db.file_bytes} bytes`);
     for (const [command, timing] of Object.entries(sample.commands)) {
       lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
@@ -959,10 +1099,15 @@ function main() {
   }
   mkdirp(reportDir);
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-perf-efficiency-"));
+  const nativeHelper = resolveNativeHelper();
   const result = {
     generated_at: new Date().toISOString(),
     node: process.version,
     runs_per_command: runsPerCommand,
+    native_comparison: {
+      ...nativeHelper,
+      helper_path: nativeHelper.helper_path ? path.relative(repoRoot, nativeHelper.helper_path) : undefined,
+    },
     scales: [],
     sample_corpora: [],
     build_commands: {},
@@ -980,6 +1125,10 @@ function main() {
       const altDbPath = path.join(cwd, ".project-wiki", "code-evidence-contentless-fts.sqlite");
       const externalDbPath = path.join(cwd, ".project-wiki", "code-evidence-external-content-fts.sqlite");
       const currentDb = databaseStats(dbPath);
+      const nativeIndex = measureNativeIndex(cwd, ["src", "package.json"], nativeHelper, {
+        index_time_ms: indexRun.elapsedMs,
+        db: currentDb,
+      });
       const contentlessFtsDb = createContentlessFtsExperiment(dbPath, altDbPath);
       const externalContentFtsDb = createExternalContentFtsExperiment(dbPath, externalDbPath);
       const terms = {
@@ -998,6 +1147,7 @@ function main() {
         file_count: scale,
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
+        native_index: nativeIndex,
         current_db: currentDb,
         contentless_fts_db: contentlessFtsDb,
         contentless_fts_size_delta_percent: ((contentlessFtsDb.file_bytes - currentDb.file_bytes) / currentDb.file_bytes) * 100,
@@ -1013,12 +1163,17 @@ function main() {
       const cwd = materializeSampleCorpus(sample, tmpRoot);
       const indexRun = runCodeIndexCommand(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "."]);
       const dbPath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+      const currentDb = databaseStats(dbPath);
       result.sample_corpora.push({
         name: sample.name,
         corpus_kind: sample.corpus_kind,
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
-        current_db: databaseStats(dbPath),
+        native_index: measureNativeIndex(cwd, ["."], nativeHelper, {
+          index_time_ms: indexRun.elapsedMs,
+          db: currentDb,
+        }),
+        current_db: currentDb,
         commands: measureSampleCommands(cwd, sample),
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, sample.terms),
       });
@@ -1052,6 +1207,7 @@ module.exports = {
   markdownReport,
   measureDatabaseQueryGroupsForTerms,
   normalizeRows,
+  parseCodeIndexOutput,
   parseCodeIndexPhaseTimings,
   sampleCorpusDefinitions,
   summarizeTimings,
