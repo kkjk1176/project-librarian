@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage thresholds", () => {
   const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "benchmark.yml"), "utf8");
+  assert.match(workflow, /^permissions:\s*\n\s+contents:\s*read/m);
+  assert.doesNotMatch(workflow, /paths:/);
   assert.match(workflow, /node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}/);
   assert.match(workflow, /node-version:\s*"22\.19\.0"[\s\S]*experimental:\s*false/);
   assert.match(workflow, /node-version:\s*"24\.x"[\s\S]*experimental:\s*false/);
@@ -16,6 +18,23 @@ test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage
   assert.match(workflow, /continue-on-error:\s*\$\{\{\s*matrix\.experimental\s*\}\}/);
   assert.match(workflow, /npm run check:dist/);
   assert.match(workflow, /npm run test:coverage/);
+});
+
+test("security workflows provide CodeQL and dependency review with minimal permissions", () => {
+  const codeql = fs.readFileSync(path.join(root, ".github", "workflows", "codeql.yml"), "utf8");
+  assert.match(codeql, /name:\s*CodeQL/);
+  assert.match(codeql, /^permissions:\s*\n\s+contents:\s*read/m);
+  assert.match(codeql, /security-events:\s*write/);
+  assert.match(codeql, /actions\/checkout@[a-f0-9]{40}/);
+  assert.match(codeql, /github\/codeql-action\/init@[a-f0-9]{40}/);
+  assert.match(codeql, /github\/codeql-action\/analyze@[a-f0-9]{40}/);
+  assert.match(codeql, /languages:\s*javascript-typescript/);
+
+  const dependencyReview = fs.readFileSync(path.join(root, ".github", "workflows", "dependency-review.yml"), "utf8");
+  assert.match(dependencyReview, /name:\s*Dependency Review/);
+  assert.match(dependencyReview, /^permissions:\s*\n\s+contents:\s*read\s*\n\s+pull-requests:\s*read/m);
+  assert.match(dependencyReview, /package-lock\.json/);
+  assert.match(dependencyReview, /actions\/dependency-review-action@[a-f0-9]{40}/);
 });
 
 test("branch policy workflow validates PR and pushed branch names", () => {

@@ -2,23 +2,12 @@ name: Benchmark
 
 on:
   pull_request:
-    paths:
-      - "benchmarks/**"
-      - "src/**"
-      - "tests/**"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
   push:
     branches:
       - main
-    paths:
-      - "benchmarks/**"
-      - "src/**"
-      - "tests/**"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
+
+permissions:
+  contents: read
 
 jobs:
   benchmark:

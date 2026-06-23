@@ -150,7 +150,7 @@ function githubActionReferencePinningStatus(filePath) {
   while ((match = usesPattern.exec(text)) !== null) {
     const action = match[1];
     const ref = match[2];
-    if (!action.startsWith("actions/")) continue;
+    if (action.startsWith("./") || action.startsWith("../") || action.startsWith("docker://")) continue;
     const item = { action, ref };
     inspectedActions.push(item);
     if (!/^[a-f0-9]{40}$/i.test(ref)) unpinnedActions.push(item);
@@ -161,8 +161,48 @@ function githubActionReferencePinningStatus(filePath) {
     inspected_actions: inspectedActions,
     unpinned_actions: unpinnedActions,
     message: ok
-      ? `all ${inspectedActions.length} first-party GitHub action reference(s) are full-SHA pinned`
-      : "first-party GitHub action references must be pinned to full-length commit SHAs",
+      ? `all ${inspectedActions.length} remote GitHub action reference(s) are full-SHA pinned`
+      : "remote GitHub action references must be pinned to full-length commit SHAs",
+  };
+}
+
+function workflowPermissionStatus(filePath, requiredPermissions = { contents: "read" }) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: false,
+      missing: [`workflow file ${path.relative(repoRoot, filePath)}`],
+      forbidden: [],
+      permissions: {},
+      message: `${path.relative(repoRoot, filePath)} is missing`,
+    };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const scalarPermission = text.match(/^permissions:\s*(write-all|read-all)\s*$/m);
+  const forbidden = [];
+  if (scalarPermission?.[1] === "write-all") forbidden.push("permissions: write-all");
+  if (scalarPermission?.[1] === "read-all") forbidden.push("permissions: read-all");
+
+  const permissions = {};
+  const blockMatch = text.match(/^permissions:\s*\n((?:[ \t]+[A-Za-z0-9_-]+:\s*[A-Za-z0-9_-]+\s*(?:#.*)?\n?)+)/m);
+  if (blockMatch) {
+    for (const line of blockMatch[1].split(/\r?\n/)) {
+      const match = line.match(/^\s+([A-Za-z0-9_-]+):\s*([A-Za-z0-9_-]+)/);
+      if (match) permissions[match[1]] = match[2];
+    }
+  }
+
+  const missing = Object.entries(requiredPermissions)
+    .filter(([permission, value]) => permissions[permission] !== value)
+    .map(([permission, value]) => `${permission}: ${value}`);
+  const ok = missing.length === 0 && forbidden.length === 0;
+  return {
+    ok,
+    missing,
+    forbidden,
+    permissions,
+    message: ok
+      ? `${path.relative(repoRoot, filePath)} declares minimal expected workflow permissions`
+      : `${path.relative(repoRoot, filePath)} is missing expected workflow permissions or uses broad permissions`,
   };
 }
 
@@ -306,6 +346,7 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     { label: "NODE_AUTH_TOKEN", pattern: /\bNODE_AUTH_TOKEN\b/ },
     { label: "NPM_TOKEN", pattern: /\bNPM_TOKEN\b/ },
     { label: "npm token secret", pattern: /\bsecrets\.[A-Z0-9_]*NPM[A-Z0-9_]*\b/i },
+    { label: "unbounded npm latest install", pattern: /\bnpm\s+(?:install|i)\s+(?:--global|-g)\s+npm@latest\b/ },
   ].filter((item) => item.pattern.test(text)).map((item) => item.label);
   const ok = missing.length === 0 && forbidden.length === 0 && actionPinning.ok;
   return {
@@ -438,6 +479,37 @@ function main() {
     fail("release readiness failed: trusted publishing workflow");
   }
 
+  const workflowPermissions = [
+    ".github/workflows/benchmark.yml",
+    ".github/workflows/branch-policy.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-review.yml",
+    ".github/workflows/publish.yml",
+  ].map((workflow) => workflowPermissionStatus(path.join(repoRoot, workflow)));
+  const workflowPermissionFailures = workflowPermissions.filter((status) => !status.ok);
+  console.log(`${workflowPermissionFailures.length === 0 ? "PASS" : "FAIL"} workflow permissions: ${workflowPermissions.length} workflow(s) inspected`);
+  if (workflowPermissionFailures.length > 0) {
+    console.error(JSON.stringify(workflowPermissionFailures, null, 2));
+    fail("release readiness failed: workflow permissions");
+  }
+
+  const workflowActionPinning = [
+    ".github/workflows/benchmark.yml",
+    ".github/workflows/branch-policy.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/dependency-review.yml",
+    ".github/workflows/publish.yml",
+  ].map((workflow) => ({
+    workflow,
+    ...githubActionReferencePinningStatus(path.join(repoRoot, workflow)),
+  }));
+  const workflowActionPinningFailures = workflowActionPinning.filter((status) => !status.ok);
+  console.log(`${workflowActionPinningFailures.length === 0 ? "PASS" : "FAIL"} workflow action pinning: ${workflowActionPinning.length} workflow(s) inspected`);
+  if (workflowActionPinningFailures.length > 0) {
+    console.error(JSON.stringify(workflowActionPinningFailures, null, 2));
+    fail("release readiness failed: workflow action pinning");
+  }
+
   console.log(JSON.stringify({
     checks: results.map((result) => ({ label: result.label, status: result.status, ok: result.ok })),
     dist: distStatus,
@@ -447,6 +519,8 @@ function main() {
     raw_hygiene: rawHygieneStatus,
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
+    workflow_permissions: workflowPermissions,
+    workflow_action_pinning: workflowActionPinning,
   }, null, 2));
 }
 
@@ -468,4 +542,5 @@ module.exports = {
   requiredPackFiles,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
+  workflowPermissionStatus,
 };
