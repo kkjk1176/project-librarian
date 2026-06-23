@@ -2,6 +2,7 @@
 
 const VALID_WORK_BRANCH = /^(feat|fix|docs|test|refactor|chore|perf|security|hotfix)\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const VALID_RELEASE_BRANCH = /^release\/v\d+\.\d+\.\d+(?:-[a-z0-9]+(?:[.-][a-z0-9]+)*)?$/;
+const VALID_DEPENDABOT_BRANCH = /^dependabot\/(?:github_actions|npm_and_yarn)\/[a-z0-9._/@+-]+$/;
 
 function validateBranchName(branch, options = {}) {
   const allowMain = options.allowMain !== false;
@@ -28,14 +29,14 @@ function validateBranchName(branch, options = {}) {
     return { valid: false, reason: "actor prefixes such as `codex/` or `human/` are not allowed" };
   }
 
-  if (VALID_RELEASE_BRANCH.test(branch) || VALID_WORK_BRANCH.test(branch)) {
+  if (VALID_RELEASE_BRANCH.test(branch) || VALID_WORK_BRANCH.test(branch) || VALID_DEPENDABOT_BRANCH.test(branch)) {
     return { valid: true };
   }
 
   return {
     valid: false,
     reason:
-      "use `<type>/<short-slug>` with an allowed type, `release/vX.Y.Z`, or `hotfix/<short-slug>`",
+      "use `<type>/<short-slug>` with an allowed type, `release/vX.Y.Z`, `hotfix/<short-slug>`, or an approved `dependabot/<ecosystem>/<dependency>` branch",
   };
 }
 

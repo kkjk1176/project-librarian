@@ -24,6 +24,9 @@ test("branch policy accepts the repository branch strategy", () => {
     "release/v0.5.0",
     "release/v0.5.0-rc.1",
     "hotfix/npm-publish-approval",
+    "dependabot/github_actions/actions/checkout-7.0.0",
+    "dependabot/github_actions/github/codeql-action-8aad20d150bbac5944a9f9d289da16a4b0d87c1e",
+    "dependabot/npm_and_yarn/types/node-26.0.0",
   ]) {
     assert.equal(validateBranchName(branch).valid, true, branch);
   }
@@ -45,6 +48,7 @@ test("branch policy rejects malformed branch names", () => {
     "feat/has_underscore",
     "feat/has/slash",
     "feature/unsupported-type",
+    "dependabot/unsupported/actions-checkout",
     "release/next",
     "release/v1",
     "release/v1.2",
