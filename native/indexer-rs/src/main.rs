@@ -505,6 +505,7 @@ struct EdgeRow {
 }
 
 struct ImportRow {
+    edge_kind: String,
     imported: String,
     line: usize,
     raw: String,
@@ -525,8 +526,16 @@ struct SymbolRow {
     signature: String,
 }
 
+struct DecoratorRoute {
+    callee: String,
+    line: usize,
+    method: String,
+    route: String,
+}
+
 fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
     let mut extracted = Extracted::default();
+    let mut pending_decorator_routes: Vec<DecoratorRoute> = Vec::new();
     for (index, raw_line) in text.split('\n').enumerate() {
         let line_number = index + 1;
         let line = one_line(raw_line);
@@ -534,13 +543,46 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
         if trimmed.is_empty() {
             continue;
         }
-        if let Some(symbol) = symbol_from_line(trimmed, line_number) {
+        if let Some(route) = decorator_route_from_line(trimmed, line_number) {
+            pending_decorator_routes.push(route);
+            continue;
+        }
+        if let Some(mut symbol) = symbol_from_line(trimmed, line_number) {
+            if symbol.kind == "method" && !pending_decorator_routes.is_empty() {
+                symbol.line = pending_decorator_routes[0].line;
+                for route in pending_decorator_routes.drain(..) {
+                    extracted.routes.push(RouteRow {
+                        handler: symbol.name.clone(),
+                        line: route.line,
+                        method: route.method.clone(),
+                        route: route.route.clone(),
+                    });
+                    extracted.edges.push(EdgeRow {
+                        evidence: symbol.signature.clone(),
+                        kind: "route_to_handler".to_string(),
+                        line: route.line,
+                        source: format!("{} {}", route.method, route.route),
+                        source_kind: "route".to_string(),
+                        target: symbol.name.clone(),
+                        target_kind: "symbol".to_string(),
+                    });
+                    extracted.edges.push(EdgeRow {
+                        evidence: format!("@{}({})", route.callee, javascript_quote(&route.route)),
+                        kind: "call".to_string(),
+                        line: route.line,
+                        source: symbol.name.clone(),
+                        source_kind: "symbol".to_string(),
+                        target: route.callee,
+                        target_kind: "symbol".to_string(),
+                    });
+                }
+            }
             extracted.symbols.push(symbol);
         }
         if let Some(import) = import_from_line(trimmed, line_number) {
             extracted.edges.push(EdgeRow {
                 evidence: import.raw.clone(),
-                kind: "import".to_string(),
+                kind: import.edge_kind.clone(),
                 line: import.line,
                 source: file.path.clone(),
                 source_kind: "file".to_string(),
@@ -662,6 +704,7 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
         let module = string_after_marker(line, " from ").or_else(|| first_string_literal(line))?;
         let imported = import_binding(line);
         return Some(ImportRow {
+            edge_kind: "import".to_string(),
             imported,
             line: line_number,
             raw: line.to_string(),
@@ -678,6 +721,7 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
             .trim()
             .to_string();
         return Some(ImportRow {
+            edge_kind: "export".to_string(),
             imported: exported,
             line: line_number,
             raw: line.to_string(),
@@ -687,6 +731,7 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
     if line.contains("require(") {
         let module = first_string_literal(line.split("require(").nth(1).unwrap_or(""))?;
         return Some(ImportRow {
+            edge_kind: "import".to_string(),
             imported: String::new(),
             line: line_number,
             raw: format!("require({})", javascript_quote(&module)),
@@ -694,6 +739,21 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
         });
     }
     None
+}
+
+fn decorator_route_from_line(line: &str, line_number: usize) -> Option<DecoratorRoute> {
+    let rest = line.strip_prefix('@')?;
+    let callee = take_identifier(rest);
+    let method = callee.to_lowercase();
+    if !["all", "delete", "get", "patch", "post", "put"].contains(&method.as_str()) {
+        return None;
+    }
+    Some(DecoratorRoute {
+        callee,
+        line: line_number,
+        method: method.to_uppercase(),
+        route: first_string_literal(rest).unwrap_or_else(|| "/".to_string()),
+    })
 }
 
 fn import_binding(line: &str) -> String {

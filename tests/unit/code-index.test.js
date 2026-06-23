@@ -882,6 +882,59 @@ test("native-rust helper matches the TypeScript engine for supported JS/TS snaps
   }
 });
 
+test("native-rust helper matches TypeScript for module and decorator patterns", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-native-rust-module-parity-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "controller.ts"), [
+      'import * as userApi from "./user";',
+      'const fs = require("node:fs");',
+      "export { makeUser } from \"./user\";",
+      "const buildUser = () => ({ id: fs.readFileSync });",
+      "class UserController {",
+      '  @get("/users")',
+      '  list() { return "ok"; }',
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "user.ts"), [
+      'export const makeUser = () => "ok";',
+      "",
+    ].join("\n"));
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-out", ".project-wiki/ts.sqlite"]);
+    const nativeResult = runCliResult(cwd, [
+      "--code-index",
+      "--acknowledge-small-repo",
+      "--code-index-engine",
+      "native-rust",
+      "--code-scope",
+      "src",
+      "--code-index-out",
+      ".project-wiki/native.sqlite",
+    ], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
+    });
+    assert.equal(nativeResult.status, 0, nativeResult.stderr || nativeResult.stdout);
+
+    const tsDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "ts.sqlite"));
+    const nativeDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "native.sqlite"));
+    try {
+      assert.deepEqual(
+        normalizedNativeParitySnapshot(codeIndexSnapshot(nativeDatabase)),
+        normalizedNativeParitySnapshot(codeIndexSnapshot(tsDatabase)),
+      );
+    } finally {
+      nativeDatabase.close();
+      tsDatabase.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScript", (t) => {
   const helperPath = buildNativeIndexerOrSkip(t);
   if (!helperPath) return;
