@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveCodeIndexEngine = resolveCodeIndexEngine;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
@@ -87,13 +88,20 @@ function emitCodeIndexPhaseTimings(timings) {
         return;
     console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
 }
+function resolveCodeIndexEngine(requestedEngine, discoveredFileCount, shouldUseNativeAuto, incrementalMode = args_1.codeIndexIncrementalMode) {
+    if (requestedEngine !== "auto")
+        return requestedEngine;
+    if (incrementalMode)
+        return "typescript";
+    return shouldUseNativeAuto(discoveredFileCount) ? "native-rust" : "typescript";
+}
 function runCodeIndexMode(runtime) {
     const totalStarted = process.hrtime.bigint();
     const phaseTimings = {};
     const databasePath = runtime.codeEvidenceDatabasePath();
     const scopes = runtime.codeScopes();
     const parserMode = runtime.selectedCodeParserMode();
-    const engine = runtime.selectedCodeIndexEngine();
+    const requestedEngine = runtime.selectedCodeIndexEngine();
     // Scale gate before ANY write or database work: below the measured threshold
     // the build halts with the evidence-citing warning unless --acknowledge-small-repo
     // was passed (2026-06-12 scale-aware guidance decision).
@@ -101,12 +109,13 @@ function runCodeIndexMode(runtime) {
     const scaleGate = (0, code_index_file_policy_1.smallRepoCodeIndexGate)(discoveredFiles.length, args_1.acknowledgeSmallRepoMode);
     if (!scaleGate.proceed)
         runtime.fail(scaleGate.warning);
+    const engine = resolveCodeIndexEngine(requestedEngine, discoveredFiles.length, runtime.shouldUseNativeCodeIndexAuto);
     if (engine === "native-rust") {
         if (args_1.codeIndexIncrementalMode) {
             runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");
         }
         try {
-            measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, scopes }));
+            measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, requestedEngine, scopes }));
             phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
             emitCodeIndexPhaseTimings(phaseTimings);
             return;
@@ -194,6 +203,9 @@ function runCodeIndexMode(runtime) {
         console.log("Project wiki code evidence index complete.");
         console.log(`database: ${databasePath.relativePath}`);
         console.log(`mode: ${incremental ? "incremental" : "full"}`);
+        console.log(`engine: ${engine}`);
+        if (requestedEngine === "auto")
+            console.log("engine_selection: auto");
         console.log(`parser_mode: ${parserMode}`);
         console.log(`scopes: ${scopes.join(", ")}`);
         console.log(`files: ${currentFingerprints.length}`);

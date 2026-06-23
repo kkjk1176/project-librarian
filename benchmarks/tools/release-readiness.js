@@ -24,6 +24,7 @@ const forbiddenPackPathPatterns = [
   /^\.omc\//,
   /^\.project-wiki\//,
   /^benchmarks\/reports\/llm\/raw\//,
+  /^native\//,
   /^node_modules\//,
   /^src\//,
   /^tests\//,

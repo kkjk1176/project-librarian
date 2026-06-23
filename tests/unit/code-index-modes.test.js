@@ -3,7 +3,7 @@ const test = require("node:test");
 
 process.argv = [process.execPath, "code-index-modes.test.js", "--code-context-pack", "healthHandler"];
 
-const { runCodeContextPackMode } = require("../../dist/code-index/modes.js");
+const { resolveCodeIndexEngine, runCodeContextPackMode } = require("../../dist/code-index/modes.js");
 
 function fakeCompatibleDatabase() {
   return {
@@ -100,4 +100,19 @@ test("code context pack mode reuses one staleness calculation for warning and ou
   assert.equal(packCalls, 1);
   assert.deepEqual(logs, ["context pack output"]);
   assert.equal(database.closeCalls, 1);
+});
+
+test("auto code index engine resolves to native only for eligible full runs", () => {
+  assert.equal(resolveCodeIndexEngine("typescript", 10000, () => true, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("native-rust", 1, () => false, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", 10000, () => true, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", 10000, () => true, true), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", 10000, () => false, false), "typescript");
+
+  let observedFileCount = 0;
+  assert.equal(resolveCodeIndexEngine("auto", 42, (fileCount) => {
+    observedFileCount = fileCount;
+    return false;
+  }, false), "typescript");
+  assert.equal(observedFileCount, 42);
 });

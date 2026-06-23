@@ -91,9 +91,15 @@ function selectedCodeParserMode(): CodeParserMode {
 
 function selectedCodeIndexEngine(): CodeIndexEngine {
   const requested = codeIndexEngine.trim().toLowerCase();
+  if (requested === "auto") return "auto";
   if (!requested || requested === "typescript") return "typescript";
   if (requested === "native-rust") return "native-rust";
-  fail(`invalid --code-index-engine: ${codeIndexEngine}; expected one of: typescript, native-rust`);
+  fail(`invalid --code-index-engine: ${codeIndexEngine}; expected one of: auto, typescript, native-rust`);
+}
+
+function shouldUseNativeCodeIndexAuto(discoveredFileCount: number): boolean {
+  return discoveredFileCount >= SMALL_REPO_FILE_THRESHOLD
+    && Boolean((process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim());
 }
 
 function normalizedMtimeMs(stat: fs.Stats): number {
@@ -331,6 +337,7 @@ function runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void {
   console.log("mode: full");
   console.log(`parser_mode: ${request.parserMode}`);
   console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+  if (request.requestedEngine === "auto") console.log("engine_selection: auto");
   console.log(`native_strategy: ${outputMode}`);
   console.log(`scopes: ${request.scopes.join(", ")}`);
   console.log(`files: ${manifestFiles.length}`);
@@ -581,6 +588,7 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     runNativeCodeIndexMode,
     selectedCodeIndexEngine,
     selectedCodeParserMode,
+    shouldUseNativeCodeIndexAuto,
     warnIfCodeIndexStale,
   };
 }

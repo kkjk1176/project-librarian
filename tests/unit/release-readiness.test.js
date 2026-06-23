@@ -54,12 +54,13 @@ test("release readiness package inspection requires shipped surface and rejects 
     "dist/init-project-wiki.js",
     "dist/session-handoff.js",
     "package.json",
+    "native/indexer-rs/target/debug/project-librarian-indexer",
     "wiki/startup.md",
     ".omx/state/session.json",
   ]);
   assert.equal(bad.ok, false);
   assert.deepEqual(bad.missing_required, []);
-  assert.deepEqual(bad.forbidden, [".omx/state/session.json", "wiki/startup.md"]);
+  assert.deepEqual(bad.forbidden, [".omx/state/session.json", "native/indexer-rs/target/debug/project-librarian-indexer", "wiki/startup.md"]);
 });
 
 test("release readiness uses an isolated npm cache for pack inspection", () => {

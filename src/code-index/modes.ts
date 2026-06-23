@@ -15,12 +15,14 @@ export interface CodeEvidenceDatabasePath {
   relativePath: string;
 }
 
-export type CodeIndexEngine = "typescript" | "native-rust";
+export type CodeIndexEngine = "auto" | "typescript" | "native-rust";
+export type ResolvedCodeIndexEngine = "typescript" | "native-rust";
 
 export interface NativeCodeIndexModeRequest {
   databasePath: CodeEvidenceDatabasePath;
   discoveredFiles: string[];
   parserMode: CodeParserMode;
+  requestedEngine: CodeIndexEngine;
   scopes: string[];
 }
 
@@ -43,6 +45,7 @@ export interface CodeIndexModeRuntime {
   runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void;
   selectedCodeIndexEngine(): CodeIndexEngine;
   selectedCodeParserMode(): CodeParserMode;
+  shouldUseNativeCodeIndexAuto(discoveredFileCount: number): boolean;
   warnIfCodeIndexStale(database: SqliteDatabase, staleness?: CodeIndexStaleness): void;
 }
 
@@ -97,25 +100,37 @@ function emitCodeIndexPhaseTimings(timings: CodeIndexPhaseTimings): void {
   console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
 }
 
+export function resolveCodeIndexEngine(
+  requestedEngine: CodeIndexEngine,
+  discoveredFileCount: number,
+  shouldUseNativeAuto: (discoveredFileCount: number) => boolean,
+  incrementalMode = codeIndexIncrementalMode,
+): ResolvedCodeIndexEngine {
+  if (requestedEngine !== "auto") return requestedEngine;
+  if (incrementalMode) return "typescript";
+  return shouldUseNativeAuto(discoveredFileCount) ? "native-rust" : "typescript";
+}
+
 export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
   const totalStarted = process.hrtime.bigint();
   const phaseTimings: CodeIndexPhaseTimings = {};
   const databasePath = runtime.codeEvidenceDatabasePath();
   const scopes = runtime.codeScopes();
   const parserMode = runtime.selectedCodeParserMode();
-  const engine = runtime.selectedCodeIndexEngine();
+  const requestedEngine = runtime.selectedCodeIndexEngine();
   // Scale gate before ANY write or database work: below the measured threshold
   // the build halts with the evidence-citing warning unless --acknowledge-small-repo
   // was passed (2026-06-12 scale-aware guidance decision).
   const discoveredFiles = measurePhase(phaseTimings, "discover_files_ms", () => discoverCodeFiles(scopes));
   const scaleGate = smallRepoCodeIndexGate(discoveredFiles.length, acknowledgeSmallRepoMode);
   if (!scaleGate.proceed) runtime.fail(scaleGate.warning);
+  const engine = resolveCodeIndexEngine(requestedEngine, discoveredFiles.length, runtime.shouldUseNativeCodeIndexAuto);
   if (engine === "native-rust") {
     if (codeIndexIncrementalMode) {
       runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");
     }
     try {
-      measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, scopes }));
+      measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, requestedEngine, scopes }));
       phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
       emitCodeIndexPhaseTimings(phaseTimings);
       return;
@@ -195,6 +210,8 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
     console.log("Project wiki code evidence index complete.");
     console.log(`database: ${databasePath.relativePath}`);
     console.log(`mode: ${incremental ? "incremental" : "full"}`);
+    console.log(`engine: ${engine}`);
+    if (requestedEngine === "auto") console.log("engine_selection: auto");
     console.log(`parser_mode: ${parserMode}`);
     console.log(`scopes: ${scopes.join(", ")}`);
     console.log(`files: ${currentFingerprints.length}`);

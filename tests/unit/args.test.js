@@ -94,7 +94,7 @@ test("parseArgs handles code context pack aliases", () => {
 test("parseArgs handles code evidence alias groups from the flag schema", () => {
   const parsed = parseArgs([
     "--code-evidence-index",
-    "--code-evidence-index-engine=native-rust",
+    "--code-evidence-index-engine=auto",
     "--code-evidence-index-full",
     "--code-evidence-index-incremental",
     "--code-evidence-parser=tree-sitter",
@@ -109,7 +109,7 @@ test("parseArgs handles code evidence alias groups from the flag schema", () => 
   ]);
   assert.equal(parsed.codeIndexMode, true);
   assert.equal(parsed.codeIndexEngineMode, true);
-  assert.equal(parsed.codeIndexEngine, "native-rust");
+  assert.equal(parsed.codeIndexEngine, "auto");
   assert.equal(parsed.codeIndexFullMode, true);
   assert.equal(parsed.codeIndexIncrementalMode, true);
   assert.equal(parsed.codeParserMode, true);

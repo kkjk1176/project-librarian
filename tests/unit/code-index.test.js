@@ -747,6 +747,24 @@ test("native-rust code index engine fails explicitly without deleting the existi
   }
 });
 
+test("auto code index engine keeps TypeScript on small repos even when a helper path is set", () => {
+  const cwd = makeTmpDir("code-index-auto-small-repo-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "auto"], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: path.join(cwd, "missing-native-helper") },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /engine: typescript/);
+    assert.match(result.stdout, /engine_selection: auto/);
+    assert.doesNotMatch(result.stdout, /native_strategy:/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("native helper wrapper fails on non-zero exits and malformed JSON summaries", () => {
   const cwd = makeTmpDir("code-index-native-helper-wrapper-");
   try {
