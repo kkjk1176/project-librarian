@@ -17,7 +17,7 @@ function codeIndex() {
 function printUsage() {
     console.log(`Usage:
   project-librarian [init|update] [options]
-  project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+  project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
   project-librarian mcp
 
 Options:
@@ -34,6 +34,7 @@ Options:
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
   --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
   --issue-title <title>            Override the generated issue draft title.
+  --dry-run                        With install, preview copied skill files without writing them.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
   --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
   --wiki-visualize                 Write a static wiki graph visualizer to .project-wiki/wiki-graph.html.

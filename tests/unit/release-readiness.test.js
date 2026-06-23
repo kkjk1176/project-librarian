@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const {
   benchmarkClaimStatus,
+  codeEvidenceFreshnessDocStatus,
   distParityStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
@@ -71,6 +72,18 @@ test("release readiness recognizes the current README benchmark boundary as rele
   const status = benchmarkClaimStatus(readme);
   assert.equal(status.ok, true);
   assert.equal(status.status, "release_claimable");
+});
+
+test("release readiness requires README to gate code-evidence claims on freshness", () => {
+  const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
+  const status = codeEvidenceFreshnessDocStatus(readme);
+  assert.equal(status.ok, true, status.message);
+  assert.deepEqual(status.missing, []);
+
+  const missingFreshness = codeEvidenceFreshnessDocStatus("Use --code-report for structure answers.");
+  assert.equal(missingFreshness.ok, false);
+  assert.ok(missingFreshness.missing.includes("--code-status"));
+  assert.ok(missingFreshness.missing.includes("stale_files: 0"));
 });
 
 test("release readiness validates the trusted publishing workflow", () => {

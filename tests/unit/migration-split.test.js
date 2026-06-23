@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildMigrationBulkReviewPlan, extractMigrationUnits } = require("../../dist/migration.js");
+const { buildMigrationBulkReviewPlan, extractMigrationUnits, normalizeMigrationStatus, semanticStatusForInboxStatus } = require("../../dist/migration.js");
 const { classifyMigrationUnit } = require("../../dist/taxonomy.js");
 const { starterFiles } = require("../../dist/templates.js");
 
@@ -128,6 +128,19 @@ test("classifyMigrationUnit preserves legacy storage for low-confidence review t
     assert.equal(classification.storage, storage, legacyPath);
     assert.match(classification.target, targetPattern, legacyPath);
   }
+});
+
+test("migration review status normalization preserves terminal and review states", () => {
+  assert.equal(normalizeMigrationStatus("adopt this"), "adopted");
+  assert.equal(normalizeMigrationStatus("Rejected by reviewer"), "rejected");
+  assert.equal(normalizeMigrationStatus("superseded / resolved elsewhere"), "resolved");
+  assert.equal(normalizeMigrationStatus("needs human review"), "needs-human-review");
+  assert.equal(normalizeMigrationStatus(""), "pending");
+  assert.equal(semanticStatusForInboxStatus("adopted"), "adopted");
+  assert.equal(semanticStatusForInboxStatus("rejected"), "rejected");
+  assert.equal(semanticStatusForInboxStatus("resolved"), "resolved");
+  assert.equal(semanticStatusForInboxStatus("needs-human-review"), "needs-human-review");
+  assert.equal(semanticStatusForInboxStatus("pending"), "pending semantic rewrite");
 });
 
 test("classifyMigrationUnit keeps taxonomy slug in long target filenames", () => {

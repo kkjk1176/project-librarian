@@ -64,7 +64,7 @@ npx project-librarian@latest install --scope user --agents all
 - **Inspectable wiki graph.** `--wiki-visualize` writes a self-contained HTML graph under `.project-wiki/`, showing page types, router depth, backlinks, and decision references without adding to startup context.
 - **Measured, not hand-wavy.** Every performance claim comes from hermetic Codex benchmarks — and the cases where it costs *more* are shown right next to the wins.
 - **Local session handoff.** `--handoff-save` writes generated resume notes under `.project-wiki/session/`; startup hooks only point to it, so rolling execution memory does not become canonical wiki truth.
-- **Optional code evidence.** A regenerable SQLite index plus answer-shaped MCP tools answer impact, ownership, and workspace-graph questions, with zero extra runtime dependencies.
+- **Optional code evidence.** A regenerable SQLite index plus answer-shaped MCP tools answer impact, ownership, and workspace-graph questions without adding an MCP SDK dependency.
 - **Safe to re-run.** Bootstrap is idempotent and preservation-first; diagnostics flag broken routes, unreachable pages, and stale truth before they mislead an agent.
 
 ## Why It Exists
@@ -297,7 +297,9 @@ Disposable code evidence cache:
 
 ## Code Evidence MCP Server
 
-`project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no extra runtime dependencies) that serves the existing `.project-wiki` code-evidence index read-only. It exposes answer-shaped tools — `code_context_pack`, `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
+`project-librarian mcp` runs a hand-rolled stdio MCP server (JSON-RPC 2.0 over newline-delimited JSON, no MCP SDK dependency) that serves the existing `.project-wiki` code-evidence index read-only. The package's hard runtime dependency is `typescript`; code evidence also uses Node's `node:sqlite`, with Tree-sitter grammars remaining optional. The server exposes answer-shaped tools — `code_context_pack`, `code_impact`, `code_ownership` (CODEOWNERS last-match precedence), `code_workspace_graph`, `code_search`, and `code_status` — whose responses lead with a one-line answer, follow with compact path/symbol/signature evidence, cap each reply, and prepend a warning when `code_status` reports the index is stale.
+
+Before citing `--code-report`, `--code-impact`, `--code-context-pack`, or MCP tool output as current code-structure evidence, run `project-librarian --code-status` or MCP `code_status` and require `stale_files: 0`. Stale reports are pointers for rebuild, not authoritative project truth.
 
 The server also exposes fixed resources — `project-librarian://wiki/startup`, `project-librarian://wiki/index`, and `project-librarian://code/status` — plus prompt templates for wiki taxonomy updates, code impact traces, maintenance improvement reviews, and retrieval quality reviews. Resource reads come from a fixed URI registry rather than arbitrary filesystem paths.
 
@@ -430,6 +432,8 @@ npm pack --dry-run
 When editing TypeScript under `src/`, rebuild before committing so `dist/` stays current. `npm run check:dist` verifies that the checked-in generated files still match the latest build output.
 
 `npm run test:coverage` uses Node's native test coverage with conservative line, branch, and function thresholds so coverage is a regression gate, not only a report.
+
+The supported runtime floor is Node.js 22.13+. Development type definitions should stay aligned with the Node 22 support contract or be backed by a Node 22 compatibility check so TypeScript does not admit APIs unavailable to supported users.
 
 `npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, dist executable/parity checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 

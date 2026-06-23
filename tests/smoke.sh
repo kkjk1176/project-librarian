@@ -74,6 +74,7 @@ test ! -e wiki_legacy
 grep -q -- "--issue-draft" help.log
 grep -q -- "--issue-create" help.log
 grep -q -- "--issue-body-file" help.log
+grep -q -- "--dry-run" help.log
 grep -q -- "--incremental" help.log
 grep -q -- "--acknowledge-small-repo" help.log
 grep -q -- "--code-index-full" help.log
