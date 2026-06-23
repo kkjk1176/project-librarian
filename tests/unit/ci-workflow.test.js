@@ -15,6 +15,8 @@ test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage
   assert.match(workflow, /node-version:\s*"22\.19\.0"[\s\S]*experimental:\s*false/);
   assert.match(workflow, /node-version:\s*"24\.x"[\s\S]*experimental:\s*false/);
   assert.match(workflow, /node-version:\s*"26\.x"[\s\S]*experimental:\s*true/);
+  assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/);
+  assert.match(workflow, /actions\/setup-node@[a-f0-9]{40}/);
   assert.match(workflow, /continue-on-error:\s*\$\{\{\s*matrix\.experimental\s*\}\}/);
   assert.match(workflow, /npm run check:dist/);
   assert.match(workflow, /npm run test:coverage/);
@@ -43,6 +45,7 @@ test("branch policy workflow validates PR and pushed branch names", () => {
   assert.match(workflow, /pull_request:/);
   assert.match(workflow, /push:[\s\S]*branches-ignore:[\s\S]*-\s*main/);
   assert.match(workflow, /name:\s*Branch policy/);
+  assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/);
   assert.match(workflow, /BRANCH_NAME:\s*\$\{\{\s*steps\.branch\.outputs\.branch\s*\}\}/);
   assert.match(workflow, /BRANCH_POLICY_ALLOW_MAIN:\s*\$\{\{\s*steps\.branch\.outputs\.allow_main\s*\}\}/);
   assert.match(workflow, /node scripts\/validate-branch-name\.js/);
