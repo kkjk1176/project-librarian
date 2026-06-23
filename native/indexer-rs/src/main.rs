@@ -298,76 +298,9 @@ fn validate_relative_path(path: &str, label: &str) -> Result<(), String> {
 
 fn build_sql(manifest: &Manifest, rows: &IndexRows) -> Result<String, String> {
     let mut sql = String::new();
-    sql.push_str(
-        r#"
-PRAGMA journal_mode = WAL;
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE files (
-  path TEXT PRIMARY KEY,
-  language TEXT NOT NULL,
-  profile TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  bytes INTEGER NOT NULL,
-  lines INTEGER NOT NULL,
-  hash TEXT NOT NULL,
-  mtime_ms REAL NOT NULL,
-  size INTEGER NOT NULL
-);
-CREATE TABLE symbols (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  line INTEGER NOT NULL,
-  signature TEXT NOT NULL
-);
-CREATE TABLE imports (
-  id INTEGER PRIMARY KEY,
-  from_file TEXT NOT NULL,
-  to_ref TEXT NOT NULL,
-  imported TEXT NOT NULL,
-  line INTEGER NOT NULL,
-  raw TEXT NOT NULL
-);
-CREATE TABLE routes (
-  id INTEGER PRIMARY KEY,
-  method TEXT NOT NULL,
-  route TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  line INTEGER NOT NULL,
-  handler TEXT NOT NULL
-);
-CREATE TABLE configs (
-  id INTEGER PRIMARY KEY,
-  key TEXT NOT NULL,
-  value TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  line INTEGER NOT NULL
-);
-CREATE TABLE edges (
-  id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL,
-  source_kind TEXT NOT NULL,
-  source TEXT NOT NULL,
-  target_kind TEXT NOT NULL,
-  target TEXT NOT NULL,
-  file_path TEXT NOT NULL,
-  line INTEGER NOT NULL,
-  evidence TEXT NOT NULL
-);
-CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
-CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
-CREATE INDEX idx_symbols_file ON symbols(file_path);
-CREATE INDEX idx_symbols_name ON symbols(name);
-CREATE INDEX idx_imports_from ON imports(from_file);
-CREATE INDEX idx_routes_path ON routes(route);
-CREATE INDEX idx_configs_file ON configs(file_path);
-CREATE INDEX idx_edges_source ON edges(source_kind, source);
-CREATE INDEX idx_edges_target ON edges(target_kind, target);
-CREATE INDEX idx_edges_kind ON edges(kind);
-BEGIN;
-"#,
-    );
+    sql.push_str(setup_database_sql());
+    sql.push_str(create_index_sql());
+    sql.push_str("BEGIN;\n");
     insert_meta(&mut sql, "created_at", &timestamp_placeholder());
     insert_meta(&mut sql, "schema_version", &manifest.schema_version);
     insert_meta(&mut sql, "updated_at", &timestamp_placeholder());
@@ -409,11 +342,15 @@ fn canonical_project_root(root: &str) -> Result<PathBuf, String> {
 
 fn contained_path(root: &str, relative: &str) -> Result<PathBuf, String> {
     let root_path = canonical_project_root(root)?;
+    contained_path_from_root(&root_path, relative)
+}
+
+fn contained_path_from_root(root_path: &Path, relative: &str) -> Result<PathBuf, String> {
     let candidate = root_path.join(relative);
     let canonical = candidate
         .canonicalize()
         .map_err(|error| format!("invalid file path {relative}: {error}"))?;
-    if !canonical.starts_with(&root_path) {
+    if !canonical.starts_with(root_path) {
         return Err(format!("manifest file escapes project root: {relative}"));
     }
     Ok(candidate)
@@ -438,6 +375,14 @@ impl IndexRows {
             routes: self.routes.len(),
             symbols: self.symbols.len(),
         }
+    }
+
+    fn append(&mut self, mut other: IndexRows) {
+        self.files.append(&mut other.files);
+        self.symbols.append(&mut other.symbols);
+        self.imports.append(&mut other.imports);
+        self.routes.append(&mut other.routes);
+        self.edges.append(&mut other.edges);
     }
 }
 
@@ -495,9 +440,42 @@ struct EdgeIndexRow {
 }
 
 fn collect_index_rows(manifest: &Manifest) -> Result<IndexRows, String> {
+    let root_path = canonical_project_root(&manifest.project_root)?;
+    let worker_count = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(8)
+        .min(manifest.files.len().max(1));
+    if worker_count <= 1 || manifest.files.len() < 1024 {
+        return collect_index_rows_chunk(&root_path, &manifest.files);
+    }
+    let chunk_size = manifest.files.len().div_ceil(worker_count);
+    let chunk_results = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for chunk in manifest.files.chunks(chunk_size) {
+            let root_path = &root_path;
+            handles.push(scope.spawn(move || collect_index_rows_chunk(root_path, chunk)));
+        }
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("native index row worker panicked".to_string()))
+            })
+            .collect::<Vec<_>>()
+    });
     let mut rows = IndexRows::default();
-    for file in &manifest.files {
-        let absolute_path = contained_path(&manifest.project_root, &file.path)?;
+    for chunk_rows in chunk_results {
+        rows.append(chunk_rows?);
+    }
+    Ok(rows)
+}
+
+fn collect_index_rows_chunk(root_path: &Path, files: &[ManifestFile]) -> Result<IndexRows, String> {
+    let mut rows = IndexRows::default();
+    for file in files {
+        let absolute_path = contained_path_from_root(root_path, &file.path)?;
         let text = fs::read_to_string(&absolute_path)
             .map_err(|error| format!("failed to read {}: {error}", absolute_path.display()))?;
         let lines = if text.is_empty() {
@@ -505,10 +483,12 @@ fn collect_index_rows(manifest: &Manifest) -> Result<IndexRows, String> {
         } else {
             text.split('\n').count()
         };
+        let hash = sha256_hex(&text);
+        let extracted = extract_javascript_like(file, &text);
         rows.files.push(FileIndexRow {
             bytes: file.size,
-            content: text.clone(),
-            hash: sha256_hex(&text),
+            content: text,
+            hash,
             kind: "source".to_string(),
             language: file.language.clone(),
             lines,
@@ -517,7 +497,6 @@ fn collect_index_rows(manifest: &Manifest) -> Result<IndexRows, String> {
             profile: file.profile.clone(),
             size: file.size,
         });
-        let extracted = extract_javascript_like(file, &text);
         rows.symbols
             .extend(extracted.symbols.into_iter().map(|symbol| SymbolIndexRow {
                 file_path: file.path.clone(),
@@ -876,6 +855,11 @@ CREATE TABLE edges (
 );
 CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
 CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
+"#
+}
+
+fn create_index_sql() -> &'static str {
+    r#"
 CREATE INDEX idx_symbols_file ON symbols(file_path);
 CREATE INDEX idx_symbols_name ON symbols(name);
 CREATE INDEX idx_imports_from ON imports(from_file);
@@ -894,7 +878,10 @@ fn write_database_direct(manifest: &Manifest, rows: &IndexRows) -> Result<(), St
     database.exec("BEGIN")?;
     let result = insert_index_rows_direct(&database, manifest, rows);
     match result {
-        Ok(()) => database.exec("COMMIT")?,
+        Ok(()) => {
+            database.exec(create_index_sql())?;
+            database.exec("COMMIT")?;
+        }
         Err(error) => {
             let _ = database.exec("ROLLBACK");
             return Err(error);
@@ -1602,12 +1589,9 @@ fn route_from_line(line: &str, line_number: usize) -> Option<RouteRow> {
 }
 
 fn route_receiver(line: &str) -> Option<&'static str> {
-    for receiver in ["app", "router", "server"] {
-        if line.starts_with(&format!("{receiver}.")) {
-            return Some(receiver);
-        }
-    }
-    None
+    ["app", "router", "server"].into_iter().find(|&receiver| {
+        line.starts_with(receiver) && line.as_bytes().get(receiver.len()) == Some(&b'.')
+    })
 }
 
 fn take_identifier(text: &str) -> String {
@@ -1617,7 +1601,7 @@ fn take_identifier(text: &str) -> String {
 }
 
 fn string_after_marker(line: &str, marker: &str) -> Option<String> {
-    first_string_literal(line.split(marker).nth(1).unwrap_or(""))
+    first_string_literal(line.split_once(marker).map(|(_, rest)| rest).unwrap_or(""))
 }
 
 fn first_string_literal(text: &str) -> Option<String> {
@@ -1629,19 +1613,40 @@ fn first_string_literal(text: &str) -> Option<String> {
 }
 
 fn one_line(text: &str) -> String {
-    text.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .chars()
-        .take(240)
-        .collect()
+    let mut output = String::with_capacity(text.len().min(240));
+    let mut pending_space = false;
+    let mut chars = 0usize;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if chars > 0 {
+                pending_space = true;
+            }
+            continue;
+        }
+        if pending_space {
+            if chars >= 240 {
+                break;
+            }
+            output.push(' ');
+            chars += 1;
+            pending_space = false;
+        }
+        if chars >= 240 {
+            break;
+        }
+        output.push(ch);
+        chars += 1;
+    }
+    output
 }
 
 fn sha256_hex(text: &str) -> String {
     let digest = Sha256::digest(text.as_bytes());
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(digest.len() * 2);
     for byte in digest {
-        output.push_str(&format!("{byte:02x}"));
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
 }
