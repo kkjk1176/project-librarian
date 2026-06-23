@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { abs, normalizePath } from "../workspace";
+import { abs, containedProjectDirectoryStat, containedProjectFileStat, normalizePath, read } from "../workspace";
 
 export interface CodeownerRule {
   file_path: string;
@@ -45,8 +45,9 @@ function pathOwnerKey(filePath: string): string {
 }
 
 export function readJsonObject(relativePath: string): Record<string, unknown> | null {
+  if (!containedProjectFileStat(relativePath)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(abs(relativePath), "utf8")) as unknown;
+    const parsed = JSON.parse(read(relativePath)) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
   } catch {
     return null;
@@ -73,11 +74,11 @@ function workspacePatternCandidates(pattern: string): string[] {
   const suffix = normalized.slice(starIndex + 1).replace(/^\/+/, "");
   const base = prefix || ".";
   const basePath = abs(base);
-  if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory()) return [];
+  if (!containedProjectDirectoryStat(base)) return [];
   return fs.readdirSync(basePath, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => normalizePath(path.join(base, entry.name, suffix)))
-    .filter((candidate) => fs.existsSync(abs(candidate)) && fs.statSync(abs(candidate)).isDirectory());
+    .filter((candidate) => containedProjectDirectoryStat(candidate));
 }
 
 export function workspacePackages(): WorkspacePackage[] {
@@ -85,7 +86,7 @@ export function workspacePackages(): WorkspacePackage[] {
   for (const pattern of workspacePatternsFromRootPackage()) {
     for (const candidate of workspacePatternCandidates(pattern)) {
       const packageJsonPath = normalizePath(path.join(candidate, "package.json"));
-      if (!fs.existsSync(abs(packageJsonPath))) continue;
+      if (!containedProjectFileStat(packageJsonPath)) continue;
       const packageJson = readJsonObject(packageJsonPath);
       const packageName = typeof packageJson?.name === "string" ? packageJson.name : candidate;
       packages.set(candidate, {
@@ -110,8 +111,8 @@ export function codeownerRules(): CodeownerRule[] {
   const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
   const rules: CodeownerRule[] = [];
   for (const filePath of files) {
-    if (!fs.existsSync(abs(filePath))) continue;
-    const lines = fs.readFileSync(abs(filePath), "utf8").split(/\r?\n/);
+    if (!containedProjectFileStat(filePath)) continue;
+    const lines = read(filePath).split(/\r?\n/);
     lines.forEach((lineText, index) => {
       const trimmed = lineText.trim();
       if (!trimmed || trimmed.startsWith("#")) return;

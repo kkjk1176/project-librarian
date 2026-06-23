@@ -1,11 +1,34 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 
 const { buildMigrationBulkReviewPlan, extractMigrationUnits, normalizeMigrationStatus, semanticStatusForInboxStatus } = require("../../dist/migration.js");
 const { classifyMigrationUnit } = require("../../dist/taxonomy.js");
 const { starterFiles } = require("../../dist/templates.js");
+
+const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
+
+function makeTmpDir(prefix) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function symlinkDirOrSkip(t, target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath, "dir");
+    return true;
+  } catch (error) {
+    if (["EACCES", "EPERM"].includes(error.code)) {
+      t.skip(`symlink unavailable: ${error.message}`);
+      return false;
+    }
+    throw error;
+  }
+}
 
 test("extractMigrationUnits classifies mixed legacy content by target document area", () => {
   const units = extractMigrationUnits("checkout.md", [
@@ -34,6 +57,27 @@ test("extractMigrationUnits classifies mixed legacy content by target document a
   assert.ok(Array.from(targets).some((target) => target.includes("user-flows")));
   assert.ok(Array.from(targets).some((target) => target.includes("api-contracts")));
   assert.ok(Array.from(targets).some((target) => target.includes("qa-test-plan")));
+});
+
+test("migration mode refuses a symlinked wiki root before reading external markdown", (t) => {
+  const root = makeTmpDir("migration-symlink-root-");
+  const outside = makeTmpDir("migration-outside-wiki-");
+  try {
+    fs.writeFileSync(path.join(outside, "external.md"), "# External Secret\n\nDo not migrate.\n");
+    if (!symlinkDirOrSkip(t, outside, path.join(root, "wiki"))) return;
+
+    const result = childProcess.spawnSync(process.execPath, [cliPath, "--migrate", "--no-git-config"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /refuses to follow symlinked wiki directory/);
+    assert.equal(fs.existsSync(path.join(root, "wiki", "canonical", "migration-inbox.md")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 });
 
 test("extractMigrationUnits ignores form-only legacy templates and empty generated starters", () => {

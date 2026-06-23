@@ -18,6 +18,8 @@ const {
   releaseProvenanceStatus,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
+  oidcWorkflowBoundaryStatus,
+  manualPublishGuardStatus,
   workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
@@ -170,8 +172,9 @@ test("release readiness rejects token-based npm publish workflows", () => {
   ].join("\n"));
   const status = trustedPublishingWorkflowStatus(fixture);
   assert.equal(status.ok, false);
-  assert.deepEqual(status.missing, []);
-  assert.deepEqual(status.forbidden, ["NODE_AUTH_TOKEN", "NPM_TOKEN", "npm token secret"]);
+  assert.ok(status.forbidden.includes("NODE_AUTH_TOKEN"));
+  assert.ok(status.forbidden.includes("NPM_TOKEN"));
+  assert.ok(status.forbidden.includes("npm token secret"));
 });
 
 test("release readiness rejects unbounded release-tool upgrades", () => {
@@ -198,8 +201,7 @@ test("release readiness rejects unbounded release-tool upgrades", () => {
   ].join("\n"));
   const status = trustedPublishingWorkflowStatus(fixture);
   assert.equal(status.ok, false);
-  assert.deepEqual(status.missing, []);
-  assert.deepEqual(status.forbidden, ["unbounded npm latest install"]);
+  assert.ok(status.forbidden.includes("unbounded npm latest install"));
 });
 
 test("release readiness requires the protected publish environment", () => {
@@ -223,8 +225,51 @@ test("release readiness requires the protected publish environment", () => {
   ].join("\n"));
   const status = trustedPublishingWorkflowStatus(fixture);
   assert.equal(status.ok, false);
-  assert.deepEqual(status.missing, ["protected publish environment"]);
-  assert.deepEqual(status.forbidden, []);
+  assert.ok(status.missing.includes("protected publish environment"));
+});
+
+test("release readiness rejects OIDC jobs that run dependency scripts or script-enabled publish", () => {
+  const text = [
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    permissions:",
+    "      contents: read",
+    "      id-token: write",
+    "    steps:",
+    "      - run: npm ci",
+    "      - run: npm publish --access public",
+    "",
+  ].join("\n");
+  const status = oidcWorkflowBoundaryStatus(text);
+  assert.equal(status.ok, false);
+  assert.deepEqual(status.oidc_jobs, ["publish"]);
+  assert.ok(status.forbidden.includes("OIDC job publish runs npm install/test/build scripts"));
+  assert.ok(status.forbidden.includes("OIDC job publish runs npm publish without --ignore-scripts"));
+});
+
+test("release readiness requires manual publish dispatch to reject non-release refs", () => {
+  const unguarded = [
+    "on:",
+    "  workflow_dispatch:",
+    "jobs:",
+    "  publish:",
+    "    if: ${{ github.event_name == 'workflow_dispatch' }}",
+    "",
+  ].join("\n");
+  assert.equal(manualPublishGuardStatus(unguarded).ok, false);
+
+  const guarded = [
+    "on:",
+    "  workflow_dispatch:",
+    "jobs:",
+    "  reject-manual-non-release-ref:",
+    "    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && !startsWith(github.ref, 'refs/tags/v') }}",
+    "  publish:",
+    "    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run && startsWith(github.ref, 'refs/tags/v')) }}",
+    "",
+  ].join("\n");
+  assert.equal(manualPublishGuardStatus(guarded).ok, true);
 });
 
 test("release readiness rejects movable first-party GitHub action refs", () => {

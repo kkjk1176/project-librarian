@@ -2,12 +2,12 @@
 MSG_FILE="$1"
 SOURCE="$2"
 
+# Security boundary: prepare-commit-msg runs before the commit is created, so it
+# must not execute scripts from the mutable worktree. Trailer generation remains
+# available as an explicit maintainer action, but this hook is intentionally
+# passive.
 case "$SOURCE" in
-  merge|squash|commit)
+  merge|squash|commit|*)
     exit 0
     ;;
 esac
-
-if command -v node >/dev/null 2>&1 && [ -f ".githooks/wiki-commit-trailers.js" ]; then
-  node .githooks/wiki-commit-trailers.js "$MSG_FILE"
-fi

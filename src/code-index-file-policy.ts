@@ -2,7 +2,7 @@ import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ignoredDirectorySet, pathContainsIgnoredDirectory } from "./path-ignore-policy";
-import { abs, normalizePath, root } from "./workspace";
+import { abs, containedProjectFileStat, normalizePath, root } from "./workspace";
 
 // Single source of truth for the disposable code-evidence directory name. Both
 // the heavy code-index module and the light bootstrap path (hooks.ts) key off
@@ -55,6 +55,7 @@ function isBlockedSensitiveConfigFile(relativePath: string): boolean {
   if (fileLanguage(relativePath) !== "config") return false;
   const base = path.basename(relativePath).toLowerCase();
   if (base === ".env.example") return false;
+  if (base.startsWith(".")) return true;
   return /(^|[._-])(secret|secrets|credential|credentials|token|tokens|private|key|keys)([._-]|$)/i.test(base);
 }
 
@@ -93,7 +94,8 @@ function walkCodeFiles(relativePath: string, files: string[] = []): string[] {
   if (isIgnoredCodePath(relativePath)) return files.sort();
   const target = abs(relativePath);
   if (!fs.existsSync(target)) return files;
-  const stat = fs.statSync(target);
+  const stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink()) return files.sort();
   if (stat.isFile()) {
     if (stat.size <= maxIndexedBytes && shouldIndexFile(relativePath)) files.push(relativePath);
     return files.sort();
@@ -103,8 +105,8 @@ function walkCodeFiles(relativePath: string, files: string[] = []): string[] {
     if (entry.isDirectory()) {
       if (!ignoredDirectories.has(entry.name)) walkCodeFiles(child, files);
     } else if (entry.isFile() && shouldIndexFile(child)) {
-      const childStat = fs.statSync(abs(child));
-      if (childStat.size <= maxIndexedBytes) files.push(child);
+      const childStat = containedProjectFileStat(child);
+      if (childStat && childStat.size <= maxIndexedBytes) files.push(child);
     }
   }
   return files.sort();
@@ -124,12 +126,7 @@ function gitTrackedAndUnignoredFiles(scopes: string[]): string[] | null {
 }
 
 function indexableFileStat(file: string): fs.Stats | null {
-  try {
-    const stat = fs.statSync(abs(file));
-    return stat.isFile() ? stat : null;
-  } catch {
-    return null;
-  }
+  return containedProjectFileStat(file);
 }
 
 export function discoverCodeFiles(scopes: string[]): string[] {

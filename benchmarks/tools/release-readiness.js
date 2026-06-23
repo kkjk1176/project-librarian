@@ -206,6 +206,66 @@ function workflowPermissionStatus(filePath, requiredPermissions = { contents: "r
   };
 }
 
+function workflowJobBlocks(text) {
+  const jobs = [];
+  let inJobs = false;
+  let current = null;
+  for (const line of text.split(/\r?\n/)) {
+    if (!inJobs) {
+      if (/^jobs:\s*$/.test(line)) inJobs = true;
+      continue;
+    }
+    const jobMatch = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+    if (jobMatch) {
+      if (current) jobs.push({ name: current.name, body: current.lines.join("\n") });
+      current = { name: jobMatch[1], lines: [] };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  if (current) jobs.push({ name: current.name, body: current.lines.join("\n") });
+  return jobs;
+}
+
+function oidcWorkflowBoundaryStatus(text) {
+  const jobs = workflowJobBlocks(text);
+  const oidcJobs = jobs.filter((job) => /\bid-token:\s*write\b/.test(job.body));
+  const installScriptPattern = /\bnpm\s+(?:ci|install|i|run|test|pack)\b/;
+  const forbidden = [];
+  for (const job of oidcJobs) {
+    if (installScriptPattern.test(job.body)) forbidden.push(`OIDC job ${job.name} runs npm install/test/build scripts`);
+    if (/\bnpm\s+publish\b/.test(job.body) && !/\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/.test(job.body)) {
+      forbidden.push(`OIDC job ${job.name} runs npm publish without --ignore-scripts`);
+    }
+  }
+  return {
+    ok: oidcJobs.length > 0 && forbidden.length === 0,
+    oidc_jobs: oidcJobs.map((job) => job.name),
+    forbidden,
+    message: oidcJobs.length === 0
+      ? "publish workflow has no job-scoped OIDC publish authority"
+      : forbidden.length === 0
+        ? `OIDC authority is isolated to ${oidcJobs.map((job) => job.name).join(", ")} without dependency install scripts`
+        : "OIDC authority is mixed with dependency install, test, build, pack, or script-enabled publish steps",
+  };
+}
+
+function manualPublishGuardStatus(text) {
+  const hasManualDispatch = /^\s*workflow_dispatch:\s*$/m.test(text);
+  if (!hasManualDispatch) return { ok: true, message: "manual publish dispatch is not configured" };
+  const guardsReleaseTag = /startsWith\(\s*github\.ref\s*,\s*'refs\/tags\/v'\s*\)/.test(text)
+    || /startsWith\(\s*github\.ref\s*,\s*"refs\/tags\/v"\s*\)/.test(text);
+  const rejectsNonRelease = /reject-manual-non-release-ref/.test(text);
+  return {
+    ok: guardsReleaseTag && rejectsNonRelease,
+    guards_release_tag: guardsReleaseTag,
+    rejects_non_release_ref: rejectsNonRelease,
+    message: guardsReleaseTag && rejectsNonRelease
+      ? "manual publish dispatch is guarded to refs/tags/v* and rejects non-release refs"
+      : "manual publish dispatch must reject non-release refs before publish",
+  };
+}
+
 function formatBytes(bytes) {
   const units = ["B", "KiB", "MiB", "GiB"];
   let value = bytes;
@@ -352,6 +412,8 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
   }
   const text = fs.readFileSync(filePath, "utf8");
   const actionPinning = githubActionReferencePinningStatus(filePath);
+  const oidcBoundary = oidcWorkflowBoundaryStatus(text);
+  const manualPublishGuard = manualPublishGuardStatus(text);
   const required = [
     { label: "id-token: write", pattern: /\bid-token:\s*write\b/ },
     { label: "contents: read", pattern: /\bcontents:\s*read\b/ },
@@ -361,6 +423,7 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     { label: "release readiness gate", pattern: /\bnpm\s+run\s+release:check\b/ },
     { label: "npm publish command", pattern: /\bnpm\s+publish\b/ },
     { label: "public package access", pattern: /\bnpm\s+publish\b[^\n]*\s--access\s+public\b/ },
+    { label: "script-disabled OIDC publish", pattern: /\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/ },
     { label: "release build cache disabled", pattern: /\bpackage-manager-cache:\s*false\b/ },
   ];
   const missing = required.filter((item) => !item.pattern.test(text)).map((item) => item.label);
@@ -370,16 +433,20 @@ function trustedPublishingWorkflowStatus(filePath = path.join(repoRoot, ".github
     { label: "npm token secret", pattern: /\bsecrets\.[A-Z0-9_]*NPM[A-Z0-9_]*\b/i },
     { label: "unbounded npm latest install", pattern: /\bnpm\s+(?:install|i)\s+(?:--global|-g)\s+npm@latest\b/ },
   ].filter((item) => item.pattern.test(text)).map((item) => item.label);
-  const ok = missing.length === 0 && forbidden.length === 0 && actionPinning.ok;
+  const boundaryForbidden = [...oidcBoundary.forbidden];
+  if (!manualPublishGuard.ok) boundaryForbidden.push("manual publish missing release-ref guard");
+  const ok = missing.length === 0 && forbidden.length === 0 && boundaryForbidden.length === 0 && actionPinning.ok && oidcBoundary.ok;
   return {
     ok,
     missing,
-    forbidden,
+    forbidden: [...forbidden, ...boundaryForbidden],
     action_pinning: actionPinning,
+    oidc_boundary: oidcBoundary,
+    manual_publish_guard: manualPublishGuard,
     unpinned_actions: actionPinning.unpinned_actions,
     message: ok
-      ? "publish workflow uses GitHub OIDC trusted publishing through the protected publish environment, without npm token secrets, and with full-SHA pinned first-party actions"
-      : "publish workflow is missing trusted publishing requirements, protected publish environment, still references token secrets, or has unpinned first-party actions",
+      ? "publish workflow uses isolated GitHub OIDC trusted publishing through the protected publish environment, without npm token secrets or install scripts in the OIDC job, and with full-SHA pinned first-party actions"
+      : "publish workflow is missing trusted publishing requirements, mixes OIDC authority with install scripts, lacks manual publish ref guards, still references token secrets, or has unpinned first-party actions",
   };
 }
 
@@ -571,5 +638,7 @@ module.exports = {
   requiredPackFiles,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
+  oidcWorkflowBoundaryStatus,
+  manualPublishGuardStatus,
   workflowPermissionStatus,
 };

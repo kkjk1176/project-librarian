@@ -92,6 +92,8 @@ function isBlockedSensitiveConfigFile(relativePath) {
     const base = path.basename(relativePath).toLowerCase();
     if (base === ".env.example")
         return false;
+    if (base.startsWith("."))
+        return true;
     return /(^|[._-])(secret|secrets|credential|credentials|token|tokens|private|key|keys)([._-]|$)/i.test(base);
 }
 function isJavaScriptLike(relativePath) {
@@ -130,7 +132,9 @@ function walkCodeFiles(relativePath, files = []) {
     const target = (0, workspace_1.abs)(relativePath);
     if (!fs.existsSync(target))
         return files;
-    const stat = fs.statSync(target);
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink())
+        return files.sort();
     if (stat.isFile()) {
         if (stat.size <= exports.maxIndexedBytes && shouldIndexFile(relativePath))
             files.push(relativePath);
@@ -143,8 +147,8 @@ function walkCodeFiles(relativePath, files = []) {
                 walkCodeFiles(child, files);
         }
         else if (entry.isFile() && shouldIndexFile(child)) {
-            const childStat = fs.statSync((0, workspace_1.abs)(child));
-            if (childStat.size <= exports.maxIndexedBytes)
+            const childStat = (0, workspace_1.containedProjectFileStat)(child);
+            if (childStat && childStat.size <= exports.maxIndexedBytes)
                 files.push(child);
         }
     }
@@ -164,13 +168,7 @@ function gitTrackedAndUnignoredFiles(scopes) {
     }
 }
 function indexableFileStat(file) {
-    try {
-        const stat = fs.statSync((0, workspace_1.abs)(file));
-        return stat.isFile() ? stat : null;
-    }
-    catch {
-        return null;
-    }
+    return (0, workspace_1.containedProjectFileStat)(file);
 }
 function discoverCodeFiles(scopes) {
     const gitFiles = gitTrackedAndUnignoredFiles(scopes);

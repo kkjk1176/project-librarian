@@ -52,8 +52,10 @@ function pathOwnerKey(filePath) {
     return parts[0] ?? ".";
 }
 function readJsonObject(relativePath) {
+    if (!(0, workspace_1.containedProjectFileStat)(relativePath))
+        return null;
     try {
-        const parsed = JSON.parse(fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8"));
+        const parsed = JSON.parse((0, workspace_1.read)(relativePath));
         return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
     }
     catch {
@@ -83,19 +85,19 @@ function workspacePatternCandidates(pattern) {
     const suffix = normalized.slice(starIndex + 1).replace(/^\/+/, "");
     const base = prefix || ".";
     const basePath = (0, workspace_1.abs)(base);
-    if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory())
+    if (!(0, workspace_1.containedProjectDirectoryStat)(base))
         return [];
     return fs.readdirSync(basePath, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
         .map((entry) => (0, workspace_1.normalizePath)(path.join(base, entry.name, suffix)))
-        .filter((candidate) => fs.existsSync((0, workspace_1.abs)(candidate)) && fs.statSync((0, workspace_1.abs)(candidate)).isDirectory());
+        .filter((candidate) => (0, workspace_1.containedProjectDirectoryStat)(candidate));
 }
 function workspacePackages() {
     const packages = new Map();
     for (const pattern of workspacePatternsFromRootPackage()) {
         for (const candidate of workspacePatternCandidates(pattern)) {
             const packageJsonPath = (0, workspace_1.normalizePath)(path.join(candidate, "package.json"));
-            if (!fs.existsSync((0, workspace_1.abs)(packageJsonPath)))
+            if (!(0, workspace_1.containedProjectFileStat)(packageJsonPath))
                 continue;
             const packageJson = readJsonObject(packageJsonPath);
             const packageName = typeof packageJson?.name === "string" ? packageJson.name : candidate;
@@ -119,9 +121,9 @@ function codeownerRules() {
     const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
     const rules = [];
     for (const filePath of files) {
-        if (!fs.existsSync((0, workspace_1.abs)(filePath)))
+        if (!(0, workspace_1.containedProjectFileStat)(filePath))
             continue;
-        const lines = fs.readFileSync((0, workspace_1.abs)(filePath), "utf8").split(/\r?\n/);
+        const lines = (0, workspace_1.read)(filePath).split(/\r?\n/);
         lines.forEach((lineText, index) => {
             const trimmed = lineText.trim();
             if (!trimmed || trimmed.startsWith("#"))

@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { FileStatus, MarkdownTableItem, MigrationBulkReviewGroup, MigrationBulkReviewPlan, MigrationBulkReviewRow, MigrationConfidence, MigrationCoverageStatus, MigrationInboxEntry, MigrationInboxStatus, MigrationItem, MigrationKind, MigrationReviewRow, MigrationRunResult, MigrationState, MigrationStorage, MigrationUnit, MigrationVerificationRow, ResultRow, SemanticStatus, StatusCounts, WikiDiagnostic } from "./types";
 import { classifyMigrationUnit, storageToMigrationKind } from "./taxonomy";
 import { abs, exists, metadataValue, mkdirp, read, root, stripMetadataHeader, today, upsertMarkedSection, writeManaged } from "./workspace";
@@ -274,9 +275,32 @@ function activeMigrationLegacyRoots(): string[] {
   return verifiedRoot ? [verifiedRoot] : legacyWikiRoots();
 }
 
+function migrationDirectoryPath(relativePath: string): string {
+  const resolved = path.resolve(root, relativePath);
+  const rootResolved = path.resolve(root);
+  if (resolved !== rootResolved && !resolved.startsWith(`${rootResolved}${path.sep}`)) {
+    throw new Error(`migration directory must stay inside the project root: ${relativePath}`);
+  }
+  const stat = fs.lstatSync(resolved);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`migration refuses to follow symlinked wiki directory: ${relativePath}`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`migration path is not a directory: ${relativePath}`);
+  }
+  const realPath = fs.realpathSync(resolved);
+  if (realPath !== rootResolved && !realPath.startsWith(`${rootResolved}${path.sep}`)) {
+    throw new Error(`migration directory must resolve inside the project root: ${relativePath}`);
+  }
+  return resolved;
+}
+
 function expectedMigrationUnits(): MigrationUnit[] {
   return activeMigrationLegacyRoots()
-    .flatMap((legacyRoot) => walkMarkdownFiles(abs(legacyRoot), [], abs(legacyRoot)))
+    .flatMap((legacyRoot) => {
+      const legacyPath = migrationDirectoryPath(legacyRoot);
+      return walkMarkdownFiles(legacyPath, [], legacyPath);
+    })
     .flatMap((file) => extractMigrationUnits(file.basePath, read(file.path)));
 }
 
@@ -946,6 +970,7 @@ function nextLegacyPath(): string {
 
 export function prepareMigrationMode(): MigrationState {
   if (exists("wiki")) {
+    migrationDirectoryPath("wiki");
     const legacyPath = nextLegacyPath();
     fs.renameSync(abs("wiki"), abs(legacyPath));
     return { legacyPath, note: `moved wiki to ${legacyPath}` };
@@ -963,7 +988,8 @@ export function migrationTargetForKind(kind: MigrationKind | string): string {
 
 export function runMigrationMode(migrationState: MigrationState): MigrationRunResult {
   const legacyPath = migrationState.legacyPath;
-  const markdownFiles = legacyPath && exists(legacyPath) ? walkMarkdownFiles(abs(legacyPath), [], abs(legacyPath)) : [];
+  const legacyRootPath = legacyPath && exists(legacyPath) ? migrationDirectoryPath(legacyPath) : "";
+  const markdownFiles = legacyRootPath ? walkMarkdownFiles(legacyRootPath, [], legacyRootPath) : [];
   const fileRecords = markdownFiles.map((file) => {
     const text = read(file.path);
     return { file, text, formOnlyReason: formOnlyMigrationDocumentReason(file.basePath, text) };

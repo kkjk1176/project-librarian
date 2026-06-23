@@ -92,7 +92,7 @@ During conversation:
 - Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in project wiki canonical or decision docs.
 - Follow \`wiki/AGENTS.md\` for detailed rules when editing files under \`wiki/\`.
 - Treat broad maintenance/improvement automation requests that do not name a concrete command (for example "improve this project", "start improvement automation", or "개선 자동화 시작해") as analyze-first project work, not as a plain bootstrap/update. Inspect repo, wiki, CI, test, release, dependency, and code-structure evidence; produce a ranked backlog with evidence and verification paths; persist the plan in \`wiki/plans/\` when project-planning content changes; then execute safe high-priority items with tests.
-- Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically for staged wiki, hook, AGENTS, or project-librarian files.
+- Do not execute worktree-controlled commit hooks for wiki trailers; add trailers explicitly when needed.
 - ${wikiTrustContract}
 - ${codeEvidenceTrustContract}
 - ${guidanceClaimEvidenceContract}
@@ -186,9 +186,9 @@ Update rules:
 Commit rules:
 
 - Follow the repository's commit-message policy when one exists.
-- Let \`.githooks/prepare-commit-msg\` append wiki trailers automatically when git hooks are enabled.
+- Do not execute worktree-controlled commit hooks for wiki trailers; add trailers explicitly when needed.
 - If bootstrap was run with \`--no-git-config\`, hook files are installed but \`core.hooksPath\` is not changed.
-- Do not hand-write wiki trailers unless the hook is unavailable or a trailer needs correction.
+- Hand-write wiki trailers when project policy requires them; keep them accurate and evidence-backed.
 <!-- PROJECT-WIKI-INTERNAL:END -->`;
 
 export const metadata = (scope: string, budget: WikiBudget, decisionRef: string, trigger: string, status: WikiStatus = "active"): string => `---
@@ -430,6 +430,7 @@ node dist/init-project-wiki.js --query "search terms"
 ## Git Hook Setup
 
 - The script installs \`.githooks/prepare-commit-msg\` and \`.githooks/wiki-commit-trailers.js\`.
+- \`.githooks/prepare-commit-msg\` is intentionally passive and must not execute worktree-controlled scripts.
 - By default, git repositories with an unset \`core.hooksPath\` are configured with \`git config core.hooksPath .githooks\`.
 - Existing \`core.hooksPath\` values are preserved so an existing hook chain is not replaced.
 - Run bootstrap with \`--no-git-config\` to install hook files without changing git config.

@@ -28,6 +28,32 @@ function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-guidance-test-"));
 }
 
+function symlinkOrSkip(t, target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath);
+    return true;
+  } catch (error) {
+    if (["EACCES", "EPERM"].includes(error.code)) {
+      t.skip(`symlink unavailable: ${error.message}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+function writeVariantFile(dir, sourceFiles) {
+  fs.mkdirSync(path.join(dir, "benchmarks", "guidance-variants"), { recursive: true });
+  const variantsPath = path.join(dir, "benchmarks", "guidance-variants", "current.json");
+  fs.writeFileSync(variantsPath, JSON.stringify({
+    schema_version: 1,
+    variants: [{
+      variant_id: "probe",
+      source_files: sourceFiles,
+    }],
+  }, null, 2));
+  return variantsPath;
+}
+
 test("guidance probes and variants load with current repo sources", () => {
   const probes = loadGuidanceProbeFile(defaultGuidanceProbesPath(root));
   assert.equal(probes.schema_version, 1);
@@ -73,6 +99,34 @@ test("current guidance variant does not require ignored live wiki files", () => 
   assert(variants.variants[0].source_contents.some(
     (source) => source.path === "wiki/index.md" && source.template === "index",
   ));
+});
+
+test("guidance variants reject traversal and symlinked source files", (t) => {
+  const traversalRoot = tmpDir();
+  try {
+    const traversalPath = writeVariantFile(traversalRoot, ["safe/../../outside.md"]);
+    assert.throws(
+      () => resolveGuidanceVariants({ root: traversalRoot, variantsPath: traversalPath, variantIds: ["probe"] }),
+      /must not contain traversal/,
+    );
+  } finally {
+    fs.rmSync(traversalRoot, { recursive: true, force: true });
+  }
+
+  const symlinkRoot = tmpDir();
+  const outside = path.join(os.tmpdir(), `project-librarian-guidance-outside-${Date.now()}.md`);
+  try {
+    fs.writeFileSync(outside, "# External Guidance\n");
+    if (!symlinkOrSkip(t, outside, path.join(symlinkRoot, "linked.md"))) return;
+    const variantsPath = writeVariantFile(symlinkRoot, ["linked.md"]);
+    assert.throws(
+      () => resolveGuidanceVariants({ root: symlinkRoot, variantsPath, variantIds: ["probe"] }),
+      /must be a regular file inside the repository/,
+    );
+  } finally {
+    fs.rmSync(symlinkRoot, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
+  }
 });
 
 test("guidance prompt includes variant digest and probe task", () => {

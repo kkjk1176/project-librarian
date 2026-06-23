@@ -21,8 +21,15 @@ function normalizeRelativePath(value) {
   if (!value || typeof value !== "string") {
     throw new Error("guidance variant source path must be a non-empty string");
   }
-  const normalized = value.split(/[\\/]+/).filter(Boolean).join("/");
-  if (!normalized || normalized.startsWith("../") || normalized === ".." || path.isAbsolute(value)) {
+  if (path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value)) {
+    throw new Error(`guidance variant source path must be repository-relative: ${value}`);
+  }
+  const parts = value.split(/[\\/]+/);
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`guidance variant source path must not contain traversal: ${value}`);
+  }
+  const normalized = parts.join("/");
+  if (!normalized) {
     throw new Error(`guidance variant source path must be repository-relative: ${value}`);
   }
   return normalized;
@@ -106,10 +113,22 @@ function loadGuidanceVariantFile(filePath) {
 }
 
 function readSourceFiles(root, sourceFiles) {
+  const realRoot = fs.realpathSync(root);
   return sourceFiles.map((relative) => {
-    const absolute = path.join(root, relative);
-    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
+    const absolute = path.resolve(realRoot, relative);
+    if (absolute !== realRoot && !absolute.startsWith(`${realRoot}${path.sep}`)) {
+      throw new Error(`guidance variant source file escaped repository root: ${relative}`);
+    }
+    if (!fs.existsSync(absolute)) {
       throw new Error(`guidance variant source file missing: ${relative}`);
+    }
+    const stat = fs.lstatSync(absolute);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error(`guidance variant source file must be a regular file inside the repository: ${relative}`);
+    }
+    const realSource = fs.realpathSync(absolute);
+    if (realSource !== realRoot && !realSource.startsWith(`${realRoot}${path.sep}`)) {
+      throw new Error(`guidance variant source file escaped repository root: ${relative}`);
     }
     const content = fs.readFileSync(absolute, "utf8");
     return {
