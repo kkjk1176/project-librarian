@@ -18,6 +18,7 @@ test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/);
   assert.match(workflow, /actions\/setup-node@[a-f0-9]{40}/);
   assert.match(workflow, /continue-on-error:\s*\$\{\{\s*matrix\.experimental\s*\}\}/);
+  assert.match(workflow, /npm run audit:supply-chain/);
   assert.match(workflow, /npm run check:dist/);
   assert.match(workflow, /npm run test:coverage/);
 });

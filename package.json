@@ -58,6 +58,7 @@
     "benchmark:release": "npm run benchmark:llm -- --sanitized-pack --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md",
     "build": "tsc && chmod +x dist/init-project-wiki.js",
     "check:dist": "node benchmarks/tools/release-readiness.js --only-dist-parity",
+    "audit:supply-chain": "npm audit --omit=dev",
     "perf:code-efficiency": "node benchmarks/tools/code-performance-efficiency.js --full",
     "release:check": "node benchmarks/tools/release-readiness.js",
     "typecheck": "tsc --noEmit",
