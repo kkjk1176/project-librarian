@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireNativeCodeIndexHelperPath = requireNativeCodeIndexHelperPath;
 exports.buildNativeCodeIndexJob = buildNativeCodeIndexJob;
 exports.runNativeCodeIndexHelper = runNativeCodeIndexHelper;
+exports.runNativeCodeIndexRowsHelper = runNativeCodeIndexRowsHelper;
 const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
@@ -129,5 +130,41 @@ function runNativeCodeIndexHelper(job, options = {}) {
     }
     finally {
         fs.rmSync(path.dirname(manifestPath), { recursive: true, force: true });
+    }
+}
+function validateNativeRows(value) {
+    if (typeof value !== "object" || value === null) {
+        throw new Error("native code index helper row stream must be an object");
+    }
+    const rows = value;
+    for (const key of ["edges", "files", "imports", "routes", "symbols"]) {
+        if (!Array.isArray(rows[key])) {
+            throw new Error(`native code index helper row stream missing array: ${key}`);
+        }
+    }
+    return rows;
+}
+function runNativeCodeIndexRowsHelper(job, options = {}) {
+    if (job.output_mode !== "row-stream") {
+        throw new Error("native row helper requires output_mode row-stream");
+    }
+    if (!job.rows_path) {
+        throw new Error("native row helper requires rows_path");
+    }
+    const summary = runNativeCodeIndexHelper(job, options);
+    let rowsJson = "";
+    try {
+        rowsJson = fs.readFileSync(job.rows_path, "utf8");
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`native code index helper did not write rows: ${message}`);
+    }
+    try {
+        return { rows: validateNativeRows(JSON.parse(rowsJson)), summary };
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`native code index helper returned invalid row stream: ${message}`);
     }
 }

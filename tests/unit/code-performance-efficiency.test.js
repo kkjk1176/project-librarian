@@ -129,9 +129,10 @@ test("parses opt-in code index phase timings", () => {
 
 test("parses code index stdout summary fields", () => {
   assert.deepEqual(
-    parseCodeIndexOutput("Code index: .project-wiki/code-evidence.sqlite\nengine: mixed-native-rust\nnative_files: 12\ntypescript_files: 1\ntypescript_profiles: config\n"),
+    parseCodeIndexOutput("Code index: .project-wiki/code-evidence.sqlite\nengine: mixed-native-rust\nnative_strategy: sqlite-direct\nnative_files: 12\ntypescript_files: 1\ntypescript_profiles: config\n"),
     {
       engine: "mixed-native-rust",
+      native_strategy: "sqlite-direct",
       native_files: 12,
       typescript_files: 1,
       typescript_profiles: "config",
@@ -143,7 +144,7 @@ test("markdown report renders FTS variants and parity status", () => {
   const report = markdownReport({
     generated_at: "2026-06-21T00:00:00.000Z",
     node: "v22.19.0",
-    native_comparison: { requested: true, enabled: true, mode: "auto", helper_path: "native/indexer-rs/target/debug/project-librarian-indexer" },
+    native_comparison: { requested: true, enabled: true, mode: "auto", helper_path: "native/indexer-rs/target/debug/project-librarian-indexer", strategies: ["sqlite-direct", "row-stream"] },
     decisions: { fts: "candidate FTS variants preserve parity", build: "build tracked" },
     scales: [
       {
@@ -159,7 +160,24 @@ test("markdown report renders FTS variants and parity status", () => {
           typescript_files: 1,
           typescript_profiles: "config",
           row_deltas_vs_typescript: { files: 0, symbols: 0 },
+          strategy: "sqlite-direct",
         },
+        native_indexes: [
+          {
+            engine: "mixed-native-rust",
+            index_time_ms: 90,
+            index_time_delta_percent_vs_typescript: -10,
+            strategy: "row-stream",
+            row_deltas_vs_typescript: { files: 0, symbols: 0 },
+          },
+          {
+            engine: "mixed-native-rust",
+            index_time_ms: 80,
+            index_time_delta_percent_vs_typescript: -20,
+            strategy: "sqlite-direct",
+            row_deltas_vs_typescript: { files: 0, symbols: 0 },
+          },
+        ],
         current_db: { file_bytes: 1000 },
         contentless_fts_db: { file_bytes: 750 },
         contentless_fts_size_delta_percent: -25,
@@ -192,9 +210,10 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
   assert.match(report, /Index phases: discover 1\.0 ms, read 2\.0 ms, sqlite 3\.0 ms, total 10\.0 ms/);
   assert.match(report, /Native comparison: enabled \(auto, native\/indexer-rs\/target\/debug\/project-librarian-indexer\)/);
-  assert.match(report, /Native index \(mixed-native-rust\): 80\.0 ms \(-20\.0% vs TypeScript\)/);
-  assert.match(report, /Native partition: native_files 10000, typescript_files 1, typescript_profiles config/);
-  assert.match(report, /Native row deltas vs TypeScript: files \+0, symbols \+0/);
+  assert.match(report, /Fastest native strategy: sqlite-direct \(80\.0 ms\)/);
+  assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 80\.0 ms \(-20\.0% vs TypeScript\)/);
+  assert.match(report, /Fastest native partition: native_files 10000, typescript_files 1, typescript_profiles config/);
+  assert.match(report, /Fastest native row deltas vs TypeScript: files \+0, symbols \+0/);
   assert.match(report, /Variant direct DB deltas vs current/);
   assert.match(report, /file_search_path p95 -10\.0%/);
 });

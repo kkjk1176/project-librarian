@@ -122,25 +122,44 @@ function nativeHelperRequest() {
   return "";
 }
 
+const allNativeStrategies = ["sqlite-bridge", "sqlite-direct", "row-stream"];
+
+function nativeStrategiesFromRequest() {
+  if (!nativeHelperRequest()) return [];
+  const requested = optionValue("--native-strategy", "all").trim();
+  const strategies = requested === "all"
+    ? allNativeStrategies
+    : requested.split(",").map((strategy) => strategy.trim()).filter(Boolean);
+  for (const strategy of strategies) {
+    if (!allNativeStrategies.includes(strategy)) {
+      throw new Error(`invalid --native-strategy ${strategy}; expected all, ${allNativeStrategies.join(", ")}, or a comma-separated subset`);
+    }
+  }
+  return Array.from(new Set(strategies));
+}
+
 function resolveNativeHelper() {
   const requested = nativeHelperRequest();
   if (!requested) {
     return { requested: false, enabled: false };
   }
+  const strategies = nativeStrategiesFromRequest();
   if (requested !== "auto") {
     const helperPath = path.resolve(repoRoot, requested);
     if (!fs.existsSync(helperPath)) {
       throw new Error(`native helper does not exist: ${helperPath}`);
     }
-    return { requested: true, enabled: true, mode: "explicit", helper_path: helperPath };
+    return { requested: true, enabled: true, mode: "explicit", helper_path: helperPath, strategies };
   }
 
-  const missing = ["cargo", "sqlite3"].filter((command) => !commandAvailable(command));
+  const requiredCommands = strategies.includes("sqlite-bridge") ? ["cargo", "sqlite3"] : ["cargo"];
+  const missing = requiredCommands.filter((command) => !commandAvailable(command));
   if (missing.length > 0) {
     return {
       requested: true,
       enabled: false,
       mode: "auto",
+      strategies,
       skipped_reason: `missing required command(s): ${missing.join(", ")}`,
     };
   }
@@ -151,7 +170,7 @@ function resolveNativeHelper() {
   if (!fs.existsSync(helperPath)) {
     throw new Error(`native helper build did not produce binary: ${helperPath}`);
   }
-  return { requested: true, enabled: true, mode: "auto", helper_path: helperPath };
+  return { requested: true, enabled: true, mode: "auto", helper_path: helperPath, strategies };
 }
 
 function parseCodeIndexPhaseTimings(stderr) {
@@ -855,9 +874,9 @@ function rowCountDeltas(baselineRows, candidateRows) {
   return Object.fromEntries(tables.map((table) => [table, Number(candidateRows?.[table] ?? 0) - Number(baselineRows?.[table] ?? 0)]));
 }
 
-function measureNativeIndex(cwd, scopes, nativeHelper, baseline) {
+function measureNativeIndex(cwd, scopes, nativeHelper, baseline, strategy) {
   if (!nativeHelper?.enabled) return null;
-  const relativeDbPath = ".project-wiki/code-evidence-native.sqlite";
+  const relativeDbPath = `.project-wiki/code-evidence-native-${strategy}.sqlite`;
   const nativeRun = runCodeIndexCommand(cwd, [
     "--code-index",
     "--acknowledge-small-repo",
@@ -867,7 +886,10 @@ function measureNativeIndex(cwd, scopes, nativeHelper, baseline) {
     "--code-index-out",
     relativeDbPath,
   ], {
-    env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: nativeHelper.helper_path },
+    env: {
+      PROJECT_LIBRARIAN_NATIVE_INDEXER: nativeHelper.helper_path,
+      PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: strategy,
+    },
   });
   const stdoutSummary = parseCodeIndexOutput(nativeRun.stdout);
   const db = databaseStats(path.join(cwd, relativeDbPath));
@@ -879,9 +901,20 @@ function measureNativeIndex(cwd, scopes, nativeHelper, baseline) {
     db,
     row_deltas_vs_typescript: rowCountDeltas(baseline.db.rows, db.rows),
     native_files: typeof stdoutSummary.native_files === "number" ? stdoutSummary.native_files : null,
+    strategy: stdoutSummary.native_strategy ?? strategy,
     typescript_files: typeof stdoutSummary.typescript_files === "number" ? stdoutSummary.typescript_files : null,
     typescript_profiles: typeof stdoutSummary.typescript_profiles === "string" ? stdoutSummary.typescript_profiles : "",
   };
+}
+
+function measureNativeIndexes(cwd, scopes, nativeHelper, baseline) {
+  if (!nativeHelper?.enabled) return { fastest: null, indexes: [] };
+  const indexes = nativeHelper.strategies.map((strategy) => measureNativeIndex(cwd, scopes, nativeHelper, baseline, strategy));
+  const completed = indexes.filter(Boolean);
+  const fastest = completed.reduce((best, candidate) =>
+    !best || candidate.index_time_ms < best.index_time_ms ? candidate : best
+  , null);
+  return { fastest, indexes: completed };
 }
 
 function buildFtsVariantSummaries(currentDbPath, variants, terms) {
@@ -958,24 +991,35 @@ function formatSignedPercent(value) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function appendNativeIndexLines(lines, nativeIndex) {
+function formatNativeIndexLabel(nativeIndex) {
+  return nativeIndex.strategy ? `${nativeIndex.strategy} (${nativeIndex.engine})` : nativeIndex.engine;
+}
+
+function appendNativeIndexLines(lines, nativeIndex, nativeIndexes = []) {
+  if (!nativeIndex && nativeIndexes.length === 0) return;
+  const indexes = nativeIndexes.length > 0 ? nativeIndexes : [nativeIndex];
+  if (indexes.length > 1 && nativeIndex) {
+    lines.push(`- Fastest native strategy: ${nativeIndex.strategy} (${nativeIndex.index_time_ms.toFixed(1)} ms)`);
+  }
+  for (const index of indexes) {
+    lines.push(`- Native index ${formatNativeIndexLabel(index)}: ${index.index_time_ms.toFixed(1)} ms (${formatSignedPercent(index.index_time_delta_percent_vs_typescript)} vs TypeScript)`);
+  }
   if (!nativeIndex) return;
-  lines.push(`- Native index (${nativeIndex.engine}): ${nativeIndex.index_time_ms.toFixed(1)} ms (${formatSignedPercent(nativeIndex.index_time_delta_percent_vs_typescript)} vs TypeScript)`);
   if (nativeIndex.phase_timings) {
-    lines.push(`- Native index phases: ${formatPhaseTimings(nativeIndex.phase_timings)}`);
+    lines.push(`- Fastest native phases: ${formatPhaseTimings(nativeIndex.phase_timings)}`);
   }
   if (typeof nativeIndex.native_files === "number" || typeof nativeIndex.typescript_files === "number") {
     const parts = [];
     if (typeof nativeIndex.native_files === "number") parts.push(`native_files ${nativeIndex.native_files}`);
     if (typeof nativeIndex.typescript_files === "number") parts.push(`typescript_files ${nativeIndex.typescript_files}`);
     if (nativeIndex.typescript_profiles) parts.push(`typescript_profiles ${nativeIndex.typescript_profiles}`);
-    lines.push(`- Native partition: ${parts.join(", ")}`);
+    lines.push(`- Fastest native partition: ${parts.join(", ")}`);
   }
   const rowDeltas = Object.entries(nativeIndex.row_deltas_vs_typescript ?? {})
     .map(([table, delta]) => `${table} ${delta >= 0 ? "+" : ""}${delta}`)
     .join(", ");
   if (rowDeltas) {
-    lines.push(`- Native row deltas vs TypeScript: ${rowDeltas}`);
+    lines.push(`- Fastest native row deltas vs TypeScript: ${rowDeltas}`);
   }
 }
 
@@ -1004,7 +1048,7 @@ function markdownReport(result) {
     if (scale.phase_timings) {
       lines.push(`- Index phases: ${formatPhaseTimings(scale.phase_timings)}`);
     }
-    appendNativeIndexLines(lines, scale.native_index);
+    appendNativeIndexLines(lines, scale.native_index, scale.native_indexes);
     lines.push(`- Current DB size: ${scale.current_db.file_bytes} bytes`);
     lines.push(`- Contentless FTS experiment size: ${scale.contentless_fts_db.file_bytes} bytes (${scale.contentless_fts_size_delta_percent.toFixed(1)}%)`);
     if (scale.fts_variants) {
@@ -1064,7 +1108,7 @@ function markdownReport(result) {
     if (sample.phase_timings) {
       lines.push(`- Index phases: ${formatPhaseTimings(sample.phase_timings)}`);
     }
-    appendNativeIndexLines(lines, sample.native_index);
+    appendNativeIndexLines(lines, sample.native_index, sample.native_indexes);
     lines.push(`- Current DB size: ${sample.current_db.file_bytes} bytes`);
     for (const [command, timing] of Object.entries(sample.commands)) {
       lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
@@ -1125,7 +1169,7 @@ function main() {
       const altDbPath = path.join(cwd, ".project-wiki", "code-evidence-contentless-fts.sqlite");
       const externalDbPath = path.join(cwd, ".project-wiki", "code-evidence-external-content-fts.sqlite");
       const currentDb = databaseStats(dbPath);
-      const nativeIndex = measureNativeIndex(cwd, ["src", "package.json"], nativeHelper, {
+      const nativeComparison = measureNativeIndexes(cwd, ["src", "package.json"], nativeHelper, {
         index_time_ms: indexRun.elapsedMs,
         db: currentDb,
       });
@@ -1147,7 +1191,8 @@ function main() {
         file_count: scale,
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
-        native_index: nativeIndex,
+        native_index: nativeComparison.fastest,
+        native_indexes: nativeComparison.indexes,
         current_db: currentDb,
         contentless_fts_db: contentlessFtsDb,
         contentless_fts_size_delta_percent: ((contentlessFtsDb.file_bytes - currentDb.file_bytes) / currentDb.file_bytes) * 100,
@@ -1169,10 +1214,16 @@ function main() {
         corpus_kind: sample.corpus_kind,
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
-        native_index: measureNativeIndex(cwd, ["."], nativeHelper, {
-          index_time_ms: indexRun.elapsedMs,
-          db: currentDb,
-        }),
+        ...(() => {
+          const nativeComparison = measureNativeIndexes(cwd, ["."], nativeHelper, {
+            index_time_ms: indexRun.elapsedMs,
+            db: currentDb,
+          });
+          return {
+            native_index: nativeComparison.fastest,
+            native_indexes: nativeComparison.indexes,
+          };
+        })(),
         current_db: currentDb,
         commands: measureSampleCommands(cwd, sample),
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, sample.terms),

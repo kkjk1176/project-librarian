@@ -6,6 +6,7 @@ import type { CodeParserMode } from "./schema";
 import { normalizePath, root } from "../workspace";
 
 export type NativeCodeIndexEngine = "native-rust";
+export type NativeCodeIndexOutputMode = "row-stream" | "sqlite-bridge" | "sqlite-direct";
 
 export interface NativeCodeIndexFile {
   language: string;
@@ -21,8 +22,10 @@ export interface NativeCodeIndexJob {
   engine: NativeCodeIndexEngine;
   files: NativeCodeIndexFile[];
   mode: "full";
+  output_mode?: NativeCodeIndexOutputMode;
   parser_mode: CodeParserMode;
   project_root: string;
+  rows_path?: string;
   scopes: string[];
   schema_version: string;
 }
@@ -45,6 +48,52 @@ export interface NativeCodeIndexSummary {
 
 export interface NativeCodeIndexHelperOptions {
   helperPath?: string;
+}
+
+export interface NativeCodeIndexRows {
+  edges: Array<{
+    evidence: string;
+    file_path: string;
+    kind: string;
+    line: number;
+    source: string;
+    source_kind: string;
+    target: string;
+    target_kind: string;
+  }>;
+  files: Array<{
+    bytes: number;
+    content: string;
+    hash: string;
+    kind: string;
+    language: string;
+    lines: number;
+    mtime_ms: number;
+    path: string;
+    profile: string;
+    size: number;
+  }>;
+  imports: Array<{
+    from_file: string;
+    imported: string;
+    line: number;
+    raw: string;
+    to_ref: string;
+  }>;
+  routes: Array<{
+    file_path: string;
+    handler: string;
+    line: number;
+    method: string;
+    route: string;
+  }>;
+  symbols: Array<{
+    file_path: string;
+    kind: string;
+    line: number;
+    name: string;
+    signature: string;
+  }>;
 }
 
 function configuredHelperPath(options: NativeCodeIndexHelperOptions = {}): string {
@@ -139,5 +188,41 @@ export function runNativeCodeIndexHelper(job: NativeCodeIndexJob, options: Nativ
     return validateNativeCodeIndexSummary(job, summary);
   } finally {
     fs.rmSync(path.dirname(manifestPath), { recursive: true, force: true });
+  }
+}
+
+function validateNativeRows(value: unknown): NativeCodeIndexRows {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("native code index helper row stream must be an object");
+  }
+  const rows = value as Partial<Record<keyof NativeCodeIndexRows, unknown>>;
+  for (const key of ["edges", "files", "imports", "routes", "symbols"] as const) {
+    if (!Array.isArray(rows[key])) {
+      throw new Error(`native code index helper row stream missing array: ${key}`);
+    }
+  }
+  return rows as NativeCodeIndexRows;
+}
+
+export function runNativeCodeIndexRowsHelper(job: NativeCodeIndexJob, options: NativeCodeIndexHelperOptions = {}): { rows: NativeCodeIndexRows; summary: NativeCodeIndexSummary } {
+  if (job.output_mode !== "row-stream") {
+    throw new Error("native row helper requires output_mode row-stream");
+  }
+  if (!job.rows_path) {
+    throw new Error("native row helper requires rows_path");
+  }
+  const summary = runNativeCodeIndexHelper(job, options);
+  let rowsJson = "";
+  try {
+    rowsJson = fs.readFileSync(job.rows_path, "utf8");
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`native code index helper did not write rows: ${message}`);
+  }
+  try {
+    return { rows: validateNativeRows(JSON.parse(rowsJson)), summary };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`native code index helper returned invalid row stream: ${message}`);
   }
 }

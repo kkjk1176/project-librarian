@@ -849,32 +849,42 @@ test("native-rust helper matches the TypeScript engine for supported JS/TS snaps
     ].join("\n"));
 
     runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-out", ".project-wiki/ts.sqlite"]);
-    const nativeResult = runCliResult(cwd, [
-      "--code-index",
-      "--acknowledge-small-repo",
-      "--code-index-engine",
-      "native-rust",
-      "--code-scope",
-      "src",
-      "--code-index-out",
-      ".project-wiki/native.sqlite",
-    ], {
-      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
-    });
-    assert.equal(nativeResult.status, 0, nativeResult.stderr || nativeResult.stdout);
-    assert.match(nativeResult.stdout, /engine: native-rust/);
-    assert.match(nativeResult.stdout, /native_files: 2/);
-    assert.match(nativeResult.stdout, /typescript_files: 0/);
-
     const tsDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "ts.sqlite"));
-    const nativeDatabase = openSnapshotDatabase(path.join(cwd, ".project-wiki", "native.sqlite"));
     try {
-      assert.deepEqual(
-        normalizedNativeParitySnapshot(codeIndexSnapshot(nativeDatabase)),
-        normalizedNativeParitySnapshot(codeIndexSnapshot(tsDatabase)),
-      );
+      for (const strategy of ["sqlite-bridge", "sqlite-direct", "row-stream"]) {
+        const nativeOutput = `.project-wiki/native-${strategy}.sqlite`;
+        const nativeResult = runCliResult(cwd, [
+          "--code-index",
+          "--acknowledge-small-repo",
+          "--code-index-engine",
+          "native-rust",
+          "--code-scope",
+          "src",
+          "--code-index-out",
+          nativeOutput,
+        ], {
+          env: {
+            PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath,
+            PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: strategy,
+          },
+        });
+        assert.equal(nativeResult.status, 0, nativeResult.stderr || nativeResult.stdout);
+        assert.match(nativeResult.stdout, /engine: native-rust/);
+        assert.match(nativeResult.stdout, new RegExp(`native_strategy: ${strategy}`));
+        assert.match(nativeResult.stdout, /native_files: 2/);
+        assert.match(nativeResult.stdout, /typescript_files: 0/);
+
+        const nativeDatabase = openSnapshotDatabase(path.join(cwd, nativeOutput));
+        try {
+          assert.deepEqual(
+            normalizedNativeParitySnapshot(codeIndexSnapshot(nativeDatabase)),
+            normalizedNativeParitySnapshot(codeIndexSnapshot(tsDatabase)),
+          );
+        } finally {
+          nativeDatabase.close();
+        }
+      }
     } finally {
-      nativeDatabase.close();
       tsDatabase.close();
     }
   } finally {

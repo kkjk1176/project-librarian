@@ -227,6 +227,12 @@ function nativeCodeIndexFileFor(filePath, parserMode) {
 function nativeEligibleProfile(profile) {
     return profile === "typescript-ast";
 }
+function nativeCodeIndexOutputMode() {
+    const requested = (process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY ?? "sqlite-bridge").trim();
+    if (requested === "row-stream" || requested === "sqlite-bridge" || requested === "sqlite-direct")
+        return requested;
+    fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
+}
 function appendTypeScriptPartitionToNativeDatabase(databasePath, filePaths, parserMode) {
     if (filePaths.length === 0)
         return 0;
@@ -252,6 +258,47 @@ function appendTypeScriptPartitionToNativeDatabase(databasePath, filePaths, pars
         database.close();
     }
 }
+function writeNativeRowsToDatabase(databasePath, rows, scopes, parserMode) {
+    removeDatabaseFiles(databasePath);
+    const database = openDatabase(databasePath);
+    try {
+        (0, schema_1.setupDatabase)(database);
+        const statements = (0, schema_1.createIndexStatements)(database);
+        database.exec("BEGIN");
+        statements.insertMeta.run("created_at", new Date().toISOString());
+        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
+        for (const file of rows.files) {
+            statements.insertFile.run(file.path, file.language, file.profile, file.kind, file.bytes, file.lines, file.hash, file.mtime_ms, file.size);
+            statements.insertFileFts.run(file.path, file.language, file.profile, file.content);
+        }
+        for (const symbol of rows.symbols) {
+            statements.insertSymbol.run(symbol.name, symbol.kind, symbol.file_path, symbol.line, symbol.signature);
+            statements.insertSymbolFts.run(symbol.name, symbol.kind, symbol.file_path, symbol.signature);
+        }
+        for (const imported of rows.imports) {
+            statements.insertImport.run(imported.from_file, imported.to_ref, imported.imported, imported.line, imported.raw);
+        }
+        for (const route of rows.routes) {
+            statements.insertRoute.run(route.method, route.route, route.file_path, route.line, route.handler);
+        }
+        for (const edge of rows.edges) {
+            statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
+        }
+        database.exec("COMMIT");
+    }
+    catch (error) {
+        try {
+            database.exec("ROLLBACK");
+        }
+        catch {
+            // Ignore rollback failures after row-stream setup errors.
+        }
+        throw error;
+    }
+    finally {
+        database.close();
+    }
+}
 function runNativeCodeIndexMode(request) {
     let helperPath = "";
     try {
@@ -267,17 +314,28 @@ function runNativeCodeIndexMode(request) {
     const nativeFiles = manifestFiles.filter((file) => nativeEligibleProfile(file.profile));
     const typescriptFiles = manifestFiles.filter((file) => !nativeEligibleProfile(file.profile));
     const typescriptProfiles = [...new Set(typescriptFiles.map((file) => file.profile))].sort();
+    const outputMode = nativeCodeIndexOutputMode();
+    const rowsPath = `${tempDatabasePath}.rows.json`;
     const job = (0, native_helper_1.buildNativeCodeIndexJob)({
         database_path: tempDatabasePath,
         files: nativeFiles,
+        output_mode: outputMode,
         parser_mode: request.parserMode,
         schema_version: schema_1.codeIndexSchemaVersion,
         scopes: request.scopes,
+        ...(outputMode === "row-stream" ? { rows_path: rowsPath } : {}),
     });
     let summary;
     let typescriptIndexedFiles = 0;
     try {
-        summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        if (outputMode === "row-stream") {
+            const result = (0, native_helper_1.runNativeCodeIndexRowsHelper)(job, { helperPath });
+            summary = result.summary;
+            writeNativeRowsToDatabase(tempDatabasePath, result.rows, request.scopes, request.parserMode);
+        }
+        else {
+            summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        }
         if (!fs.existsSync(tempDatabasePath)) {
             fail(`native code index helper did not create database: ${tempDatabasePath}`);
         }
@@ -288,11 +346,16 @@ function runNativeCodeIndexMode(request) {
         removeTemporaryDatabaseFiles(tempDatabasePath);
         fail(error instanceof Error ? error.message : String(error));
     }
+    finally {
+        if (fs.existsSync(rowsPath))
+            fs.unlinkSync(rowsPath);
+    }
     console.log("Project wiki code evidence index complete.");
     console.log(`database: ${request.databasePath.relativePath}`);
     console.log("mode: full");
     console.log(`parser_mode: ${request.parserMode}`);
     console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+    console.log(`native_strategy: ${outputMode}`);
     console.log(`scopes: ${request.scopes.join(", ")}`);
     console.log(`files: ${manifestFiles.length}`);
     console.log(`native_files: ${nativeFiles.length}`);

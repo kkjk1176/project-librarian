@@ -2,16 +2,49 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::env;
+use std::ffi::{CStr, CString};
 use std::fs;
 use std::io::Write;
+use std::os::raw::{c_char, c_double, c_int, c_void};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::ptr;
 
 const ABI_VERSION: u32 = 1;
 const ENGINE: &str = "native-rust";
 const MODE: &str = "full";
 const SCHEMA_VERSION: &str = "4";
+const SQLITE_DIRECT_WARNING: &str = "sqlite3-direct-ffi";
 const SQLITE_BRIDGE_WARNING: &str = "sqlite3-cli-bridge";
+const ROW_STREAM_WARNING: &str = "row-stream";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputMode {
+    RowStream,
+    SqliteBridge,
+    SqliteDirect,
+}
+
+impl OutputMode {
+    fn from_manifest(value: Option<&str>) -> Result<Self, String> {
+        match value.unwrap_or("sqlite-bridge") {
+            "row-stream" => Ok(Self::RowStream),
+            "sqlite-bridge" => Ok(Self::SqliteBridge),
+            "sqlite-direct" => Ok(Self::SqliteDirect),
+            other => Err(format!(
+                "unsupported output_mode: {other}; expected row-stream, sqlite-bridge, or sqlite-direct"
+            )),
+        }
+    }
+
+    fn warning(self) -> &'static str {
+        match self {
+            Self::RowStream => ROW_STREAM_WARNING,
+            Self::SqliteBridge => SQLITE_BRIDGE_WARNING,
+            Self::SqliteDirect => SQLITE_DIRECT_WARNING,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct ManifestFile {
@@ -30,8 +63,10 @@ struct Manifest {
     engine: String,
     files: Vec<ManifestFile>,
     mode: String,
+    output_mode: Option<String>,
     parser_mode: String,
     project_root: String,
+    rows_path: Option<String>,
     schema_version: String,
     scopes: Vec<String>,
 }
@@ -83,11 +118,19 @@ fn run() -> Result<(), String> {
     let manifest: Manifest = serde_json::from_str(&manifest_text)
         .map_err(|error| format!("failed to parse manifest JSON: {error}"))?;
     validate_manifest(&manifest)?;
+    let output_mode = OutputMode::from_manifest(manifest.output_mode.as_deref())?;
 
     let started = std::time::Instant::now();
-    let sql = build_sql(&manifest)?;
-    write_database_with_sqlite_bridge(&manifest.database_path, &sql)?;
-    let counts = collect_counts(&manifest)?;
+    let rows = collect_index_rows(&manifest)?;
+    match output_mode {
+        OutputMode::RowStream => write_row_stream(&manifest, &rows)?,
+        OutputMode::SqliteBridge => {
+            let sql = build_sql(&manifest, &rows)?;
+            write_database_with_sqlite_bridge(&manifest.database_path, &sql)?;
+        }
+        OutputMode::SqliteDirect => write_database_direct(&manifest, &rows)?,
+    }
+    let counts = rows.counts();
     let summary = Summary {
         engine: ENGINE.to_string(),
         schema_version: manifest.schema_version.clone(),
@@ -103,7 +146,7 @@ fn run() -> Result<(), String> {
         edges: counts.edges,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
         unsupported_profiles: Vec::new(),
-        warnings: vec![SQLITE_BRIDGE_WARNING.to_string()],
+        warnings: vec![output_mode.warning().to_string()],
     };
     println!(
         "{}",
@@ -158,6 +201,14 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), String> {
         return Err("database_path must be absolute".to_string());
     }
     validate_database_path(&manifest.project_root, &manifest.database_path)?;
+    let output_mode = OutputMode::from_manifest(manifest.output_mode.as_deref())?;
+    if output_mode == OutputMode::RowStream {
+        let rows_path = manifest
+            .rows_path
+            .as_deref()
+            .ok_or("rows_path is required when output_mode is row-stream")?;
+        validate_rows_path(rows_path)?;
+    }
     for scope in &manifest.scopes {
         validate_relative_path(scope, "scope")?;
     }
@@ -190,6 +241,23 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), String> {
                 stat.len()
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_rows_path(rows_path: &str) -> Result<(), String> {
+    let path = Path::new(rows_path);
+    if !path.is_absolute() {
+        return Err(format!("rows_path must be absolute: {rows_path}"));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("invalid rows_path: {rows_path}"))?;
+    if !parent.exists() {
+        return Err(format!(
+            "rows_path parent does not exist: {}",
+            parent.display()
+        ));
     }
     Ok(())
 }
@@ -228,7 +296,7 @@ fn validate_relative_path(path: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn build_sql(manifest: &Manifest) -> Result<String, String> {
+fn build_sql(manifest: &Manifest, rows: &IndexRows) -> Result<String, String> {
     let mut sql = String::new();
     sql.push_str(
         r#"
@@ -314,12 +382,20 @@ BEGIN;
     insert_meta(&mut sql, "parser_mode", &manifest.parser_mode);
     insert_meta(&mut sql, "terminology", "code evidence index");
 
-    for file in &manifest.files {
-        let absolute_path = contained_path(&manifest.project_root, &file.path)?;
-        let text = fs::read_to_string(&absolute_path)
-            .map_err(|error| format!("failed to read {}: {error}", absolute_path.display()))?;
-        insert_file(&mut sql, file, &text);
-        index_javascript_like(&mut sql, file, &text);
+    for file in &rows.files {
+        insert_file_row(&mut sql, file);
+    }
+    for symbol in &rows.symbols {
+        insert_symbol_row(&mut sql, symbol);
+    }
+    for import in &rows.imports {
+        insert_import_row(&mut sql, import);
+    }
+    for route in &rows.routes {
+        insert_route_row(&mut sql, route);
+    }
+    for edge in &rows.edges {
+        insert_edge_row(&mut sql, edge);
     }
     sql.push_str("COMMIT;\n");
     Ok(sql)
@@ -341,6 +417,157 @@ fn contained_path(root: &str, relative: &str) -> Result<PathBuf, String> {
         return Err(format!("manifest file escapes project root: {relative}"));
     }
     Ok(candidate)
+}
+
+#[derive(Default, Serialize)]
+struct IndexRows {
+    edges: Vec<EdgeIndexRow>,
+    files: Vec<FileIndexRow>,
+    imports: Vec<ImportIndexRow>,
+    routes: Vec<RouteIndexRow>,
+    symbols: Vec<SymbolIndexRow>,
+}
+
+impl IndexRows {
+    fn counts(&self) -> Counts {
+        Counts {
+            configs: 0,
+            edges: self.edges.len(),
+            files: self.files.len(),
+            imports: self.imports.len(),
+            routes: self.routes.len(),
+            symbols: self.symbols.len(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct FileIndexRow {
+    bytes: u64,
+    content: String,
+    hash: String,
+    kind: String,
+    language: String,
+    lines: usize,
+    mtime_ms: f64,
+    path: String,
+    profile: String,
+    size: u64,
+}
+
+#[derive(Serialize)]
+struct SymbolIndexRow {
+    file_path: String,
+    kind: String,
+    line: usize,
+    name: String,
+    signature: String,
+}
+
+#[derive(Serialize)]
+struct ImportIndexRow {
+    from_file: String,
+    imported: String,
+    line: usize,
+    raw: String,
+    to_ref: String,
+}
+
+#[derive(Serialize)]
+struct RouteIndexRow {
+    file_path: String,
+    handler: String,
+    line: usize,
+    method: String,
+    route: String,
+}
+
+#[derive(Serialize)]
+struct EdgeIndexRow {
+    evidence: String,
+    file_path: String,
+    kind: String,
+    line: usize,
+    source: String,
+    source_kind: String,
+    target: String,
+    target_kind: String,
+}
+
+fn collect_index_rows(manifest: &Manifest) -> Result<IndexRows, String> {
+    let mut rows = IndexRows::default();
+    for file in &manifest.files {
+        let absolute_path = contained_path(&manifest.project_root, &file.path)?;
+        let text = fs::read_to_string(&absolute_path)
+            .map_err(|error| format!("failed to read {}: {error}", absolute_path.display()))?;
+        let lines = if text.is_empty() {
+            0
+        } else {
+            text.split('\n').count()
+        };
+        rows.files.push(FileIndexRow {
+            bytes: file.size,
+            content: text.clone(),
+            hash: sha256_hex(&text),
+            kind: "source".to_string(),
+            language: file.language.clone(),
+            lines,
+            mtime_ms: file.mtime_ms,
+            path: file.path.clone(),
+            profile: file.profile.clone(),
+            size: file.size,
+        });
+        let extracted = extract_javascript_like(file, &text);
+        rows.symbols
+            .extend(extracted.symbols.into_iter().map(|symbol| SymbolIndexRow {
+                file_path: file.path.clone(),
+                kind: symbol.kind,
+                line: symbol.line,
+                name: symbol.name,
+                signature: symbol.signature,
+            }));
+        rows.imports
+            .extend(extracted.imports.into_iter().map(|import| ImportIndexRow {
+                from_file: file.path.clone(),
+                imported: import.imported,
+                line: import.line,
+                raw: import.raw,
+                to_ref: import.to_ref,
+            }));
+        rows.routes
+            .extend(extracted.routes.into_iter().map(|route| RouteIndexRow {
+                file_path: file.path.clone(),
+                handler: route.handler,
+                line: route.line,
+                method: route.method,
+                route: route.route,
+            }));
+        rows.edges
+            .extend(extracted.edges.into_iter().map(|edge| EdgeIndexRow {
+                evidence: edge.evidence,
+                file_path: file.path.clone(),
+                kind: edge.kind,
+                line: edge.line,
+                source: edge.source,
+                source_kind: edge.source_kind,
+                target: edge.target,
+                target_kind: edge.target_kind,
+            }));
+    }
+    Ok(rows)
+}
+
+fn write_row_stream(manifest: &Manifest, rows: &IndexRows) -> Result<(), String> {
+    let rows_path = manifest
+        .rows_path
+        .as_deref()
+        .ok_or("rows_path is required when output_mode is row-stream")?;
+    fs::write(
+        rows_path,
+        serde_json::to_string(rows)
+            .map_err(|error| format!("failed to serialize row stream: {error}"))?,
+    )
+    .map_err(|error| format!("failed to write row stream {rows_path}: {error}"))
 }
 
 fn write_database_with_sqlite_bridge(database_path: &str, sql: &str) -> Result<(), String> {
@@ -381,21 +608,416 @@ fn remove_database_files(database_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn collect_counts(manifest: &Manifest) -> Result<Counts, String> {
-    let mut counts = Counts {
-        files: manifest.files.len(),
-        ..Default::default()
-    };
-    for file in &manifest.files {
-        let text = fs::read_to_string(contained_path(&manifest.project_root, &file.path)?)
-            .map_err(|error| format!("failed to read {} for counts: {error}", file.path))?;
-        let extracted = extract_javascript_like(file, &text);
-        counts.symbols += extracted.symbols.len();
-        counts.imports += extracted.imports.len();
-        counts.routes += extracted.routes.len();
-        counts.edges += extracted.edges.len();
+#[allow(non_camel_case_types)]
+type sqlite3 = c_void;
+#[allow(non_camel_case_types)]
+type sqlite3_stmt = c_void;
+type SqliteDestructor = Option<unsafe extern "C" fn(*mut c_void)>;
+
+const SQLITE_OK: c_int = 0;
+const SQLITE_DONE: c_int = 101;
+const SQLITE_OPEN_READWRITE: c_int = 0x00000002;
+const SQLITE_OPEN_CREATE: c_int = 0x00000004;
+
+#[link(name = "sqlite3")]
+extern "C" {
+    fn sqlite3_bind_double(statement: *mut sqlite3_stmt, index: c_int, value: c_double) -> c_int;
+    fn sqlite3_bind_int64(statement: *mut sqlite3_stmt, index: c_int, value: i64) -> c_int;
+    fn sqlite3_bind_text(
+        statement: *mut sqlite3_stmt,
+        index: c_int,
+        value: *const c_char,
+        bytes: c_int,
+        destructor: SqliteDestructor,
+    ) -> c_int;
+    fn sqlite3_clear_bindings(statement: *mut sqlite3_stmt) -> c_int;
+    fn sqlite3_close(database: *mut sqlite3) -> c_int;
+    fn sqlite3_errmsg(database: *mut sqlite3) -> *const c_char;
+    fn sqlite3_exec(
+        database: *mut sqlite3,
+        sql: *const c_char,
+        callback: Option<
+            unsafe extern "C" fn(*mut c_void, c_int, *mut *mut c_char, *mut *mut c_char) -> c_int,
+        >,
+        argument: *mut c_void,
+        errmsg: *mut *mut c_char,
+    ) -> c_int;
+    fn sqlite3_finalize(statement: *mut sqlite3_stmt) -> c_int;
+    fn sqlite3_open_v2(
+        filename: *const c_char,
+        database: *mut *mut sqlite3,
+        flags: c_int,
+        vfs: *const c_char,
+    ) -> c_int;
+    fn sqlite3_prepare_v2(
+        database: *mut sqlite3,
+        sql: *const c_char,
+        bytes: c_int,
+        statement: *mut *mut sqlite3_stmt,
+        tail: *mut *const c_char,
+    ) -> c_int;
+    fn sqlite3_reset(statement: *mut sqlite3_stmt) -> c_int;
+    fn sqlite3_step(statement: *mut sqlite3_stmt) -> c_int;
+}
+
+fn sqlite_transient() -> SqliteDestructor {
+    unsafe { std::mem::transmute::<isize, SqliteDestructor>(-1) }
+}
+
+struct SqliteConnection {
+    raw: *mut sqlite3,
+}
+
+impl SqliteConnection {
+    fn open(database_path: &str) -> Result<Self, String> {
+        let filename = cstring(database_path, "database path")?;
+        let mut raw = ptr::null_mut();
+        let status = unsafe {
+            sqlite3_open_v2(
+                filename.as_ptr(),
+                &mut raw,
+                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                ptr::null(),
+            )
+        };
+        if status != SQLITE_OK {
+            let message = if raw.is_null() {
+                format!("sqlite open failed with status {status}")
+            } else {
+                sqlite_error(raw)
+            };
+            if !raw.is_null() {
+                unsafe {
+                    sqlite3_close(raw);
+                }
+            }
+            return Err(message);
+        }
+        Ok(Self { raw })
     }
-    Ok(counts)
+
+    fn exec(&self, sql: &str) -> Result<(), String> {
+        let sql = cstring(sql, "SQL")?;
+        let status = unsafe {
+            sqlite3_exec(
+                self.raw,
+                sql.as_ptr(),
+                None,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        if status == SQLITE_OK {
+            Ok(())
+        } else {
+            Err(sqlite_error(self.raw))
+        }
+    }
+
+    fn prepare(&self, sql: &str) -> Result<SqlitePreparedStatement, String> {
+        let sql = cstring(sql, "SQL")?;
+        let mut statement = ptr::null_mut();
+        let status = unsafe {
+            sqlite3_prepare_v2(self.raw, sql.as_ptr(), -1, &mut statement, ptr::null_mut())
+        };
+        if status == SQLITE_OK {
+            Ok(SqlitePreparedStatement {
+                database: self.raw,
+                raw: statement,
+            })
+        } else {
+            Err(sqlite_error(self.raw))
+        }
+    }
+}
+
+impl Drop for SqliteConnection {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe {
+                sqlite3_close(self.raw);
+            }
+        }
+    }
+}
+
+struct SqlitePreparedStatement {
+    database: *mut sqlite3,
+    raw: *mut sqlite3_stmt,
+}
+
+impl SqlitePreparedStatement {
+    fn bind_text(&self, index: c_int, value: &str) -> Result<(), String> {
+        let value = cstring(value, "SQLite text value")?;
+        let status =
+            unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, sqlite_transient()) };
+        if status == SQLITE_OK {
+            Ok(())
+        } else {
+            Err(sqlite_error(self.database))
+        }
+    }
+
+    fn bind_int64(&self, index: c_int, value: i64) -> Result<(), String> {
+        let status = unsafe { sqlite3_bind_int64(self.raw, index, value) };
+        if status == SQLITE_OK {
+            Ok(())
+        } else {
+            Err(sqlite_error(self.database))
+        }
+    }
+
+    fn bind_double(&self, index: c_int, value: f64) -> Result<(), String> {
+        let status = unsafe { sqlite3_bind_double(self.raw, index, value) };
+        if status == SQLITE_OK {
+            Ok(())
+        } else {
+            Err(sqlite_error(self.database))
+        }
+    }
+
+    fn run(&self) -> Result<(), String> {
+        let status = unsafe { sqlite3_step(self.raw) };
+        if status != SQLITE_DONE {
+            return Err(sqlite_error(self.database));
+        }
+        unsafe {
+            sqlite3_reset(self.raw);
+            sqlite3_clear_bindings(self.raw);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SqlitePreparedStatement {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe {
+                sqlite3_finalize(self.raw);
+            }
+        }
+    }
+}
+
+fn sqlite_error(database: *mut sqlite3) -> String {
+    if database.is_null() {
+        return "sqlite error on null database".to_string();
+    }
+    unsafe {
+        let message = sqlite3_errmsg(database);
+        if message.is_null() {
+            "sqlite error without message".to_string()
+        } else {
+            CStr::from_ptr(message).to_string_lossy().into_owned()
+        }
+    }
+}
+
+fn cstring(value: &str, label: &str) -> Result<CString, String> {
+    CString::new(value).map_err(|_| format!("{label} contains an embedded NUL byte"))
+}
+
+fn setup_database_sql() -> &'static str {
+    r#"
+PRAGMA journal_mode = WAL;
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE files (
+  path TEXT PRIMARY KEY,
+  language TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  lines INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  mtime_ms REAL NOT NULL,
+  size INTEGER NOT NULL
+);
+CREATE TABLE symbols (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  line INTEGER NOT NULL,
+  signature TEXT NOT NULL
+);
+CREATE TABLE imports (
+  id INTEGER PRIMARY KEY,
+  from_file TEXT NOT NULL,
+  to_ref TEXT NOT NULL,
+  imported TEXT NOT NULL,
+  line INTEGER NOT NULL,
+  raw TEXT NOT NULL
+);
+CREATE TABLE routes (
+  id INTEGER PRIMARY KEY,
+  method TEXT NOT NULL,
+  route TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  line INTEGER NOT NULL,
+  handler TEXT NOT NULL
+);
+CREATE TABLE configs (
+  id INTEGER PRIMARY KEY,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  line INTEGER NOT NULL
+);
+CREATE TABLE edges (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  source TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  target TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  line INTEGER NOT NULL,
+  evidence TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
+CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
+CREATE INDEX idx_symbols_file ON symbols(file_path);
+CREATE INDEX idx_symbols_name ON symbols(name);
+CREATE INDEX idx_imports_from ON imports(from_file);
+CREATE INDEX idx_routes_path ON routes(route);
+CREATE INDEX idx_configs_file ON configs(file_path);
+CREATE INDEX idx_edges_source ON edges(source_kind, source);
+CREATE INDEX idx_edges_target ON edges(target_kind, target);
+CREATE INDEX idx_edges_kind ON edges(kind);
+"#
+}
+
+fn write_database_direct(manifest: &Manifest, rows: &IndexRows) -> Result<(), String> {
+    remove_database_files(&manifest.database_path)?;
+    let database = SqliteConnection::open(&manifest.database_path)?;
+    database.exec(setup_database_sql())?;
+    database.exec("BEGIN")?;
+    let result = insert_index_rows_direct(&database, manifest, rows);
+    match result {
+        Ok(()) => database.exec("COMMIT")?,
+        Err(error) => {
+            let _ = database.exec("ROLLBACK");
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn insert_index_rows_direct(
+    database: &SqliteConnection,
+    manifest: &Manifest,
+    rows: &IndexRows,
+) -> Result<(), String> {
+    let insert_meta = database.prepare("INSERT INTO meta (key, value) VALUES (?, ?)")?;
+    insert_meta.bind_text(1, "created_at")?;
+    insert_meta.bind_text(2, &timestamp_placeholder())?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "schema_version")?;
+    insert_meta.bind_text(2, &manifest.schema_version)?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "updated_at")?;
+    insert_meta.bind_text(2, &timestamp_placeholder())?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "root")?;
+    insert_meta.bind_text(2, &manifest.project_root)?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "scopes")?;
+    insert_meta.bind_text(2, &manifest.scopes.join(", "))?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "scopes_json")?;
+    insert_meta.bind_text(
+        2,
+        &serde_json::to_string(&manifest.scopes)
+            .map_err(|error| format!("failed to serialize scopes metadata: {error}"))?,
+    )?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "parser_mode")?;
+    insert_meta.bind_text(2, &manifest.parser_mode)?;
+    insert_meta.run()?;
+    insert_meta.bind_text(1, "terminology")?;
+    insert_meta.bind_text(2, "code evidence index")?;
+    insert_meta.run()?;
+
+    let insert_file = database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")?;
+    let insert_file_fts = database
+        .prepare("INSERT INTO files_fts (path, language, profile, content) VALUES (?, ?, ?, ?)")?;
+    for file in &rows.files {
+        insert_file.bind_text(1, &file.path)?;
+        insert_file.bind_text(2, &file.language)?;
+        insert_file.bind_text(3, &file.profile)?;
+        insert_file.bind_text(4, &file.kind)?;
+        insert_file.bind_int64(5, file.bytes as i64)?;
+        insert_file.bind_int64(6, file.lines as i64)?;
+        insert_file.bind_text(7, &file.hash)?;
+        insert_file.bind_double(8, file.mtime_ms)?;
+        insert_file.bind_int64(9, file.size as i64)?;
+        insert_file.run()?;
+
+        insert_file_fts.bind_text(1, &file.path)?;
+        insert_file_fts.bind_text(2, &file.language)?;
+        insert_file_fts.bind_text(3, &file.profile)?;
+        insert_file_fts.bind_text(4, &file.content)?;
+        insert_file_fts.run()?;
+    }
+
+    let insert_symbol = database.prepare(
+        "INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    let insert_symbol_fts = database.prepare(
+        "INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)",
+    )?;
+    for symbol in &rows.symbols {
+        insert_symbol.bind_text(1, &symbol.name)?;
+        insert_symbol.bind_text(2, &symbol.kind)?;
+        insert_symbol.bind_text(3, &symbol.file_path)?;
+        insert_symbol.bind_int64(4, symbol.line as i64)?;
+        insert_symbol.bind_text(5, &symbol.signature)?;
+        insert_symbol.run()?;
+
+        insert_symbol_fts.bind_text(1, &symbol.name)?;
+        insert_symbol_fts.bind_text(2, &symbol.kind)?;
+        insert_symbol_fts.bind_text(3, &symbol.file_path)?;
+        insert_symbol_fts.bind_text(4, &symbol.signature)?;
+        insert_symbol_fts.run()?;
+    }
+
+    let insert_import = database.prepare(
+        "INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    for import in &rows.imports {
+        insert_import.bind_text(1, &import.from_file)?;
+        insert_import.bind_text(2, &import.to_ref)?;
+        insert_import.bind_text(3, &import.imported)?;
+        insert_import.bind_int64(4, import.line as i64)?;
+        insert_import.bind_text(5, &import.raw)?;
+        insert_import.run()?;
+    }
+
+    let insert_route = database.prepare(
+        "INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    for route in &rows.routes {
+        insert_route.bind_text(1, &route.method)?;
+        insert_route.bind_text(2, &route.route)?;
+        insert_route.bind_text(3, &route.file_path)?;
+        insert_route.bind_int64(4, route.line as i64)?;
+        insert_route.bind_text(5, &route.handler)?;
+        insert_route.run()?;
+    }
+
+    let insert_edge = database.prepare("INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")?;
+    for edge in &rows.edges {
+        insert_edge.bind_text(1, &edge.kind)?;
+        insert_edge.bind_text(2, &edge.source_kind)?;
+        insert_edge.bind_text(3, &edge.source)?;
+        insert_edge.bind_text(4, &edge.target_kind)?;
+        insert_edge.bind_text(5, &edge.target)?;
+        insert_edge.bind_text(6, &edge.file_path)?;
+        insert_edge.bind_int64(7, edge.line as i64)?;
+        insert_edge.bind_text(8, &edge.evidence)?;
+        insert_edge.run()?;
+    }
+    Ok(())
 }
 
 fn insert_meta(sql: &mut String, key: &str, value: &str) {
@@ -406,20 +1028,15 @@ fn insert_meta(sql: &mut String, key: &str, value: &str) {
     ));
 }
 
-fn insert_file(sql: &mut String, file: &ManifestFile, text: &str) {
-    let lines = if text.is_empty() {
-        0
-    } else {
-        text.split('\n').count()
-    };
+fn insert_file_row(sql: &mut String, file: &FileIndexRow) {
     sql.push_str(&format!(
         "INSERT INTO files (path, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES ({}, {}, {}, 'source', {}, {}, {}, {:.3}, {});\n",
         sql_string(&file.path),
         sql_string(&file.language),
         sql_string(&file.profile),
-        file.size,
-        lines,
-        sql_string(&sha256_hex(text)),
+        file.bytes,
+        file.lines,
+        sql_string(&file.hash),
         file.mtime_ms,
         file.size
     ));
@@ -428,62 +1045,62 @@ fn insert_file(sql: &mut String, file: &ManifestFile, text: &str) {
         sql_string(&file.path),
         sql_string(&file.language),
         sql_string(&file.profile),
-        sql_string(text)
+        sql_string(&file.content)
     ));
 }
 
-fn index_javascript_like(sql: &mut String, file: &ManifestFile, text: &str) {
-    let extracted = extract_javascript_like(file, text);
-    for symbol in extracted.symbols {
-        sql.push_str(&format!(
-            "INSERT INTO symbols (name, kind, file_path, line, signature) VALUES ({}, {}, {}, {}, {});\n",
-            sql_string(&symbol.name),
-            sql_string(&symbol.kind),
-            sql_string(&file.path),
-            symbol.line,
-            sql_string(&symbol.signature)
-        ));
-        sql.push_str(&format!(
-            "INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES ({}, {}, {}, {});\n",
-            sql_string(&symbol.name),
-            sql_string(&symbol.kind),
-            sql_string(&file.path),
-            sql_string(&symbol.signature)
-        ));
-    }
-    for import in extracted.imports {
-        sql.push_str(&format!(
-            "INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES ({}, {}, {}, {}, {});\n",
-            sql_string(&file.path),
-            sql_string(&import.to_ref),
-            sql_string(&import.imported),
-            import.line,
-            sql_string(&import.raw)
-        ));
-    }
-    for route in extracted.routes {
-        sql.push_str(&format!(
-            "INSERT INTO routes (method, route, file_path, line, handler) VALUES ({}, {}, {}, {}, {});\n",
-            sql_string(&route.method),
-            sql_string(&route.route),
-            sql_string(&file.path),
-            route.line,
-            sql_string(&route.handler)
-        ));
-    }
-    for edge in extracted.edges {
-        sql.push_str(&format!(
-            "INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES ({}, {}, {}, {}, {}, {}, {}, {});\n",
-            sql_string(&edge.kind),
-            sql_string(&edge.source_kind),
-            sql_string(&edge.source),
-            sql_string(&edge.target_kind),
-            sql_string(&edge.target),
-            sql_string(&file.path),
-            edge.line,
-            sql_string(&edge.evidence)
-        ));
-    }
+fn insert_symbol_row(sql: &mut String, symbol: &SymbolIndexRow) {
+    sql.push_str(&format!(
+        "INSERT INTO symbols (name, kind, file_path, line, signature) VALUES ({}, {}, {}, {}, {});\n",
+        sql_string(&symbol.name),
+        sql_string(&symbol.kind),
+        sql_string(&symbol.file_path),
+        symbol.line,
+        sql_string(&symbol.signature)
+    ));
+    sql.push_str(&format!(
+        "INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES ({}, {}, {}, {});\n",
+        sql_string(&symbol.name),
+        sql_string(&symbol.kind),
+        sql_string(&symbol.file_path),
+        sql_string(&symbol.signature)
+    ));
+}
+
+fn insert_import_row(sql: &mut String, import: &ImportIndexRow) {
+    sql.push_str(&format!(
+        "INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES ({}, {}, {}, {}, {});\n",
+        sql_string(&import.from_file),
+        sql_string(&import.to_ref),
+        sql_string(&import.imported),
+        import.line,
+        sql_string(&import.raw)
+    ));
+}
+
+fn insert_route_row(sql: &mut String, route: &RouteIndexRow) {
+    sql.push_str(&format!(
+        "INSERT INTO routes (method, route, file_path, line, handler) VALUES ({}, {}, {}, {}, {});\n",
+        sql_string(&route.method),
+        sql_string(&route.route),
+        sql_string(&route.file_path),
+        route.line,
+        sql_string(&route.handler)
+    ));
+}
+
+fn insert_edge_row(sql: &mut String, edge: &EdgeIndexRow) {
+    sql.push_str(&format!(
+        "INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES ({}, {}, {}, {}, {}, {}, {}, {});\n",
+        sql_string(&edge.kind),
+        sql_string(&edge.source_kind),
+        sql_string(&edge.source),
+        sql_string(&edge.target_kind),
+        sql_string(&edge.target),
+        sql_string(&edge.file_path),
+        edge.line,
+        sql_string(&edge.evidence)
+    ));
 }
 
 #[derive(Default)]
