@@ -123,8 +123,21 @@ function selectedCodeIndexEngine() {
         return "native-rust";
     fail(`invalid --code-index-engine: ${args_1.codeIndexEngine}; expected one of: auto, typescript, native-rust`);
 }
-function shouldUseNativeCodeIndexAuto(discoveredFileCount) {
-    return discoveredFileCount >= exports.nativeCodeIndexAutoFileThreshold
+function codeIndexEngineSelectionContext(discoveredFiles, parserMode) {
+    let nativeEligibleFileCount = 0;
+    for (const filePath of discoveredFiles) {
+        const language = (0, code_index_file_policy_1.fileLanguage)(filePath) || "config";
+        if (nativeEligibleProfile((0, registry_1.extractionProfile)(filePath, language, parserMode)))
+            nativeEligibleFileCount += 1;
+    }
+    return {
+        discoveredFileCount: discoveredFiles.length,
+        nativeEligibleFileCount,
+        nativeIneligibleFileCount: discoveredFiles.length - nativeEligibleFileCount,
+    };
+}
+function shouldUseNativeCodeIndexAuto(context) {
+    return context.nativeEligibleFileCount >= exports.nativeCodeIndexAutoFileThreshold
         && Boolean((process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim());
 }
 function normalizedMtimeMs(stat) {
@@ -630,6 +643,7 @@ function codeIndexModeRuntime() {
         runNativeCodeIndexMode,
         selectedCodeIndexEngine,
         selectedCodeParserMode,
+        codeIndexEngineSelectionContext,
         shouldUseNativeCodeIndexAuto,
         warnIfCodeIndexStale,
     };

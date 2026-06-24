@@ -88,12 +88,12 @@ function emitCodeIndexPhaseTimings(timings) {
         return;
     console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
 }
-function resolveCodeIndexEngine(requestedEngine, discoveredFileCount, shouldUseNativeAuto, incrementalMode = args_1.codeIndexIncrementalMode) {
+function resolveCodeIndexEngine(requestedEngine, context, shouldUseNativeAuto, incrementalMode = args_1.codeIndexIncrementalMode) {
     if (requestedEngine !== "auto")
         return requestedEngine;
     if (incrementalMode)
         return "typescript";
-    return shouldUseNativeAuto(discoveredFileCount) ? "native-rust" : "typescript";
+    return shouldUseNativeAuto(context) ? "native-rust" : "typescript";
 }
 function runCodeIndexMode(runtime) {
     const totalStarted = process.hrtime.bigint();
@@ -109,7 +109,8 @@ function runCodeIndexMode(runtime) {
     const scaleGate = (0, code_index_file_policy_1.smallRepoCodeIndexGate)(discoveredFiles.length, args_1.acknowledgeSmallRepoMode);
     if (!scaleGate.proceed)
         runtime.fail(scaleGate.warning);
-    const engine = resolveCodeIndexEngine(requestedEngine, discoveredFiles.length, runtime.shouldUseNativeCodeIndexAuto);
+    const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
+    const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
     if (engine === "native-rust") {
         if (args_1.codeIndexIncrementalMode) {
             runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");

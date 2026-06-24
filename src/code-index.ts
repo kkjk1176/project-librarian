@@ -99,8 +99,21 @@ function selectedCodeIndexEngine(): CodeIndexEngine {
   fail(`invalid --code-index-engine: ${codeIndexEngine}; expected one of: auto, typescript, native-rust`);
 }
 
-function shouldUseNativeCodeIndexAuto(discoveredFileCount: number): boolean {
-  return discoveredFileCount >= nativeCodeIndexAutoFileThreshold
+function codeIndexEngineSelectionContext(discoveredFiles: string[], parserMode: CodeParserMode) {
+  let nativeEligibleFileCount = 0;
+  for (const filePath of discoveredFiles) {
+    const language = fileLanguage(filePath) || "config";
+    if (nativeEligibleProfile(extractionProfile(filePath, language, parserMode))) nativeEligibleFileCount += 1;
+  }
+  return {
+    discoveredFileCount: discoveredFiles.length,
+    nativeEligibleFileCount,
+    nativeIneligibleFileCount: discoveredFiles.length - nativeEligibleFileCount,
+  };
+}
+
+function shouldUseNativeCodeIndexAuto(context: { nativeEligibleFileCount: number }): boolean {
+  return context.nativeEligibleFileCount >= nativeCodeIndexAutoFileThreshold
     && Boolean((process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim());
 }
 
@@ -610,6 +623,7 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     runNativeCodeIndexMode,
     selectedCodeIndexEngine,
     selectedCodeParserMode,
+    codeIndexEngineSelectionContext,
     shouldUseNativeCodeIndexAuto,
     warnIfCodeIndexStale,
   };

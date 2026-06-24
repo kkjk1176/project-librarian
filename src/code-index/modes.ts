@@ -18,6 +18,12 @@ export interface CodeEvidenceDatabasePath {
 export type CodeIndexEngine = "auto" | "typescript" | "native-rust";
 export type ResolvedCodeIndexEngine = "typescript" | "native-rust";
 
+export interface CodeIndexEngineSelectionContext {
+  discoveredFileCount: number;
+  nativeEligibleFileCount: number;
+  nativeIneligibleFileCount: number;
+}
+
 export interface NativeCodeIndexModeRequest {
   databasePath: CodeEvidenceDatabasePath;
   discoveredFiles: string[];
@@ -45,7 +51,8 @@ export interface CodeIndexModeRuntime {
   runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void;
   selectedCodeIndexEngine(): CodeIndexEngine;
   selectedCodeParserMode(): CodeParserMode;
-  shouldUseNativeCodeIndexAuto(discoveredFileCount: number): boolean;
+  codeIndexEngineSelectionContext(discoveredFiles: string[], parserMode: CodeParserMode): CodeIndexEngineSelectionContext;
+  shouldUseNativeCodeIndexAuto(context: CodeIndexEngineSelectionContext): boolean;
   warnIfCodeIndexStale(database: SqliteDatabase, staleness?: CodeIndexStaleness): void;
 }
 
@@ -102,13 +109,13 @@ function emitCodeIndexPhaseTimings(timings: CodeIndexPhaseTimings): void {
 
 export function resolveCodeIndexEngine(
   requestedEngine: CodeIndexEngine,
-  discoveredFileCount: number,
-  shouldUseNativeAuto: (discoveredFileCount: number) => boolean,
+  context: CodeIndexEngineSelectionContext,
+  shouldUseNativeAuto: (context: CodeIndexEngineSelectionContext) => boolean,
   incrementalMode = codeIndexIncrementalMode,
 ): ResolvedCodeIndexEngine {
   if (requestedEngine !== "auto") return requestedEngine;
   if (incrementalMode) return "typescript";
-  return shouldUseNativeAuto(discoveredFileCount) ? "native-rust" : "typescript";
+  return shouldUseNativeAuto(context) ? "native-rust" : "typescript";
 }
 
 export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
@@ -124,7 +131,8 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
   const discoveredFiles = measurePhase(phaseTimings, "discover_files_ms", () => discoverCodeFiles(scopes));
   const scaleGate = smallRepoCodeIndexGate(discoveredFiles.length, acknowledgeSmallRepoMode);
   if (!scaleGate.proceed) runtime.fail(scaleGate.warning);
-  const engine = resolveCodeIndexEngine(requestedEngine, discoveredFiles.length, runtime.shouldUseNativeCodeIndexAuto);
+  const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
+  const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
   if (engine === "native-rust") {
     if (codeIndexIncrementalMode) {
       runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");

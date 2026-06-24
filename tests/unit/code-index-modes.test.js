@@ -103,17 +103,20 @@ test("code context pack mode reuses one staleness calculation for warning and ou
 });
 
 test("auto code index engine resolves to native only for eligible full runs", () => {
-  assert.equal(resolveCodeIndexEngine("typescript", 10000, () => true, false), "typescript");
-  assert.equal(resolveCodeIndexEngine("native-rust", 1, () => false, false), "native-rust");
-  assert.equal(resolveCodeIndexEngine("auto", 9999, (fileCount) => fileCount >= 10000, false), "typescript");
-  assert.equal(resolveCodeIndexEngine("auto", 10000, (fileCount) => fileCount >= 10000, false), "native-rust");
-  assert.equal(resolveCodeIndexEngine("auto", 10000, () => true, true), "typescript");
-  assert.equal(resolveCodeIndexEngine("auto", 10000, () => false, false), "typescript");
+  const mixedLarge = { discoveredFileCount: 10000, nativeEligibleFileCount: 9999, nativeIneligibleFileCount: 1 };
+  const eligibleLarge = { discoveredFileCount: 10000, nativeEligibleFileCount: 10000, nativeIneligibleFileCount: 0 };
+  assert.equal(resolveCodeIndexEngine("typescript", eligibleLarge, () => true, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("native-rust", mixedLarge, () => false, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", mixedLarge, (context) => context.nativeEligibleFileCount >= 10000, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, (context) => context.nativeEligibleFileCount >= 10000, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, () => true, true), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, () => false, false), "typescript");
 
-  let observedFileCount = 0;
-  assert.equal(resolveCodeIndexEngine("auto", 42, (fileCount) => {
-    observedFileCount = fileCount;
+  let observedContext;
+  const smallContext = { discoveredFileCount: 42, nativeEligibleFileCount: 41, nativeIneligibleFileCount: 1 };
+  assert.equal(resolveCodeIndexEngine("auto", smallContext, (context) => {
+    observedContext = context;
     return false;
   }, false), "typescript");
-  assert.equal(observedFileCount, 42);
+  assert.deepEqual(observedContext, smallContext);
 });
