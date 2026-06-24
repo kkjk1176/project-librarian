@@ -7,7 +7,7 @@ import type { CodeContextPackOptions, CodeEvidenceRenderOptions, CodeIndexStalen
 import type { CodeFile, CodeFileFingerprint } from "./extractors/types";
 import type { CodeIndexHealth } from "./index-health";
 import { invalidCodeReportSectionMessage } from "./reports";
-import { codeIndexSchemaVersion, createIndexStatements, incrementalCompatibility, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./schema";
+import { codeIndexSchemaVersion, createIndexStatements, createSecondaryIndexes, incrementalCompatibility, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./schema";
 import { searchSymbols } from "./search";
 
 export interface CodeEvidenceDatabasePath {
@@ -39,7 +39,7 @@ export interface CodeIndexModeRuntime {
   openDatabase(databasePath: string): SqliteDatabase;
   prepareOutputPath(): void;
   readCodeFileFingerprint(relativePath: string): CodeFileFingerprint;
-  readCodeFile(relativePath: string, parserMode: CodeParserMode): CodeFile;
+  readCodeFile(relativePath: string, parserMode: CodeParserMode, fingerprint?: CodeFileFingerprint): CodeFile;
   removeDatabaseFiles(databasePath: string): void;
   requireExistingIndex(): void;
   runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void;
@@ -164,7 +164,7 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
   });
   const database = runtime.openDatabase(databasePath.absolutePath);
   try {
-    if (!incremental) setupDatabase(database);
+    if (!incremental) setupDatabase(database, { secondaryIndexes: false });
     const statements = createIndexStatements(database);
     const currentFingerprints = measurePhase(phaseTimings, "fingerprints_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath)));
     let reindexedFiles: CodeFile[];
@@ -188,11 +188,11 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
           unchangedFiles += 1;
           continue;
         }
-        reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode)));
+        reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode, file)));
       }
     } else {
       deletedPaths = [];
-      reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode)));
+      reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => currentFingerprints.map((file) => runtime.readCodeFile(file.path, parserMode, file)));
     }
 
     measurePhase(phaseTimings, "sqlite_write_ms", () => {
@@ -204,6 +204,7 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
         if (incremental && indexedPaths.has(file.path)) removeIndexedFile(file.path, statements);
         runtime.indexCodeFile(file, statements);
       }
+      if (!incremental) createSecondaryIndexes(database);
       database.exec("COMMIT");
     });
     phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));

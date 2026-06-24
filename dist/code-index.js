@@ -79,6 +79,7 @@ const workspace_1 = require("./workspace");
 exports.codeContextPackCharCap = 4000;
 exports.codeContextPackTruncationNotice = "[truncated - refine the query]";
 exports.nativeCodeIndexAutoFileThreshold = 10000;
+const codeFileFingerprintPaths = new Map();
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -130,27 +131,47 @@ function normalizedMtimeMs(stat) {
     return Number(stat.mtimeMs.toFixed(3));
 }
 function readCodeFileFingerprint(relativePath) {
-    const { stat } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    const { absolutePath, stat } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    codeFileFingerprintPaths.set(relativePath, absolutePath);
     return {
         mtimeMs: normalizedMtimeMs(stat),
         path: relativePath,
         size: stat.size,
     };
 }
-function readCodeFile(relativePath, parserMode = "default") {
-    const { absolutePath } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+function lineCount(text) {
+    if (text.length === 0)
+        return 0;
+    let lines = 1;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text.charCodeAt(index) === 10)
+            lines += 1;
+    }
+    return lines;
+}
+function readCodeFile(relativePath, parserMode = "default", fingerprint) {
+    let effectiveFingerprint = fingerprint;
+    let absolutePath = effectiveFingerprint ? codeFileFingerprintPaths.get(relativePath) : undefined;
+    if (!absolutePath || !effectiveFingerprint) {
+        const contained = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+        absolutePath = contained.absolutePath;
+        effectiveFingerprint ??= {
+            mtimeMs: normalizedMtimeMs(contained.stat),
+            path: relativePath,
+            size: contained.stat.size,
+        };
+    }
     const text = fs.readFileSync(absolutePath, "utf8");
-    const fingerprint = readCodeFileFingerprint(relativePath);
     const language = (0, code_index_file_policy_1.fileLanguage)(relativePath) || "config";
     return {
-        bytes: fingerprint.size,
+        bytes: effectiveFingerprint.size,
         hash: crypto.createHash("sha256").update(text).digest("hex"),
         language,
-        lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
-        mtimeMs: fingerprint.mtimeMs,
+        lines: lineCount(text),
+        mtimeMs: effectiveFingerprint.mtimeMs,
         path: relativePath,
         profile: (0, registry_1.extractionProfile)(relativePath, language, parserMode),
-        size: fingerprint.size,
+        size: effectiveFingerprint.size,
         text,
     };
 }
@@ -240,17 +261,17 @@ function nativeCodeIndexOutputMode() {
         return requested;
     fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
 }
-function appendTypeScriptPartitionToNativeDatabase(databasePath, filePaths, parserMode) {
-    if (filePaths.length === 0)
+function appendTypeScriptPartitionToNativeDatabase(databasePath, files, parserMode) {
+    if (files.length === 0)
         return 0;
     const database = openDatabase(databasePath);
     try {
         const statements = (0, schema_1.createIndexStatements)(database);
         database.exec("BEGIN");
-        for (const filePath of filePaths)
-            indexCodeFile(readCodeFile(filePath, parserMode), statements);
+        for (const file of files)
+            indexCodeFile(readCodeFile(file.path, parserMode, file), statements);
         database.exec("COMMIT");
-        return filePaths.length;
+        return files.length;
     }
     catch (error) {
         try {
@@ -269,7 +290,7 @@ function writeNativeRowsToDatabase(databasePath, rows, scopes, parserMode) {
     removeDatabaseFiles(databasePath);
     const database = openDatabase(databasePath);
     try {
-        (0, schema_1.setupDatabase)(database);
+        (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
         const statements = (0, schema_1.createIndexStatements)(database);
         database.exec("BEGIN");
         statements.insertMeta.run("created_at", new Date().toISOString());
@@ -291,6 +312,7 @@ function writeNativeRowsToDatabase(databasePath, rows, scopes, parserMode) {
         for (const edge of rows.edges) {
             statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
         }
+        (0, schema_1.createSecondaryIndexes)(database);
         database.exec("COMMIT");
     }
     catch (error) {
@@ -346,7 +368,7 @@ function runNativeCodeIndexMode(request) {
         if (!fs.existsSync(tempDatabasePath)) {
             fail(`native code index helper did not create database: ${tempDatabasePath}`);
         }
-        typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles.map((file) => file.path), request.parserMode);
+        typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles, request.parserMode);
         moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
     }
     catch (error) {
@@ -396,7 +418,7 @@ function codeIndexStaleness(database) {
         }
         if (existing.mtimeMs === file.mtimeMs && existing.size === file.size)
             continue;
-        if (readCodeFile(file.path, parserMode).hash !== existing.hash)
+        if (readCodeFile(file.path, parserMode, file).hash !== existing.hash)
             changed += 1;
     }
     const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;

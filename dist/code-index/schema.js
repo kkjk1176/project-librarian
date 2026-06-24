@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.codeIndexSchemaVersion = void 0;
+exports.createSecondaryIndexes = createSecondaryIndexes;
 exports.setupDatabase = setupDatabase;
 exports.createIndexStatements = createIndexStatements;
 exports.removeIndexedFile = removeIndexedFile;
@@ -12,7 +13,20 @@ exports.incrementalCompatibility = incrementalCompatibility;
 exports.codeIndexSnapshot = codeIndexSnapshot;
 const workspace_1 = require("../workspace");
 exports.codeIndexSchemaVersion = "4";
-function setupDatabase(database) {
+const secondaryIndexSql = `
+  CREATE INDEX idx_symbols_file ON symbols(file_path);
+  CREATE INDEX idx_symbols_name ON symbols(name);
+  CREATE INDEX idx_imports_from ON imports(from_file);
+  CREATE INDEX idx_routes_path ON routes(route);
+  CREATE INDEX idx_configs_file ON configs(file_path);
+  CREATE INDEX idx_edges_source ON edges(source_kind, source);
+  CREATE INDEX idx_edges_target ON edges(target_kind, target);
+  CREATE INDEX idx_edges_kind ON edges(kind);
+`;
+function createSecondaryIndexes(database) {
+    database.exec(secondaryIndexSql);
+}
+function setupDatabase(database, options = {}) {
     database.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -71,15 +85,9 @@ function setupDatabase(database) {
     );
     CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
     CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
-    CREATE INDEX idx_symbols_file ON symbols(file_path);
-    CREATE INDEX idx_symbols_name ON symbols(name);
-    CREATE INDEX idx_imports_from ON imports(from_file);
-    CREATE INDEX idx_routes_path ON routes(route);
-    CREATE INDEX idx_configs_file ON configs(file_path);
-    CREATE INDEX idx_edges_source ON edges(source_kind, source);
-    CREATE INDEX idx_edges_target ON edges(target_kind, target);
-    CREATE INDEX idx_edges_kind ON edges(kind);
   `);
+    if (options.secondaryIndexes ?? true)
+        createSecondaryIndexes(database);
 }
 function createIndexStatements(database) {
     return {

@@ -2,7 +2,22 @@ import type { IndexStatements } from "../schema";
 import type { CodeFile } from "./types";
 
 export function oneLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, 240);
+  let output = "";
+  let pendingSpace = false;
+  for (let index = 0; index < text.length && output.length < 240; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32) {
+      if (output.length > 0) pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace) {
+      output += " ";
+      pendingSpace = false;
+      if (output.length >= 240) break;
+    }
+    output += text[index];
+  }
+  return output;
 }
 
 export function lineNumber(text: string, index: number): number {

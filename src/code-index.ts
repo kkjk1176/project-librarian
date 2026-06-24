@@ -14,7 +14,7 @@ import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as 
 import { buildNativeCodeIndexJob, requireNativeCodeIndexHelperPath, runNativeCodeIndexHelper, runNativeCodeIndexRowsHelper, type NativeCodeIndexOutputMode, type NativeCodeIndexRows } from "./code-index/native-helper";
 import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
-import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
+import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, createSecondaryIndexes, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
 import { searchSymbols } from "./code-index/search";
 import { abs, mkdirp, normalizePath, requireContainedProjectFile, root, write } from "./workspace";
 
@@ -54,6 +54,7 @@ interface CodeEvidenceModeFlags {
 export const codeContextPackCharCap = 4000;
 export const codeContextPackTruncationNotice = "[truncated - refine the query]";
 export const nativeCodeIndexAutoFileThreshold = 10000;
+const codeFileFingerprintPaths = new Map<string, string>();
 
 function fail(message: string): never {
   console.error(message);
@@ -108,7 +109,8 @@ function normalizedMtimeMs(stat: fs.Stats): number {
 }
 
 function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
-  const { stat } = requireContainedProjectFile(relativePath, "code-index file");
+  const { absolutePath, stat } = requireContainedProjectFile(relativePath, "code-index file");
+  codeFileFingerprintPaths.set(relativePath, absolutePath);
   return {
     mtimeMs: normalizedMtimeMs(stat),
     path: relativePath,
@@ -116,20 +118,38 @@ function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
   };
 }
 
-function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
-  const { absolutePath } = requireContainedProjectFile(relativePath, "code-index file");
+function lineCount(text: string): number {
+  if (text.length === 0) return 0;
+  let lines = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) lines += 1;
+  }
+  return lines;
+}
+
+function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default", fingerprint?: CodeFileFingerprint): CodeFile {
+  let effectiveFingerprint = fingerprint;
+  let absolutePath = effectiveFingerprint ? codeFileFingerprintPaths.get(relativePath) : undefined;
+  if (!absolutePath || !effectiveFingerprint) {
+    const contained = requireContainedProjectFile(relativePath, "code-index file");
+    absolutePath = contained.absolutePath;
+    effectiveFingerprint ??= {
+      mtimeMs: normalizedMtimeMs(contained.stat),
+      path: relativePath,
+      size: contained.stat.size,
+    };
+  }
   const text = fs.readFileSync(absolutePath, "utf8");
-  const fingerprint = readCodeFileFingerprint(relativePath);
   const language = fileLanguage(relativePath) || "config";
   return {
-    bytes: fingerprint.size,
+    bytes: effectiveFingerprint.size,
     hash: crypto.createHash("sha256").update(text).digest("hex"),
     language,
-    lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
-    mtimeMs: fingerprint.mtimeMs,
+    lines: lineCount(text),
+    mtimeMs: effectiveFingerprint.mtimeMs,
     path: relativePath,
     profile: extractionProfile(relativePath, language, parserMode),
-    size: fingerprint.size,
+    size: effectiveFingerprint.size,
     text,
   };
 }
@@ -227,15 +247,15 @@ function nativeCodeIndexOutputMode(): NativeCodeIndexOutputMode {
   fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
 }
 
-function appendTypeScriptPartitionToNativeDatabase(databasePath: string, filePaths: string[], parserMode: CodeParserMode): number {
-  if (filePaths.length === 0) return 0;
+function appendTypeScriptPartitionToNativeDatabase(databasePath: string, files: CodeFileFingerprint[], parserMode: CodeParserMode): number {
+  if (files.length === 0) return 0;
   const database = openDatabase(databasePath);
   try {
     const statements = createIndexStatements(database);
     database.exec("BEGIN");
-    for (const filePath of filePaths) indexCodeFile(readCodeFile(filePath, parserMode), statements);
+    for (const file of files) indexCodeFile(readCodeFile(file.path, parserMode, file), statements);
     database.exec("COMMIT");
-    return filePaths.length;
+    return files.length;
   } catch (error) {
     try {
       database.exec("ROLLBACK");
@@ -252,7 +272,7 @@ function writeNativeRowsToDatabase(databasePath: string, rows: NativeCodeIndexRo
   removeDatabaseFiles(databasePath);
   const database = openDatabase(databasePath);
   try {
-    setupDatabase(database);
+    setupDatabase(database, { secondaryIndexes: false });
     const statements = createIndexStatements(database);
     database.exec("BEGIN");
     statements.insertMeta.run("created_at", new Date().toISOString());
@@ -274,6 +294,7 @@ function writeNativeRowsToDatabase(databasePath: string, rows: NativeCodeIndexRo
     for (const edge of rows.edges) {
       statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
     }
+    createSecondaryIndexes(database);
     database.exec("COMMIT");
   } catch (error) {
     try {
@@ -325,7 +346,7 @@ function runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void {
     if (!fs.existsSync(tempDatabasePath)) {
       fail(`native code index helper did not create database: ${tempDatabasePath}`);
     }
-    typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles.map((file) => file.path), request.parserMode);
+    typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles, request.parserMode);
     moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
   } catch (error: unknown) {
     removeTemporaryDatabaseFiles(tempDatabasePath);
@@ -370,7 +391,7 @@ export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness
       continue;
     }
     if (existing.mtimeMs === file.mtimeMs && existing.size === file.size) continue;
-    if (readCodeFile(file.path, parserMode).hash !== existing.hash) changed += 1;
+    if (readCodeFile(file.path, parserMode, file).hash !== existing.hash) changed += 1;
   }
   const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
 

@@ -25,7 +25,22 @@ export interface IndexStatements {
 
 export const codeIndexSchemaVersion = "4";
 
-export function setupDatabase(database: SqliteDatabase): void {
+const secondaryIndexSql = `
+  CREATE INDEX idx_symbols_file ON symbols(file_path);
+  CREATE INDEX idx_symbols_name ON symbols(name);
+  CREATE INDEX idx_imports_from ON imports(from_file);
+  CREATE INDEX idx_routes_path ON routes(route);
+  CREATE INDEX idx_configs_file ON configs(file_path);
+  CREATE INDEX idx_edges_source ON edges(source_kind, source);
+  CREATE INDEX idx_edges_target ON edges(target_kind, target);
+  CREATE INDEX idx_edges_kind ON edges(kind);
+`;
+
+export function createSecondaryIndexes(database: SqliteDatabase): void {
+  database.exec(secondaryIndexSql);
+}
+
+export function setupDatabase(database: SqliteDatabase, options: { secondaryIndexes?: boolean } = {}): void {
   database.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -84,15 +99,8 @@ export function setupDatabase(database: SqliteDatabase): void {
     );
     CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
     CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
-    CREATE INDEX idx_symbols_file ON symbols(file_path);
-    CREATE INDEX idx_symbols_name ON symbols(name);
-    CREATE INDEX idx_imports_from ON imports(from_file);
-    CREATE INDEX idx_routes_path ON routes(route);
-    CREATE INDEX idx_configs_file ON configs(file_path);
-    CREATE INDEX idx_edges_source ON edges(source_kind, source);
-    CREATE INDEX idx_edges_target ON edges(target_kind, target);
-    CREATE INDEX idx_edges_kind ON edges(kind);
   `);
+  if (options.secondaryIndexes ?? true) createSecondaryIndexes(database);
 }
 
 export function createIndexStatements(database: SqliteDatabase): IndexStatements {

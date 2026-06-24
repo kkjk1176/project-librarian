@@ -154,7 +154,7 @@ function runCodeIndexMode(runtime) {
     const database = runtime.openDatabase(databasePath.absolutePath);
     try {
         if (!incremental)
-            (0, schema_1.setupDatabase)(database);
+            (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
         const statements = (0, schema_1.createIndexStatements)(database);
         const currentFingerprints = measurePhase(phaseTimings, "fingerprints_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath)));
         let reindexedFiles;
@@ -178,12 +178,12 @@ function runCodeIndexMode(runtime) {
                     unchangedFiles += 1;
                     continue;
                 }
-                reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode)));
+                reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode, file)));
             }
         }
         else {
             deletedPaths = [];
-            reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode)));
+            reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => currentFingerprints.map((file) => runtime.readCodeFile(file.path, parserMode, file)));
         }
         measurePhase(phaseTimings, "sqlite_write_ms", () => {
             database.exec("BEGIN");
@@ -197,6 +197,8 @@ function runCodeIndexMode(runtime) {
                     (0, schema_1.removeIndexedFile)(file.path, statements);
                 runtime.indexCodeFile(file, statements);
             }
+            if (!incremental)
+                (0, schema_1.createSecondaryIndexes)(database);
             database.exec("COMMIT");
         });
         phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
