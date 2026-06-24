@@ -1156,6 +1156,12 @@ struct PendingCallExpression {
     parts: Vec<String>,
 }
 
+struct PendingMultilineCallChain {
+    context: String,
+    line: usize,
+    parts: Vec<String>,
+}
+
 struct PendingImportDeclaration {
     line: usize,
     parts: Vec<String>,
@@ -1166,6 +1172,8 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
     let mut context_stack: Vec<ContextFrame> = Vec::new();
     let mut pending_decorator_routes: Vec<DecoratorRoute> = Vec::new();
     let mut pending_call: Option<PendingCallExpression> = None;
+    let mut pending_multiline_call_chain: Option<PendingMultilineCallChain> = None;
+    let mut pending_context_symbol: Option<String> = None;
     let mut pending_import: Option<PendingImportDeclaration> = None;
     let mut in_template_literal = false;
     for (index, raw_line) in text.split('\n').enumerate() {
@@ -1175,13 +1183,36 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
         if trimmed.is_empty() {
             continue;
         }
-        if is_comment_line(trimmed) {
-            continue;
-        }
         if in_template_literal {
+            let template_context = context_stack
+                .last()
+                .map(|frame| frame.name.clone())
+                .unwrap_or_default();
+            for call in calls_from_template_expressions(trimmed) {
+                extracted.edges.push(EdgeRow {
+                    evidence: call.evidence,
+                    kind: "call".to_string(),
+                    line: line_number,
+                    source: if template_context.is_empty() {
+                        file.path.clone()
+                    } else {
+                        template_context.clone()
+                    },
+                    source_kind: if template_context.is_empty() {
+                        "file".to_string()
+                    } else {
+                        "symbol".to_string()
+                    },
+                    target: call.target,
+                    target_kind: "symbol".to_string(),
+                });
+            }
             if has_unbalanced_template_delimiter(trimmed) {
                 in_template_literal = false;
             }
+            continue;
+        }
+        if is_comment_line(trimmed) {
             continue;
         }
         if starts_non_declaration_template_literal(trimmed) {
@@ -1221,10 +1252,16 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
             pending_decorator_routes.push(route);
             continue;
         }
-        let current_context = context_stack
-            .last()
-            .map(|frame| frame.name.clone())
-            .unwrap_or_default();
+        let pending_context_opens_on_line =
+            pending_context_symbol.is_some() && opens_pending_context_body(trimmed);
+        let current_context = if pending_context_opens_on_line {
+            pending_context_symbol.clone().unwrap_or_default()
+        } else {
+            context_stack
+                .last()
+                .map(|frame| frame.name.clone())
+                .unwrap_or_default()
+        };
         let mut line_symbol = symbol_from_line(trimmed, line_number);
         if let Some(symbol) = line_symbol.as_mut() {
             if symbol.kind == "method" && !pending_decorator_routes.is_empty() {
@@ -1262,6 +1299,16 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
                 name: symbol.name.clone(),
                 signature: symbol.signature.clone(),
             });
+        }
+        if let Some(symbol) = line_symbol
+            .as_ref()
+            .filter(|symbol| is_context_symbol(symbol))
+        {
+            if opens_pending_context_body(trimmed) {
+                pending_context_symbol = None;
+            } else {
+                pending_context_symbol = Some(symbol.name.clone());
+            }
         }
         for symbol in variable_symbols_from_line(trimmed, line_number, line_symbol.as_ref()) {
             extracted.symbols.push(symbol);
@@ -1358,32 +1405,233 @@ fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
             .filter(|symbol| is_context_symbol(symbol))
             .map(|symbol| symbol.name.clone())
             .unwrap_or(current_context);
-        for call in calls_from_line(trimmed, line_symbol.as_ref(), is_route_line) {
-            extracted.edges.push(EdgeRow {
-                evidence: call.evidence,
-                kind: "call".to_string(),
+        let pending_continuation_is_property_call = pending_multiline_call_chain.is_some()
+            && ((trimmed.starts_with('.') && !trimmed.starts_with("..."))
+                || trimmed.starts_with(")."));
+        if let Some(chain) = pending_multiline_call_chain.as_mut() {
+            chain.parts.push(trimmed.to_string());
+            if multiline_statement_complete(&chain.parts) {
+                for call in top_level_property_calls_from_expression(&chain.parts.join(" ")) {
+                    extracted.edges.push(EdgeRow {
+                        evidence: call.evidence,
+                        kind: "call".to_string(),
+                        line: chain.line,
+                        source: if chain.context.is_empty() {
+                            file.path.clone()
+                        } else {
+                            chain.context.clone()
+                        },
+                        source_kind: if chain.context.is_empty() {
+                            "file".to_string()
+                        } else {
+                            "symbol".to_string()
+                        },
+                        target: call.target,
+                        target_kind: "symbol".to_string(),
+                    });
+                }
+                pending_multiline_call_chain = None;
+            }
+        } else if let Some(start) = multiline_property_chain_start(trimmed) {
+            pending_multiline_call_chain = Some(PendingMultilineCallChain {
+                context: call_context.clone(),
                 line: line_number,
-                source: if call_context.is_empty() {
-                    file.path.clone()
-                } else {
-                    call_context.clone()
-                },
-                source_kind: if call_context.is_empty() {
-                    "file".to_string()
-                } else {
-                    "symbol".to_string()
-                },
-                target: call.target,
-                target_kind: "symbol".to_string(),
+                parts: vec![start],
             });
+        }
+        if !pending_continuation_is_property_call {
+            for call in calls_from_line(trimmed, line_symbol.as_ref(), is_route_line) {
+                extracted.edges.push(EdgeRow {
+                    evidence: call.evidence,
+                    kind: "call".to_string(),
+                    line: line_number,
+                    source: if call_context.is_empty() {
+                        file.path.clone()
+                    } else {
+                        call_context.clone()
+                    },
+                    source_kind: if call_context.is_empty() {
+                        "file".to_string()
+                    } else {
+                        "symbol".to_string()
+                    },
+                    target: call.target,
+                    target_kind: "symbol".to_string(),
+                });
+            }
         }
         if opens_template_literal {
             in_template_literal = true;
         } else {
             update_context_stack(&mut context_stack, line_symbol.as_ref(), trimmed);
+            if pending_context_opens_on_line {
+                if let Some(name) = pending_context_symbol.take() {
+                    let delta = brace_delta(trimmed);
+                    if delta > 0 {
+                        context_stack.push(ContextFrame {
+                            brace_depth: delta,
+                            name,
+                        });
+                    }
+                }
+            } else if trimmed.ends_with(';') {
+                pending_context_symbol = None;
+            }
         }
     }
     extracted
+}
+
+fn multiline_property_chain_start(line: &str) -> Option<String> {
+    if line.ends_with(';')
+        || line.starts_with("import ")
+        || (line.starts_with("export ") && line.contains(" from "))
+        || line.contains("=>")
+    {
+        return None;
+    }
+    let expression = statement_expression_start(line)?;
+    if expression.is_empty() {
+        return None;
+    }
+    if expression.contains("=>") {
+        return None;
+    }
+    Some(expression.to_string())
+}
+
+fn statement_expression_start(line: &str) -> Option<&str> {
+    let expression = line.trim();
+    let mut expression = if let Some((lhs, rhs)) = expression.rsplit_once('=') {
+        if !assignment_can_start_multiline_chain(lhs) {
+            return None;
+        }
+        rhs.trim()
+    } else if let Some(rest) = expression.strip_prefix("return ") {
+        rest.trim()
+    } else if let Some(rest) = expression.strip_prefix("await ") {
+        rest.trim()
+    } else {
+        return None;
+    };
+    while let Some(rest) = expression.strip_prefix("await ") {
+        expression = rest.trim();
+    }
+    if expression.is_empty() || matches!(expression, "{" | "[" | "(") {
+        return None;
+    }
+    Some(expression)
+}
+
+fn assignment_can_start_multiline_chain(lhs: &str) -> bool {
+    let lhs = lhs.trim_start();
+    if matches!(
+        lhs.split_whitespace().next(),
+        Some("if" | "for" | "while" | "switch" | "catch" | "return")
+    ) {
+        return false;
+    }
+    if lhs.starts_with("const ")
+        || lhs.starts_with("let ")
+        || lhs.starts_with("var ")
+        || lhs.starts_with("export const ")
+        || lhs.starts_with("export let ")
+        || lhs.starts_with("export var ")
+    {
+        return true;
+    }
+    lhs.chars()
+        .last()
+        .map(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' || ch == ']' || ch == ')')
+        .unwrap_or(false)
+}
+
+fn multiline_statement_complete(parts: &[String]) -> bool {
+    parts
+        .last()
+        .map(|part| part.trim_end().ends_with(';'))
+        .unwrap_or(false)
+        && delimiter_delta(&parts.join(" ")) <= 0
+}
+
+fn top_level_property_calls_from_expression(expression: &str) -> Vec<CallRow> {
+    let expression = expression.trim().trim_end_matches(';');
+    let mut calls = Vec::new();
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    let mut brace_depth = 0i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (index, ch) in expression.char_indices() {
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+            continue;
+        }
+        match ch {
+            '(' => {
+                if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                    if let Some((target_start, target)) =
+                        call_target_before_paren(expression, index)
+                    {
+                        if target.contains('.')
+                            && !should_skip_call_target(expression, target_start, &target, None)
+                        {
+                            calls.push(CallRow {
+                                evidence: call_evidence(expression, target_start, index),
+                                target,
+                            });
+                        }
+                    }
+                }
+                paren_depth += 1;
+            }
+            ')' => paren_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' => brace_depth -= 1,
+            _ => {}
+        }
+    }
+    calls
+}
+
+fn delimiter_delta(text: &str) -> i32 {
+    let mut delta = 0i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+            continue;
+        }
+        match ch {
+            '(' | '[' | '{' => delta += 1,
+            ')' | ']' | '}' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
 }
 
 fn pending_property_call_start(line: &str) -> Option<String> {
@@ -1416,6 +1664,10 @@ fn is_context_symbol(symbol: &SymbolRow) -> bool {
     symbol.kind == "function" || symbol.kind == "method" || symbol.kind == "class"
 }
 
+fn opens_pending_context_body(line: &str) -> bool {
+    line.trim_end().ends_with('{') && brace_delta(line) > 0
+}
+
 fn update_context_stack(stack: &mut Vec<ContextFrame>, symbol: Option<&SymbolRow>, line: &str) {
     let delta = brace_delta(line);
     if delta != 0 {
@@ -1441,14 +1693,71 @@ fn update_context_stack(stack: &mut Vec<ContextFrame>, symbol: Option<&SymbolRow
 }
 
 fn brace_delta(line: &str) -> i32 {
-    line.chars().fold(0, |total, ch| {
-        total
-            + match ch {
-                '{' => 1,
-                '}' => -1,
-                _ => 0,
+    let mut total = 0i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut in_regex_literal = false;
+    let mut in_regex_char_class = false;
+    let mut in_block_comment = false;
+    let mut previous_significant: Option<char> = None;
+    for (index, ch) in line.char_indices() {
+        if in_block_comment {
+            if line[index..].starts_with("*/") {
+                in_block_comment = false;
             }
-    })
+            continue;
+        }
+        if in_regex_literal {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '[' {
+                in_regex_char_class = true;
+            } else if ch == ']' {
+                in_regex_char_class = false;
+            } else if ch == '/' && !in_regex_char_class {
+                in_regex_literal = false;
+                previous_significant = Some('/');
+            }
+            continue;
+        }
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if line[index..].starts_with("//") {
+            break;
+        }
+        if line[index..].starts_with("/*") {
+            in_block_comment = true;
+            continue;
+        }
+        if ch == '/' && regex_literal_can_start_after(previous_significant) {
+            in_regex_literal = true;
+            in_regex_char_class = false;
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+            continue;
+        }
+        match ch {
+            '{' => total += 1,
+            '}' => total -= 1,
+            _ => {}
+        }
+        if !ch.is_whitespace() {
+            previous_significant = Some(ch);
+        }
+    }
+    total
 }
 
 fn calls_from_line(
@@ -1479,11 +1788,80 @@ fn calls_from_line(
     calls
 }
 
+fn calls_from_template_expressions(line: &str) -> Vec<CallRow> {
+    let mut calls = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(relative_start) = line[search_from..].find("${") {
+        let expression_start = search_from + relative_start + 2;
+        let Some(expression_end) = template_expression_end(line, expression_start) else {
+            break;
+        };
+        calls.extend(calls_from_line(
+            line[expression_start..expression_end].trim(),
+            None,
+            false,
+        ));
+        search_from = expression_end + 1;
+    }
+    calls
+}
+
+fn template_expression_end(line: &str, expression_start: usize) -> Option<usize> {
+    let mut depth = 1i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (offset, ch) in line[expression_start..].char_indices() {
+        let index = expression_start + offset;
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+            continue;
+        }
+        if ch == '{' {
+            depth += 1;
+        } else if ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
 fn call_target_before_paren(line: &str, paren_index: usize) -> Option<(usize, String)> {
     let bytes = line.as_bytes();
     let mut end = paren_index;
     while end > 0 && bytes[end - 1].is_ascii_whitespace() {
         end -= 1;
+    }
+    if line[..end].trim_end().ends_with('>') {
+        let without_generics = strip_trailing_generic_parameters(&line[..end]);
+        if without_generics.len() < line[..end].trim_end().len() {
+            end = without_generics.len();
+            while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+                end -= 1;
+            }
+        }
+    }
+    if end > 0 && bytes[end - 1] == b')' {
+        let close_index = end - 1;
+        if let Some(open_index) = matching_delimiter_backward(line, close_index, '(', ')') {
+            let start = expression_start_before_paren(line, open_index);
+            let target = line[start..end].trim().to_string();
+            if !target.is_empty() {
+                return Some((start, target));
+            }
+        }
     }
     let mut start = end;
     while start > 0 {
@@ -1497,15 +1875,73 @@ fn call_target_before_paren(line: &str, paren_index: usize) -> Option<(usize, St
     if start == end {
         return None;
     }
+    let stripped_spread_prefix = if line[start..end].starts_with("...") {
+        start += 3;
+        true
+    } else {
+        false
+    };
+    if start == end {
+        return None;
+    }
     if line[start..end].starts_with('.') {
         start = property_receiver_start(line, start);
+    } else if !stripped_spread_prefix {
+        if let Some(dot_index) = previous_non_whitespace_index(line, start) {
+            if line[dot_index..].starts_with('.') {
+                start = property_receiver_start(line, dot_index);
+            }
+        }
     }
-    Some((start, line[start..end].to_string()))
+    if let Some(regex_start) = regex_literal_property_start(line, start, end) {
+        start = regex_start;
+    }
+    call_target_without_leading_keyword(line, start, end)
+}
+
+fn call_target_without_leading_keyword(
+    line: &str,
+    start: usize,
+    end: usize,
+) -> Option<(usize, String)> {
+    let mut target_start = start;
+    let mut target = line[start..end].trim();
+    for keyword in ["return ", "throw ", "yield "] {
+        if let Some(rest) = target.strip_prefix(keyword) {
+            let offset = line[target_start..end].find(keyword)? + keyword.len();
+            target_start += offset;
+            target = rest.trim_start();
+            break;
+        }
+    }
+    if target.is_empty() {
+        return None;
+    }
+    Some((target_start, target.to_string()))
+}
+
+fn previous_non_whitespace_index(line: &str, before: usize) -> Option<usize> {
+    line[..before]
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(index, _)| index)
 }
 
 fn property_receiver_start(line: &str, dot_start: usize) -> usize {
     let mut start = dot_start;
     while let Some((previous_index, previous)) = line[..start].char_indices().next_back() {
+        if previous.is_whitespace() {
+            let bridges_spaced_property_access = start == dot_start
+                || previous_non_whitespace_index(line, previous_index)
+                    .map(|index| line[index..].starts_with('.'))
+                    .unwrap_or(false);
+            if bridges_spaced_property_access {
+                start = previous_index;
+                continue;
+            }
+            break;
+        }
         if previous == ')' {
             if let Some(open_index) = matching_delimiter_backward(line, previous_index, '(', ')') {
                 start = expression_start_before_paren(line, open_index);
@@ -1518,7 +1954,7 @@ fn property_receiver_start(line: &str, dot_start: usize) -> usize {
                 continue;
             }
         }
-        if previous.is_whitespace() || matches!(previous, '=' | '(' | ',' | '?' | ':' | ';' | '{') {
+        if matches!(previous, '=' | '(' | ',' | '?' | ':' | ';' | '{') {
             break;
         }
         start = previous_index;
@@ -1526,10 +1962,106 @@ fn property_receiver_start(line: &str, dot_start: usize) -> usize {
     start
 }
 
+fn regex_literal_property_start(
+    line: &str,
+    target_start: usize,
+    target_end: usize,
+) -> Option<usize> {
+    let dot_index = line[..target_end].rfind('.')?;
+    if dot_index < target_start {
+        return None;
+    }
+    let closing_slash = line[..dot_index].rfind('/')?;
+    if !line[closing_slash + 1..dot_index]
+        .chars()
+        .all(|ch| ch.is_ascii_alphabetic())
+    {
+        return None;
+    }
+    for (candidate, _) in line[..closing_slash].match_indices('/').rev() {
+        if !regex_literal_can_start_at(line, candidate) {
+            continue;
+        }
+        if regex_literal_closing_slash(line, candidate) == Some(closing_slash) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn regex_literal_can_start_at(line: &str, slash_index: usize) -> bool {
+    let prefix = line[..slash_index].trim_end();
+    if prefix.ends_with("=>") || prefix.ends_with("&&") || prefix.ends_with("||") {
+        return true;
+    }
+    if line[..slash_index]
+        .split_whitespace()
+        .next_back()
+        .map(|token| {
+            matches!(
+                token,
+                "return" | "throw" | "yield" | "case" | "delete" | "void" | "typeof" | "await"
+            )
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    let previous = line[..slash_index]
+        .chars()
+        .rev()
+        .find(|ch| !ch.is_whitespace());
+    regex_literal_can_start_after(previous)
+}
+
+fn regex_literal_closing_slash(line: &str, start: usize) -> Option<usize> {
+    let mut escaped = false;
+    let mut in_char_class = false;
+    for (offset, ch) in line[start + 1..].char_indices() {
+        let index = start + 1 + offset;
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '[' {
+            in_char_class = true;
+            continue;
+        }
+        if ch == ']' {
+            in_char_class = false;
+            continue;
+        }
+        if ch == '/' && !in_char_class {
+            return Some(index);
+        }
+    }
+    None
+}
+
 fn expression_start_before_paren(line: &str, paren_index: usize) -> usize {
-    call_target_before_paren(line, paren_index)
+    let start = call_target_before_paren(line, paren_index)
         .map(|(target_start, _)| target_start)
-        .unwrap_or(paren_index)
+        .unwrap_or(paren_index);
+    new_expression_start(line, start).unwrap_or(start)
+}
+
+fn new_expression_start(line: &str, expression_start: usize) -> Option<usize> {
+    let prefix = line[..expression_start].trim_end();
+    let start = prefix
+        .strip_suffix("new")
+        .map(|_| prefix.len() - "new".len())?;
+    let before = line[..start].chars().next_back();
+    if before
+        .map(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '$')
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    Some(start)
 }
 
 fn matching_delimiter_backward(
@@ -1562,6 +2094,7 @@ fn should_skip_call_target(
         return true;
     }
     if target.starts_with('.')
+        || target.starts_with(").")
         || target.starts_with("].")
         || target == "require"
         || matches!(
@@ -1575,12 +2108,16 @@ fn should_skip_call_target(
                 | "new"
                 | "async"
                 | "return"
+                | "void"
                 | "constructor"
                 | "var"
                 | "let"
                 | "const"
         )
     {
+        return true;
+    }
+    if is_type_member_signature_call(line, target_start, target) {
         return true;
     }
     let prefix = line[..target_start].trim_end();
@@ -1599,6 +2136,20 @@ fn should_skip_call_target(
         }
     }
     false
+}
+
+fn is_type_member_signature_call(line: &str, target_start: usize, target: &str) -> bool {
+    if target.contains('.') || target.contains(' ') || target.contains('(') {
+        return false;
+    }
+    if !line[..target_start].trim().is_empty() {
+        return false;
+    }
+    let suffix = line[target_start + target.len()..].trim_start();
+    suffix.starts_with('(')
+        && line.trim_end().ends_with(';')
+        && suffix.contains("):")
+        && !line.contains("=>")
 }
 
 fn is_comment_line(line: &str) -> bool {
@@ -1704,15 +2255,49 @@ fn regex_literal_can_start_after(previous: Option<char>) -> bool {
 fn is_ignored_call_position(line: &str, target_start: usize) -> bool {
     let mut quote: Option<char> = None;
     let mut escaped = false;
+    let mut in_regex_literal = false;
+    let mut in_regex_char_class = false;
+    let mut template_expression_depth = 0i32;
+    let mut skip_template_open_brace = false;
+    let mut previous_significant: Option<char> = None;
     for (index, ch) in line.char_indices() {
         if index >= target_start {
             break;
+        }
+        if in_regex_literal {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '[' {
+                in_regex_char_class = true;
+            } else if ch == ']' {
+                in_regex_char_class = false;
+            } else if ch == '/' && !in_regex_char_class {
+                in_regex_literal = false;
+                previous_significant = Some('/');
+            }
+            continue;
         }
         if let Some(current_quote) = quote {
             if escaped {
                 escaped = false;
             } else if ch == '\\' {
                 escaped = true;
+            } else if current_quote == '`' && template_expression_depth > 0 {
+                if skip_template_open_brace && ch == '{' {
+                    skip_template_open_brace = false;
+                    continue;
+                }
+                skip_template_open_brace = false;
+                match ch {
+                    '{' => template_expression_depth += 1,
+                    '}' => template_expression_depth -= 1,
+                    _ => {}
+                }
+            } else if current_quote == '`' && line[index..].starts_with("${") {
+                template_expression_depth = 1;
+                skip_template_open_brace = true;
             } else if ch == current_quote {
                 quote = None;
             }
@@ -1721,11 +2306,30 @@ fn is_ignored_call_position(line: &str, target_start: usize) -> bool {
         if line[index..].starts_with("//") {
             return true;
         }
+        if ch == '/'
+            && !line[index..].starts_with("/*")
+            && regex_literal_can_start_after(previous_significant)
+        {
+            in_regex_literal = true;
+            in_regex_char_class = false;
+            continue;
+        }
         if matches!(ch, '"' | '\'' | '`') {
             quote = Some(ch);
+            continue;
+        }
+        if !ch.is_whitespace() {
+            previous_significant = Some(ch);
         }
     }
-    quote.is_some()
+    if in_regex_literal {
+        return true;
+    }
+    match quote {
+        Some('`') => template_expression_depth == 0,
+        Some(_) => true,
+        None => false,
+    }
 }
 
 fn call_evidence(line: &str, target_start: usize, paren_index: usize) -> String {
@@ -1925,9 +2529,17 @@ fn strip_trailing_generic_parameters(text: &str) -> &str {
     if !trimmed.ends_with('>') {
         return trimmed;
     }
+    if let Some((index, '>')) = trimmed.char_indices().next_back() {
+        if trimmed[..index].ends_with('=') {
+            return trimmed;
+        }
+    }
     let mut depth = 0i32;
     for (index, ch) in trimmed.char_indices().rev() {
         if ch == '>' {
+            if trimmed[..index].ends_with('=') {
+                continue;
+            }
             depth += 1;
         } else if ch == '<' {
             depth -= 1;
@@ -2560,6 +3172,128 @@ mod tests {
             .iter()
             .any(|call| call.target
                 == "expect(page.getByTestId('batch-variation-panel')).toBeVisible"));
+        let awaited = calls_from_line("await expect(page).toHaveURL(/\\/login$/);", None, false);
+        assert!(awaited
+            .iter()
+            .any(|call| call.target == "expect(page).toHaveURL"));
+        assert!(!awaited
+            .iter()
+            .any(|call| call.target == "await expect(page).toHaveURL"));
+        let generic = calls_from_line(
+            "const [value, setValue] = useState<string | null>(null);",
+            None,
+            false,
+        );
+        assert!(generic.iter().any(|call| call.target == "useState"));
+        let typed_arrow = "const baseProject = (overrides: Partial<Project> = {}): Project => ({";
+        let typed_arrow_symbol = symbol_from_line(typed_arrow, 1);
+        assert!(
+            !calls_from_line(typed_arrow, typed_arrow_symbol.as_ref(), false)
+                .iter()
+                .any(|call| call.target == "Partial")
+        );
+        let generic_chain = calls_from_line(
+            "vi .fn<(v: BatchVariation) => Promise<{ ok: boolean; code?: string }>>() .mockResolvedValue({ ok: true });",
+            None,
+            false,
+        );
+        assert!(generic_chain.iter().any(|call| call.target == "vi .fn"));
+        assert!(generic_chain.iter().any(|call| call.target
+            == "vi .fn<(v: BatchVariation) => Promise<{ ok: boolean; code?: string }>>() .mockResolvedValue"));
+        let new_chain = calls_from_line(
+            "const stamp = new Date('2026-05-18').toISOString();",
+            None,
+            false,
+        );
+        assert!(new_chain
+            .iter()
+            .any(|call| call.target == "new Date('2026-05-18').toISOString"));
+        let higher_order = calls_from_line(
+            "it.each(SUPPORTED_LOCALES)('locale=%s', async (locale) => {});",
+            None,
+            false,
+        );
+        assert!(higher_order.iter().any(|call| call.target == "it.each"));
+        assert!(higher_order
+            .iter()
+            .any(|call| call.target == "it.each(SUPPORTED_LOCALES)"));
+        let regex_flags =
+            calls_from_line("if (/^oklch\\(/i.test(trimmed)) return raw;", None, false);
+        assert!(regex_flags
+            .iter()
+            .any(|call| call.target == "/^oklch\\(/i.test"));
+        assert!(!regex_flags.iter().any(|call| call.target == "i.test"));
+        let regex_quantifier = calls_from_line("return /^#[0-9a-f]{8}$/.test(hex);", None, false);
+        assert!(regex_quantifier
+            .iter()
+            .any(|call| call.target == "/^#[0-9a-f]{8}$/.test"));
+        assert!(!regex_quantifier
+            .iter()
+            .any(|call| call.target == "8}$/.test"));
+        let regex_after_and = calls_from_line(
+            "const blue = tokens.filter((t) => t.name.startsWith('blue-') && /^blue-\\d{3}$/.test(t.name));",
+            None,
+            false,
+        );
+        assert!(regex_after_and
+            .iter()
+            .any(|call| call.target == "/^blue-\\d{3}$/.test"));
+        assert!(!regex_after_and
+            .iter()
+            .any(|call| call.target == "3}$/.test"));
+        let regex_after_arrow = calls_from_line(
+            "const bluePalette = tokens.filter((t) => /^blue-\\d{3}$/.test(t.name));",
+            None,
+            false,
+        );
+        assert!(regex_after_arrow
+            .iter()
+            .any(|call| call.target == "/^blue-\\d{3}$/.test"));
+        assert!(calls_from_line(
+            "const DIM_VALUE = /^(-?\\d*\\.?\\d+)(px|rem|em)$/;",
+            None,
+            false
+        )
+        .is_empty());
+        let spread = calls_from_line(
+            "...fillRow('basic'), ...Object.keys(input.components)",
+            None,
+            false,
+        );
+        assert!(spread.iter().any(|call| call.target == "fillRow"));
+        assert!(spread.iter().any(|call| call.target == "Object.keys"));
+        assert!(calls_from_line(
+            "...(input.name !== undefined && { name: input.name })",
+            None,
+            false
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn call_extraction_keeps_spaced_multiline_chain_receivers() {
+        let expression = "client .from('projects') .select('id') .eq('user_id', user.id) .single()";
+        let calls = top_level_property_calls_from_expression(expression);
+        assert!(calls.iter().any(|call| call.target == "client .from"));
+        assert!(calls
+            .iter()
+            .any(|call| call.target == "client .from('projects') .select"));
+        assert!(calls
+            .iter()
+            .any(|call| call.target == "client .from('projects') .select('id') .eq"));
+        assert!(calls.iter().any(|call| call.target
+            == "client .from('projects') .select('id') .eq('user_id', user.id) .single"));
+    }
+
+    #[test]
+    fn call_extraction_skips_dangling_multiline_chain_suffixes() {
+        assert!(calls_from_line(").toContainText('ok');", None, false).is_empty());
+        let expression = "expect( target, `message`, ) .toContainText('ok')";
+        let calls = top_level_property_calls_from_expression(expression);
+        assert_eq!(
+            calls.last().map(|call| call.target.as_str()),
+            Some("expect( target, `message`, ) .toContainText")
+        );
     }
 
     #[test]
@@ -2579,6 +3313,176 @@ mod tests {
         assert!(calls.iter().any(|call| call.target == "test"));
         assert!(calls.iter().any(|call| call.target == "page.goto"));
         assert!(!calls.iter().any(|call| call.target == "async"));
+    }
+
+    #[test]
+    fn call_extraction_skips_type_member_signatures() {
+        assert!(calls_from_line(
+            "findById(id: string): Promise<Project | null>;",
+            None,
+            false
+        )
+        .is_empty());
+        assert!(calls_from_line(
+            "update(id: string, data: Partial<Pick<Project, 'name'>>): Promise<Project>;",
+            None,
+            false,
+        )
+        .is_empty());
+        let calls = calls_from_line("repo.findById(id);", None, false);
+        assert!(calls.iter().any(|call| call.target == "repo.findById"));
+    }
+
+    #[test]
+    fn call_extraction_normalizes_returned_chains_and_void_expressions() {
+        let returned = calls_from_line("return (data ?? []).map(this.toEntity);", None, false);
+        assert!(returned.iter().any(|call| {
+            call.target == "(data ?? []).map" && call.evidence == "(data ?? []).map(this.toEntity)"
+        }));
+        assert!(!returned
+            .iter()
+            .any(|call| call.target == "return (data ?? []).map"));
+        assert!(!calls_from_line("void (async () => {", None, false)
+            .iter()
+            .any(|call| call.target == "void"));
+    }
+
+    #[test]
+    fn call_extraction_keeps_template_expression_calls() {
+        let calls = calls_from_line(
+            "log.push(`size: ${formatBytes(result.total)} / ${Math.max(1, limit)}`);",
+            None,
+            false,
+        );
+        assert!(calls.iter().any(|call| call.target == "log.push"));
+        assert!(calls.iter().any(|call| call.target == "formatBytes"));
+        assert!(calls.iter().any(|call| call.target == "Math.max"));
+        assert!(calls_from_line("const text = `formatBytes(value)`;", None, false).is_empty());
+    }
+
+    #[test]
+    fn extraction_keeps_multiline_template_expression_calls() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/render.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "function render(value: string): string {\n  return `<section>\n    <h1>${escapeHtml(`task: ${value}`)}</h1>\n    <p>${formatMetricValue('a', 1)}</p>\n  </section>`;\n}\n",
+        );
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "render"
+            && row.line == 3
+            && row.target == "escapeHtml"));
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "render"
+            && row.line == 4
+            && row.target == "formatMetricValue"));
+    }
+
+    #[test]
+    fn extraction_keeps_multiline_function_context_for_calls() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/functions.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "export function checkBundleSizeCli(\n  input: CheckInput,\n): CheckResult {\n  const log: string[] = [];\n  log.push('ok');\n  return { log };\n}\n\nconst handleSubmit = async (\n  event: Event,\n): Promise<void> => {\n  event.preventDefault();\n};\n",
+        );
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "checkBundleSizeCli"
+            && row.target == "log.push"));
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "handleSubmit"
+            && row.target == "event.preventDefault"));
+    }
+
+    #[test]
+    fn extraction_ignores_string_braces_when_closing_contexts() {
+        assert_eq!(brace_delta("const dollarIdx = tpl.indexOf('${');"), 0);
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/context.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "function extractStaticPrefixes(content: string): string[] {\n  const dollarIdx = content.indexOf('${');\n  if (dollarIdx === -1) return [];\n  return [];\n}\ndescribe('gate', () => {\n  expect(1).toBe(1);\n});\n",
+        );
+        assert!(extracted
+            .edges
+            .iter()
+            .any(|row| row.source_kind == "file" && row.line == 6 && row.target == "describe"));
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "file"
+            && row.line == 7
+            && row.target == "expect(1).toBe"));
+        assert!(!extracted.edges.iter().any(|row| {
+            row.source == "extractStaticPrefixes"
+                && (row.target == "describe" || row.target == "expect(1).toBe")
+        }));
+    }
+
+    #[test]
+    fn extraction_keeps_spread_calls_inside_multiline_initializers() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/spread.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "export function mergeFlatRecord(\n  base: Record<string, unknown>,\n  local: Record<string, unknown>,\n): void {\n  const keys = new Set<string>([\n    ...Object.keys(base),\n    ...Object.keys(local),\n  ]);\n  console.log(keys);\n}\n",
+        );
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "mergeFlatRecord"
+            && row.target == "Object.keys"
+            && row.line == 6));
+        assert!(extracted.edges.iter().any(|row| row.source_kind == "symbol"
+            && row.source == "mergeFlatRecord"
+            && row.target == "Object.keys"
+            && row.line == 7));
+    }
+
+    #[test]
+    fn extraction_does_not_duplicate_arrow_callback_calls_on_parent_line() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/thunk.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "export const deleteProject = createAsyncThunk('project/delete', (id: string) =>\n  repo.delete(id).then(() => id),\n);\n",
+        );
+        assert!(extracted
+            .edges
+            .iter()
+            .any(|row| row.line == 1 && row.target == "createAsyncThunk"));
+        assert!(extracted
+            .edges
+            .iter()
+            .any(|row| row.line == 2 && row.target == "repo.delete"));
+        assert!(extracted
+            .edges
+            .iter()
+            .any(|row| row.line == 2 && row.target == "repo.delete(id).then"));
+        assert!(!extracted
+            .edges
+            .iter()
+            .any(|row| row.line == 1 && row.target.starts_with("repo.delete")));
     }
 
     #[test]
@@ -2676,6 +3580,42 @@ mod tests {
             .iter()
             .any(|row| row.name == "oldTokens" || row.name == "userFn"));
         assert!(!extracted.imports.iter().any(|row| row.to_ref == "react"));
+    }
+
+    #[test]
+    fn extraction_closes_template_literals_on_comment_prefixed_lines() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/apply-block-mode.test.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "const existing = `import customLib from 'custom';\n\n/* SLINUP-MANAGED-BEGIN hash=${HASH_OLD} */\nmanaged\n/* SLINUP-MANAGED-END */`;\nconst r = applyBlockModeSync({\n  existingSource: existing,\n});\nconst other = `/* SLINUP-MANAGED-BEGIN hash=${HASH_OLD} */\nmanaged\n/* SLINUP-MANAGED-END */\n\nexport default function MyComponent() {\n  return null;\n}`;\nexpect(r.nextSource).toContain('ok');\n",
+        );
+        assert!(extracted
+            .symbols
+            .iter()
+            .any(|row| row.name == "existing" && row.kind == "variable"));
+        assert!(extracted
+            .symbols
+            .iter()
+            .any(|row| row.name == "r" && row.kind == "variable"));
+        assert!(extracted
+            .symbols
+            .iter()
+            .any(|row| row.name == "other" && row.kind == "variable"));
+        assert!(!extracted
+            .symbols
+            .iter()
+            .any(|row| row.name == "MyComponent"));
+        assert!(extracted.edges.iter().any(|row| {
+            row.line == 16
+                && row.source_kind == "file"
+                && row.target == "expect(r.nextSource).toContain"
+        }));
     }
 
     #[test]
