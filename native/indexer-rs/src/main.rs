@@ -727,9 +727,17 @@ struct SqlitePreparedStatement {
 
 impl SqlitePreparedStatement {
     fn bind_text(&self, index: c_int, value: &str) -> Result<(), String> {
-        let value = cstring(value, "SQLite text value")?;
-        let status =
-            unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, sqlite_transient()) };
+        let byte_count = c_int::try_from(value.len())
+            .map_err(|_| "SQLite text value is too large to bind".to_string())?;
+        let status = unsafe {
+            sqlite3_bind_text(
+                self.raw,
+                index,
+                value.as_ptr().cast::<c_char>(),
+                byte_count,
+                sqlite_transient(),
+            )
+        };
         if status == SQLITE_OK {
             Ok(())
         } else {
@@ -1148,16 +1156,63 @@ struct PendingCallExpression {
     parts: Vec<String>,
 }
 
+struct PendingImportDeclaration {
+    line: usize,
+    parts: Vec<String>,
+}
+
 fn extract_javascript_like(file: &ManifestFile, text: &str) -> Extracted {
     let mut extracted = Extracted::default();
     let mut context_stack: Vec<ContextFrame> = Vec::new();
     let mut pending_decorator_routes: Vec<DecoratorRoute> = Vec::new();
     let mut pending_call: Option<PendingCallExpression> = None;
+    let mut pending_import: Option<PendingImportDeclaration> = None;
+    let mut in_template_literal = false;
     for (index, raw_line) in text.split('\n').enumerate() {
         let line_number = index + 1;
         let line = one_line(raw_line);
         let trimmed = line.trim();
         if trimmed.is_empty() {
+            continue;
+        }
+        if is_comment_line(trimmed) {
+            continue;
+        }
+        if in_template_literal {
+            if has_unbalanced_template_delimiter(trimmed) {
+                in_template_literal = false;
+            }
+            continue;
+        }
+        if starts_non_declaration_template_literal(trimmed) {
+            in_template_literal = true;
+            continue;
+        }
+        if let Some(import) = pending_import.as_mut() {
+            import.parts.push(trimmed.to_string());
+            if import_declaration_complete(trimmed) {
+                let joined = one_line(&import.parts.join(" "));
+                if let Some(row) = import_from_line(&joined, import.line) {
+                    extracted.edges.push(EdgeRow {
+                        evidence: row.raw.clone(),
+                        kind: row.edge_kind.clone(),
+                        line: row.line,
+                        source: file.path.clone(),
+                        source_kind: "file".to_string(),
+                        target: row.to_ref.clone(),
+                        target_kind: "module".to_string(),
+                    });
+                    extracted.imports.push(row);
+                }
+                pending_import = None;
+            }
+            continue;
+        }
+        if starts_multiline_import_declaration(trimmed) {
+            pending_import = Some(PendingImportDeclaration {
+                line: line_number,
+                parts: vec![trimmed.to_string()],
+            });
             continue;
         }
         if let Some(route) = decorator_route_from_line(trimmed, line_number) {
@@ -1440,16 +1495,52 @@ fn call_target_before_paren(line: &str, paren_index: usize) -> Option<(usize, St
 }
 
 fn property_receiver_start(line: &str, dot_start: usize) -> usize {
-    let bytes = line.as_bytes();
     let mut start = dot_start;
-    while start > 0 {
-        let previous = bytes[start - 1] as char;
+    while let Some((previous_index, previous)) = line[..start].char_indices().next_back() {
+        if previous == ')' {
+            if let Some(open_index) = matching_delimiter_backward(line, previous_index, '(', ')') {
+                start = expression_start_before_paren(line, open_index);
+                continue;
+            }
+        }
+        if previous == ']' {
+            if let Some(open_index) = matching_delimiter_backward(line, previous_index, '[', ']') {
+                start = open_index;
+                continue;
+            }
+        }
         if previous.is_whitespace() || matches!(previous, '=' | '(' | ',' | '?' | ':' | ';' | '{') {
             break;
         }
-        start -= 1;
+        start = previous_index;
     }
     start
+}
+
+fn expression_start_before_paren(line: &str, paren_index: usize) -> usize {
+    call_target_before_paren(line, paren_index)
+        .map(|(target_start, _)| target_start)
+        .unwrap_or(paren_index)
+}
+
+fn matching_delimiter_backward(
+    line: &str,
+    close_index: usize,
+    open: char,
+    close: char,
+) -> Option<usize> {
+    let mut depth = 0i32;
+    for (index, ch) in line[..=close_index].char_indices().rev() {
+        if ch == close {
+            depth += 1;
+        } else if ch == open {
+            depth -= 1;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn should_skip_call_target(
@@ -1458,12 +1549,26 @@ fn should_skip_call_target(
     target: &str,
     declared_symbol: Option<&SymbolRow>,
 ) -> bool {
+    if is_ignored_call_position(line, target_start) {
+        return true;
+    }
     if target.starts_with('.')
         || target.starts_with("].")
         || target == "require"
         || matches!(
             target,
-            "if" | "for" | "while" | "switch" | "catch" | "function" | "class" | "new"
+            "if" | "for"
+                | "while"
+                | "switch"
+                | "catch"
+                | "function"
+                | "class"
+                | "new"
+                | "async"
+                | "return"
+                | "var"
+                | "let"
+                | "const"
         )
     {
         return true;
@@ -1484,6 +1589,66 @@ fn should_skip_call_target(
         }
     }
     false
+}
+
+fn is_comment_line(line: &str) -> bool {
+    line.starts_with("//")
+        || line.starts_with("/*")
+        || line.starts_with('*')
+        || line.starts_with("*/")
+}
+
+fn starts_non_declaration_template_literal(line: &str) -> bool {
+    has_unbalanced_template_delimiter(line)
+        && !line.starts_with("const ")
+        && !line.starts_with("let ")
+        && !line.starts_with("var ")
+}
+
+fn has_unbalanced_template_delimiter(line: &str) -> bool {
+    let mut escaped = false;
+    let mut count = 0usize;
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '`' {
+            count += 1;
+        }
+    }
+    count % 2 == 1
+}
+
+fn is_ignored_call_position(line: &str, target_start: usize) -> bool {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (index, ch) in line.char_indices() {
+        if index >= target_start {
+            break;
+        }
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if line[index..].starts_with("//") {
+            return true;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+        }
+    }
+    quote.is_some()
 }
 
 fn call_evidence(line: &str, target_start: usize, paren_index: usize) -> String {
@@ -1528,7 +1693,7 @@ fn symbol_from_line(line: &str, line_number: usize) -> Option<SymbolRow> {
     }
     for prefix in ["const ", "let ", "var "] {
         if let Some(rest) = cleaned.strip_prefix(prefix) {
-            let kind = if cleaned.contains("=>") || cleaned.contains("function") {
+            let kind = if variable_initializer_is_function(rest) {
                 "function"
             } else {
                 "variable"
@@ -1537,6 +1702,57 @@ fn symbol_from_line(line: &str, line_number: usize) -> Option<SymbolRow> {
         }
     }
     method_symbol_from_line(cleaned_without_semicolon, line_number)
+}
+
+fn variable_initializer_is_function(text_after_keyword: &str) -> bool {
+    let Some((_, initializer)) = text_after_keyword.split_once('=') else {
+        return false;
+    };
+    let initializer = initializer.trim();
+    initializer.starts_with("function")
+        || initializer.starts_with("async function")
+        || contains_top_level_arrow(initializer)
+}
+
+fn contains_top_level_arrow(text: &str) -> bool {
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    let mut brace_depth = 0i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if let Some(current_quote) = quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == current_quote {
+                quote = None;
+            }
+            continue;
+        }
+        if matches!(ch, '"' | '\'' | '`') {
+            quote = Some(ch);
+            continue;
+        }
+        match ch {
+            '(' => paren_depth += 1,
+            ')' => paren_depth -= 1,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth -= 1,
+            '{' => brace_depth += 1,
+            '}' => brace_depth -= 1,
+            '=' if text[index..].starts_with("=>")
+                && paren_depth == 0
+                && bracket_depth == 0
+                && brace_depth == 0 =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn symbol_row(
@@ -1632,6 +1848,9 @@ fn method_body_brace_index(line: &str, start: usize) -> Option<usize> {
     let suffix = &line[start..];
     let brace_offset = suffix.find('{')?;
     let before_brace = suffix[..brace_offset].trim();
+    if !(before_brace.is_empty() || before_brace.starts_with(':')) {
+        return None;
+    }
     if before_brace.contains("=>") || before_brace.contains('?') {
         return None;
     }
@@ -1673,6 +1892,15 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
             .unwrap_or("")
             .trim_start_matches("export")
             .trim()
+            .strip_prefix("type ")
+            .unwrap_or_else(|| {
+                line.split(" from ")
+                    .next()
+                    .unwrap_or("")
+                    .trim_start_matches("export")
+                    .trim()
+            })
+            .trim()
             .to_string();
         return Some(ImportRow {
             edge_kind: "export".to_string(),
@@ -1693,6 +1921,25 @@ fn import_from_line(line: &str, line_number: usize) -> Option<ImportRow> {
         });
     }
     None
+}
+
+fn starts_multiline_import_declaration(line: &str) -> bool {
+    if line.contains(" from ") || first_string_literal(line).is_some() {
+        return false;
+    }
+    if let Some(rest) = line.strip_prefix("import ") {
+        let rest = rest.strip_prefix("type ").unwrap_or(rest).trim();
+        return rest.contains('{') || rest.ends_with(',');
+    }
+    if let Some(rest) = line.strip_prefix("export ") {
+        let rest = rest.strip_prefix("type ").unwrap_or(rest).trim();
+        return rest.starts_with('{');
+    }
+    false
+}
+
+fn import_declaration_complete(line: &str) -> bool {
+    line.contains(" from ") && first_string_literal(line).is_some()
 }
 
 fn decorator_route_from_line(line: &str, line_number: usize) -> Option<DecoratorRoute> {
@@ -1717,16 +1964,46 @@ fn import_binding(line: &str) -> String {
         .unwrap_or(line)
         .trim_start_matches("import")
         .trim();
-    if before_from.starts_with('{') && before_from.ends_with('}') {
-        return before_from
-            .trim_matches(|ch| ch == '{' || ch == '}')
-            .split(',')
-            .map(|part| part.trim().split(" as ").last().unwrap_or("").trim())
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(", ");
+    let before_from = before_from
+        .strip_prefix("type ")
+        .unwrap_or(before_from)
+        .trim();
+    if before_from.starts_with(['"', '\'']) {
+        return String::new();
     }
-    before_from.trim_end_matches(';').to_string()
+    let mut names = Vec::new();
+    if before_from.starts_with('{') && before_from.ends_with('}') {
+        names.extend(named_import_bindings(before_from));
+    } else if let Some((default_import, named_imports)) = before_from.split_once(',') {
+        let default_import = default_import.trim();
+        if !default_import.is_empty() {
+            names.push(default_import.to_string());
+        }
+        names.extend(named_import_bindings(named_imports));
+    } else if !before_from.is_empty() {
+        names.push(before_from.trim_end_matches(';').to_string());
+    }
+    names.join(", ")
+}
+
+fn named_import_bindings(text: &str) -> Vec<String> {
+    let trimmed = text.trim();
+    let inner = trimmed.trim_matches(|ch| ch == '{' || ch == '}');
+    if inner.trim().is_empty() && trimmed.starts_with('{') && trimmed.ends_with('}') {
+        return vec!["{}".to_string()];
+    }
+    inner
+        .split(',')
+        .map(|part| {
+            part.trim()
+                .strip_prefix("type ")
+                .unwrap_or(part.trim())
+                .trim()
+        })
+        .map(|part| part.split(" as ").last().unwrap_or("").trim())
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn route_from_line(line: &str, line_number: usize) -> Option<RouteRow> {
@@ -1828,4 +2105,158 @@ fn sql_string(value: &str) -> String {
 
 fn javascript_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\\\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn call_extraction_handles_unicode_regex_receivers() {
+        let line = r#"const hasCanonicalSignal = /\b(prd|brief|spec|requirements|roadmap|architecture|api|data model|policy|scope|goal|goals|user|users|persona|scenario|success)\b|정본|요구사항|기획|범위|목표|사용자|시나리오|성공/.test(haystack);"#;
+        let calls = calls_from_line(line, None, false);
+        assert!(calls.iter().any(|call| call.target.ends_with(".test")));
+    }
+
+    #[test]
+    fn call_extraction_keeps_chained_call_receivers() {
+        let line = "expect(page.getByTestId('batch-variation-panel')).toBeVisible();";
+        let calls = calls_from_line(line, None, false);
+        assert!(calls
+            .iter()
+            .any(|call| call.target
+                == "expect(page.getByTestId('batch-variation-panel')).toBeVisible"));
+    }
+
+    #[test]
+    fn call_extraction_skips_comments_strings_and_async_keywords() {
+        assert!(calls_from_line("// W1 (A27)", None, false).is_empty());
+        assert!(calls_from_line(
+            "const css = `color: var(--x); filter: blur(1px);`;",
+            None,
+            false,
+        )
+        .is_empty());
+        let calls = calls_from_line(
+            "test('x', async ({ page }) => page.goto('/'));",
+            None,
+            false,
+        );
+        assert!(calls.iter().any(|call| call.target == "test"));
+        assert!(calls.iter().any(|call| call.target == "page.goto"));
+        assert!(!calls.iter().any(|call| call.target == "async"));
+    }
+
+    #[test]
+    fn import_binding_matches_typescript_import_clause_names() {
+        assert_eq!(
+            import_binding(
+                "import { createClient, type SupabaseClient } from '@supabase/supabase-js';"
+            ),
+            "createClient, SupabaseClient"
+        );
+        assert_eq!(
+            import_binding(
+                "import projectReducer, { hydrateActiveProject } from './slices/projectSlice';"
+            ),
+            "projectReducer, hydrateActiveProject"
+        );
+        assert_eq!(
+            import_binding("import type { TypedUseSelectorHook } from 'react-redux';"),
+            "TypedUseSelectorHook"
+        );
+        assert_eq!(import_binding("import './setup';"), "");
+    }
+
+    #[test]
+    fn variable_symbol_kind_uses_top_level_arrow_only() {
+        let nested_arrow = symbol_from_line(
+            "const rootHTML = await page.evaluate(() => document.body);",
+            1,
+        )
+        .expect("symbol from nested-arrow initializer");
+        assert_eq!(nested_arrow.kind, "variable");
+
+        let top_level_arrow = symbol_from_line("const loadRoot = async () => document.body;", 1)
+            .expect("symbol from top-level arrow initializer");
+        assert_eq!(top_level_arrow.kind, "function");
+    }
+
+    #[test]
+    fn extraction_skips_template_literal_code_examples() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/templates.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "const examples = [{\n  code: `export interface ButtonProps {\nexport default function Button() {\n  return null;\n}\n`,\n}];\n",
+        );
+        assert!(!extracted
+            .symbols
+            .iter()
+            .any(|row| row.name == "Button" || row.name == "ButtonProps"));
+    }
+
+    #[test]
+    fn method_symbol_detection_ignores_chained_calls_with_regex_braces() {
+        assert!(symbol_from_line(
+            "expect(srcdoc).not.toMatch(/\\.bg-sentinel-skip-backfill\\s*\\{/);",
+            1,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn extraction_collects_multiline_import_declarations() {
+        let file = ManifestFile {
+            language: "typescript".to_string(),
+            mtime_ms: 0.0,
+            path: "src/app.ts".to_string(),
+            profile: "typescript-ast".to_string(),
+            size: 0,
+        };
+        let extracted = extract_javascript_like(
+            &file,
+            "import {\n  createClient,\n  type SupabaseClient,\n} from '@supabase/supabase-js';\nexport type {\n  TimelineEvent,\n} from '@/timeline';\n",
+        );
+        assert!(extracted.imports.iter().any(|row| {
+            row.to_ref == "@supabase/supabase-js"
+                && row.imported == "createClient, SupabaseClient"
+                && row.line == 1
+        }));
+        assert!(extracted
+            .imports
+            .iter()
+            .any(|row| row.to_ref == "@/timeline"
+                && row.imported == "{ TimelineEvent, }"
+                && row.line == 5));
+    }
+
+    #[test]
+    fn sqlite_direct_text_binding_accepts_embedded_nul() {
+        let database_path = std::env::temp_dir().join(format!(
+            "project-librarian-indexer-nul-{}.sqlite",
+            std::process::id()
+        ));
+        let database_path = database_path.to_string_lossy().into_owned();
+        let _ = fs::remove_file(&database_path);
+        let database = SqliteConnection::open(&database_path).expect("open sqlite test db");
+        database
+            .exec("CREATE TABLE values_with_nul (value TEXT NOT NULL)")
+            .expect("create test table");
+        let statement = database
+            .prepare("INSERT INTO values_with_nul (value) VALUES (?)")
+            .expect("prepare insert");
+        statement
+            .bind_text(1, "before\0after")
+            .expect("bind embedded nul text");
+        statement.run().expect("insert embedded nul text");
+        drop(statement);
+        drop(database);
+        let _ = fs::remove_file(&database_path);
+    }
 }

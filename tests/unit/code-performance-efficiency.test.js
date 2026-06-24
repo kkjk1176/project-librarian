@@ -2,11 +2,15 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
+  actualRepoDefinitions,
   bestVariantDecision,
   markdownReport,
+  materializeActualRepo,
   normalizeRows,
   parseCodeIndexOutput,
   parseCodeIndexPhaseTimings,
@@ -21,6 +25,43 @@ function listFiles(root) {
     return [fullPath];
   });
 }
+
+test("actual repo benchmark definitions are repeatable and normalized", () => {
+  const repos = actualRepoDefinitions([
+    "node",
+    "script.js",
+    "--actual-repo",
+    "/tmp/Example Repo",
+    "--actual-repo=/tmp/another_repo",
+  ]);
+
+  assert.deepEqual(repos.map((repo) => repo.name), ["example-repo", "another_repo"]);
+  assert.deepEqual(repos.map((repo) => repo.corpus_kind), ["actual-repo", "actual-repo"]);
+  assert(repos.every((repo) => path.isAbsolute(repo.source)));
+  assert(repos.every((repo) => repo.terms.file && repo.terms.symbol && repo.terms.import));
+});
+
+test("actual repo materialization copies into a temporary workspace without dependency caches", () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-source-"));
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-materialized-"));
+  try {
+    fs.mkdirSync(path.join(source, "src"), { recursive: true });
+    fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
+    fs.mkdirSync(path.join(source, ".project-wiki"), { recursive: true });
+    fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
+    fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
+    fs.writeFileSync(path.join(source, ".project-wiki", "code-evidence.sqlite"), "");
+
+    const cwd = materializeActualRepo({ name: "sample", source }, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+    assert.equal(fs.existsSync(path.join(cwd, ".project-wiki")), false);
+    assert.equal(fs.existsSync(path.join(source, "src", "index.ts")), true);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
 
 test("code performance harness includes diverse checked-in sample corpora", () => {
   const samples = sampleCorpusDefinitions();
@@ -205,6 +246,25 @@ test("markdown report renders FTS variants and parity status", () => {
       },
     ],
     sample_corpora: [],
+    actual_repos: [
+      {
+        name: "example-app",
+        source: "/tmp/example-app",
+        index_time_ms: 70,
+        phase_timings: { discover_files_ms: 4, total_ms: 70 },
+        native_index: {
+          engine: "mixed-native-rust",
+          index_time_ms: 40,
+          index_time_delta_percent_vs_typescript: -42.857,
+          row_deltas_vs_typescript: { files: 0, symbols: -1 },
+          strategy: "sqlite-direct",
+        },
+        native_indexes: [],
+        current_db: { file_bytes: 2048, rows: { files: 123 } },
+        commands: { code_status: { median_ms: 8, p95_ms: 9, runs: 1 } },
+        query_groups: { file_search_path: { median_ms: 1, p95_ms: 2, rows: 3, runs: 1 } },
+      },
+    ],
   });
 
   assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
@@ -216,4 +276,8 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /Fastest native row deltas vs TypeScript: files \+0, symbols \+0/);
   assert.match(report, /Variant direct DB deltas vs current/);
   assert.match(report, /file_search_path p95 -10\.0%/);
+  assert.match(report, /## Actual Repositories/);
+  assert.match(report, /### example-app/);
+  assert.match(report, /Source: \/tmp\/example-app/);
+  assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 40\.0 ms \(-42\.9% vs TypeScript\)/);
 });

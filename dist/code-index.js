@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CodeEvidenceIndexUnavailableError = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
+exports.CodeEvidenceIndexUnavailableError = exports.nativeCodeIndexAutoFileThreshold = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
 exports.codeIndexStaleness = codeIndexStaleness;
 exports.codeIndexHealth = codeIndexHealth;
 exports.codeImpact = codeImpact;
@@ -78,6 +78,7 @@ Object.defineProperty(exports, "searchSymbols", { enumerable: true, get: functio
 const workspace_1 = require("./workspace");
 exports.codeContextPackCharCap = 4000;
 exports.codeContextPackTruncationNotice = "[truncated - refine the query]";
+exports.nativeCodeIndexAutoFileThreshold = 10000;
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -122,7 +123,7 @@ function selectedCodeIndexEngine() {
     fail(`invalid --code-index-engine: ${args_1.codeIndexEngine}; expected one of: auto, typescript, native-rust`);
 }
 function shouldUseNativeCodeIndexAuto(discoveredFileCount) {
-    return discoveredFileCount >= code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD
+    return discoveredFileCount >= exports.nativeCodeIndexAutoFileThreshold
         && Boolean((process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim());
 }
 function normalizedMtimeMs(stat) {

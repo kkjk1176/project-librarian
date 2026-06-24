@@ -5,7 +5,7 @@ const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, searchSymbols } = require("../../dist/code-index.js");
+const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, nativeCodeIndexAutoFileThreshold, searchSymbols } = require("../../dist/code-index.js");
 const { openDatabase } = require("../../dist/code-index-db.js");
 const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
@@ -747,13 +747,14 @@ test("native-rust code index engine fails explicitly without deleting the existi
   }
 });
 
-test("auto code index engine keeps TypeScript on small repos even when a helper path is set", () => {
+test("implicit auto code index engine keeps TypeScript below the native auto threshold even when a helper path is set", () => {
   const cwd = makeTmpDir("code-index-auto-small-repo-");
   try {
     fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
     fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
 
-    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "auto"], {
+    assert.equal(nativeCodeIndexAutoFileThreshold, 10000);
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"], {
       env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: path.join(cwd, "missing-native-helper") },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);

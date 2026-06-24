@@ -273,7 +273,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     codeFilesMode: hasAnyFlag("--code-files"),
     codeImpactMode: hasAnyFlag("--code-impact"),
     codeImpactTarget,
-    codeIndexEngine: argValueFromAny("--code-index-engine") || "typescript",
+    codeIndexEngine: argValueFromAny("--code-index-engine") || "auto",
     codeIndexEngineMode: hasAnyFlag("--code-index-engine"),
     codeIndexFullMode: hasAnyFlag("--code-index-full"),
     codeIndexHealthMode: args.has("--code-index-health"),

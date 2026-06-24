@@ -24,6 +24,26 @@ function optionValue(name, fallback) {
   return value;
 }
 
+function optionValues(name, argv = process.argv) {
+  const values = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const entry = argv[index];
+    if (entry === name) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) throw new Error(`missing value for ${name}`);
+      values.push(value);
+      index += 1;
+      continue;
+    }
+    if (entry.startsWith(`${name}=`)) {
+      const value = entry.slice(name.length + 1);
+      if (!value) throw new Error(`missing value for ${name}`);
+      values.push(value);
+    }
+  }
+  return values;
+}
+
 const reportDir = path.resolve(repoRoot, optionValue("--report-dir", path.join("benchmarks", "reports", "code-performance-efficiency")));
 const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code-index", "search.js"));
 const { SMALL_REPO_FILE_THRESHOLD } = require(path.join(repoRoot, "dist", "code-index-file-policy.js"));
@@ -81,6 +101,35 @@ function sampleCorpusDefinitions() {
       },
     },
   ];
+}
+
+function sanitizeReportName(value) {
+  const sanitized = value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return sanitized || "repo";
+}
+
+function actualRepoDefinitions(argv = process.argv) {
+  const usedNames = new Map();
+  return optionValues("--actual-repo", argv).map((source, index) => {
+    const resolved = path.resolve(source);
+    const baseName = path.basename(resolved) || `actual-repo-${index + 1}`;
+    const baseReportName = sanitizeReportName(baseName);
+    const seen = usedNames.get(baseReportName) ?? 0;
+    usedNames.set(baseReportName, seen + 1);
+    const name = seen === 0 ? baseReportName : `${baseReportName}-${seen + 1}`;
+    return {
+      name,
+      corpus_kind: "actual-repo",
+      source: resolved,
+      terms: {
+        file: "src",
+        symbol: "index",
+        route: "api",
+        import: "react",
+        edge: "render",
+      },
+    };
+  });
 }
 
 function mkdirp(dir) {
@@ -974,6 +1023,26 @@ function materializeSampleCorpus(sample, tmpRoot) {
   return cwd;
 }
 
+function materializeActualRepo(repo, tmpRoot) {
+  const source = path.resolve(repo.source);
+  const stat = fs.existsSync(source) ? fs.statSync(source) : null;
+  if (!stat?.isDirectory()) throw new Error(`--actual-repo must point to an existing directory: ${repo.source}`);
+  const cwd = path.join(tmpRoot, `actual-${repo.name}`);
+  if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
+    run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
+    return cwd;
+  }
+  fs.cpSync(source, cwd, {
+    recursive: true,
+    filter: (entry) => {
+      const relative = path.relative(source, entry);
+      if (!relative) return true;
+      return !relative.split(path.sep).some((part) => [".git", ".project-wiki", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"].includes(part));
+    },
+  });
+  return cwd;
+}
+
 function measureBuildCommands() {
   const commands = {
     build: ["npm", ["run", "build"]],
@@ -1117,6 +1186,30 @@ function markdownReport(result) {
       lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
     }
   }
+  if (result.actual_repos?.length > 0) {
+    lines.push("");
+    lines.push("## Actual Repositories");
+    lines.push("");
+    lines.push("Actual repositories are measured from temporary materialized copies, not from the source directories.");
+    for (const repo of result.actual_repos) {
+      lines.push("");
+      lines.push(`### ${repo.name}`);
+      lines.push(`- Source: ${repo.source}`);
+      lines.push(`- Indexed files: ${repo.current_db.rows.files}`);
+      lines.push(`- Index time: ${repo.index_time_ms.toFixed(1)} ms`);
+      if (repo.phase_timings) {
+        lines.push(`- Index phases: ${formatPhaseTimings(repo.phase_timings)}`);
+      }
+      appendNativeIndexLines(lines, repo.native_index, repo.native_indexes);
+      lines.push(`- Current DB size: ${repo.current_db.file_bytes} bytes`);
+      for (const [command, timing] of Object.entries(repo.commands)) {
+        lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
+      }
+      for (const [name, timing] of Object.entries(repo.query_groups)) {
+        lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
+      }
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -1154,6 +1247,7 @@ function main() {
     },
     scales: [],
     sample_corpora: [],
+    actual_repos: [],
     build_commands: {},
     decisions: {},
   };
@@ -1229,6 +1323,28 @@ function main() {
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, sample.terms),
       });
     }
+    for (const repo of actualRepoDefinitions()) {
+      const cwd = materializeActualRepo(repo, tmpRoot);
+      const indexRun = runCodeIndexCommand(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "."]);
+      const dbPath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+      const currentDb = databaseStats(dbPath);
+      const nativeComparison = measureNativeIndexes(cwd, ["."], nativeHelper, {
+        index_time_ms: indexRun.elapsedMs,
+        db: currentDb,
+      });
+      result.actual_repos.push({
+        name: repo.name,
+        corpus_kind: repo.corpus_kind,
+        source: repo.source,
+        index_time_ms: indexRun.elapsedMs,
+        phase_timings: indexRun.phase_timings,
+        native_index: nativeComparison.fastest,
+        native_indexes: nativeComparison.indexes,
+        current_db: currentDb,
+        commands: measureSampleCommands(cwd, repo),
+        query_groups: measureDatabaseQueryGroupsForTerms(dbPath, repo.terms),
+      });
+    }
     result.build_commands = measureBuildCommands();
     const largest = result.scales[result.scales.length - 1];
     const ftsDelta = largest.contentless_fts_size_delta_percent;
@@ -1255,7 +1371,9 @@ if (require.main === module) {
 module.exports = {
   bestVariantDecision,
   compareSearchParity,
+  actualRepoDefinitions,
   markdownReport,
+  materializeActualRepo,
   measureDatabaseQueryGroupsForTerms,
   normalizeRows,
   parseCodeIndexOutput,

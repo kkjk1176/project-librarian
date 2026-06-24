@@ -105,7 +105,8 @@ test("code context pack mode reuses one staleness calculation for warning and ou
 test("auto code index engine resolves to native only for eligible full runs", () => {
   assert.equal(resolveCodeIndexEngine("typescript", 10000, () => true, false), "typescript");
   assert.equal(resolveCodeIndexEngine("native-rust", 1, () => false, false), "native-rust");
-  assert.equal(resolveCodeIndexEngine("auto", 10000, () => true, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", 9999, (fileCount) => fileCount >= 10000, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", 10000, (fileCount) => fileCount >= 10000, false), "native-rust");
   assert.equal(resolveCodeIndexEngine("auto", 10000, () => true, true), "typescript");
   assert.equal(resolveCodeIndexEngine("auto", 10000, () => false, false), "typescript");
 

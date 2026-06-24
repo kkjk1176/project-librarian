@@ -53,6 +53,7 @@ interface CodeEvidenceModeFlags {
 
 export const codeContextPackCharCap = 4000;
 export const codeContextPackTruncationNotice = "[truncated - refine the query]";
+export const nativeCodeIndexAutoFileThreshold = 10000;
 
 function fail(message: string): never {
   console.error(message);
@@ -98,7 +99,7 @@ function selectedCodeIndexEngine(): CodeIndexEngine {
 }
 
 function shouldUseNativeCodeIndexAuto(discoveredFileCount: number): boolean {
-  return discoveredFileCount >= SMALL_REPO_FILE_THRESHOLD
+  return discoveredFileCount >= nativeCodeIndexAutoFileThreshold
     && Boolean((process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim());
 }
 

@@ -85,6 +85,16 @@ test("parseArgs handles code evidence aliases and comma scopes", () => {
   assert.deepEqual(parsed.codeIndexScopes, ["src", "tests", "benchmarks"]);
 });
 
+test("parseArgs defaults code index engine selection to auto unless explicitly overridden", () => {
+  const implicit = parseArgs([]);
+  assert.equal(implicit.codeIndexEngine, "auto");
+  assert.equal(implicit.codeIndexEngineMode, false);
+
+  const explicit = parseArgs(["--code-index", "--code-index-engine", "typescript"]);
+  assert.equal(explicit.codeIndexEngine, "typescript");
+  assert.equal(explicit.codeIndexEngineMode, true);
+});
+
 test("parseArgs handles code context pack aliases", () => {
   const parsed = parseArgs(["--code-evidence-context-pack", "healthHandler"]);
   assert.equal(parsed.codeContextPackMode, true);
