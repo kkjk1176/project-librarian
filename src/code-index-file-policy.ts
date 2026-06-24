@@ -40,6 +40,13 @@ const configExtensions = new Set([".json", ".yaml", ".yml", ".toml"]);
 
 export const maxIndexedBytes = 1024 * 1024;
 
+interface DiscoveredCodeFileStat {
+  absolutePath: string;
+  stat: fs.Stats;
+}
+
+const discoveredCodeFileStats = new Map<string, DiscoveredCodeFileStat>();
+
 export function fileLanguage(relativePath: string): string {
   if (path.basename(relativePath) === ".env.example") return "config";
   const extension = path.extname(relativePath).toLowerCase();
@@ -129,14 +136,22 @@ function indexableFileStat(file: string): fs.Stats | null {
   return containedProjectFileStat(file);
 }
 
+export function cachedDiscoveredCodeFileStat(relativePath: string): DiscoveredCodeFileStat | undefined {
+  return discoveredCodeFileStats.get(relativePath);
+}
+
 export function discoverCodeFiles(scopes: string[]): string[] {
+  discoveredCodeFileStats.clear();
   const gitFiles = gitTrackedAndUnignoredFiles(scopes);
   const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
   const files: string[] = [];
   for (const file of Array.from(new Set(candidates))) {
     if (isIgnoredCodePath(file) || !shouldIndexFile(file)) continue;
     const stat = indexableFileStat(file);
-    if (stat && stat.size <= maxIndexedBytes) files.push(file);
+    if (stat && stat.size <= maxIndexedBytes) {
+      discoveredCodeFileStats.set(file, { absolutePath: abs(file), stat });
+      files.push(file);
+    }
   }
   return files.sort();
 }

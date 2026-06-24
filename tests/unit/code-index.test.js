@@ -7,7 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { codeContextPack, codeImpact, codeIndexSnapshot, isCodeEvidenceModeFor, nativeCodeIndexAutoFileThreshold, searchSymbols } = require("../../dist/code-index.js");
 const { openDatabase } = require("../../dist/code-index-db.js");
-const { fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
+const { cachedDiscoveredCodeFileStat, discoverCodeFiles, fileLanguage, ignoredDirectories, isIgnoredCodePath, shouldIndexFile, SMALL_REPO_FILE_THRESHOLD } = require("../../dist/code-index-file-policy.js");
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
 const { searchFiles, shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
 const { treeSitterBackends } = require("../../dist/code-index/extractors/tree-sitter.js");
@@ -178,6 +178,18 @@ test("code index file policy excludes ignored and sensitive paths", () => {
   assert.equal(ignoredDirs.has("dist"), true);
   assert.equal(ignoredDirs.has(".project-wiki"), false);
   assert.equal(isIgnoredCodePath("dist/init-project-wiki.js"), true);
+});
+
+test("code file discovery caches accepted file stats for fingerprint reuse", () => {
+  const filePath = "src/code-index-file-policy.ts";
+  const files = discoverCodeFiles([filePath]);
+  assert.deepEqual(files, [filePath]);
+  const cached = cachedDiscoveredCodeFileStat(filePath);
+  assert.equal(typeof cached?.absolutePath, "string");
+  assert.equal(cached?.stat.isFile(), true);
+
+  assert.deepEqual(discoverCodeFiles(["missing-code-index-cache-fixture"]), []);
+  assert.equal(cachedDiscoveredCodeFileStat(filePath), undefined);
 });
 
 test("code index skips symlinked git paths and hidden MCP config before FTS persistence", (t) => {

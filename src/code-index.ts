@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexEngine, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase } from "./code-index-db";
-import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
+import { cachedDiscoveredCodeFileStat, codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
 import { collectCodeEvidence } from "./code-index/evidence";
 import { createExtractionBackendRegistry, extractionProfile } from "./code-index/extractors/registry";
@@ -122,7 +122,8 @@ function normalizedMtimeMs(stat: fs.Stats): number {
 }
 
 function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
-  const { absolutePath, stat } = requireContainedProjectFile(relativePath, "code-index file");
+  const discovered = cachedDiscoveredCodeFileStat(relativePath);
+  const { absolutePath, stat } = discovered ?? requireContainedProjectFile(relativePath, "code-index file");
   codeFileFingerprintPaths.set(relativePath, absolutePath);
   return {
     mtimeMs: normalizedMtimeMs(stat),

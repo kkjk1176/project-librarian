@@ -144,7 +144,8 @@ function normalizedMtimeMs(stat) {
     return Number(stat.mtimeMs.toFixed(3));
 }
 function readCodeFileFingerprint(relativePath) {
-    const { absolutePath, stat } = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    const discovered = (0, code_index_file_policy_1.cachedDiscoveredCodeFileStat)(relativePath);
+    const { absolutePath, stat } = discovered ?? (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
     codeFileFingerprintPaths.set(relativePath, absolutePath);
     return {
         mtimeMs: normalizedMtimeMs(stat),
