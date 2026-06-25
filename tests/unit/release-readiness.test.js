@@ -34,6 +34,7 @@ const {
   nativeHelperPublishRustTargets,
   nativeHelperPublishWorkflowStatus,
   nativeHelperSqliteLinkStatus,
+  node24ArtifactActionStatus,
   workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
@@ -313,6 +314,65 @@ test("release readiness validates the native helper publish artifact chain", () 
   assert.ok(publishBeforeVerify.order_errors.includes("publish package must run after verify helper matrix provenance"));
 });
 
+test("release readiness requires Node 24-compatible artifact action pins", () => {
+  const workflow = path.resolve(__dirname, "..", "..", ".github", "workflows", "publish.yml");
+  const status = node24ArtifactActionStatus(workflow);
+  assert.equal(status.ok, true, status.message);
+  assert.deepEqual(status.mismatches, []);
+  assert.deepEqual(status.missing_actions, []);
+
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-artifact-action-runtime-")), "publish.yml");
+  fs.writeFileSync(fixture, fs.readFileSync(workflow, "utf8")
+    .replaceAll(
+      "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+    )
+    .replaceAll(
+      "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+      "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    ));
+
+  const stale = node24ArtifactActionStatus(fixture);
+  assert.equal(stale.ok, false);
+  assert.deepEqual(
+    Array.from(new Set(stale.mismatches.map((item) => item.action))).sort(),
+    ["actions/download-artifact", "actions/upload-artifact"],
+  );
+  assert.deepEqual(
+    Array.from(new Set(stale.mismatches.map((item) => item.expected_version))).sort(),
+    ["v7.0.1", "v8.0.1"],
+  );
+
+  const namedStepFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-artifact-action-named-")), "publish.yml");
+  fs.writeFileSync(namedStepFixture, [
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - name: Upload helper",
+    "        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "      - name: Download helper",
+    "        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+    "",
+  ].join("\n"));
+  const namedStep = node24ArtifactActionStatus(namedStepFixture);
+  assert.equal(namedStep.ok, false);
+  assert.deepEqual(namedStep.mismatches.map((item) => item.action), ["actions/upload-artifact"]);
+
+  const missingFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-artifact-action-missing-")), "publish.yml");
+  fs.writeFileSync(missingFixture, [
+    "jobs:",
+    "  publish:",
+    "    runs-on: ubuntu-latest",
+    "    steps:",
+    "      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+    "",
+  ].join("\n"));
+  const missing = node24ArtifactActionStatus(missingFixture);
+  assert.equal(missing.ok, false);
+  assert.deepEqual(missing.missing_actions, ["actions/download-artifact", "actions/upload-artifact"]);
+});
+
 test("release readiness requires bundled SQLite link metadata for native helpers", () => {
   const status = nativeHelperSqliteLinkStatus();
   assert.equal(status.ok, true, status.message);
@@ -534,6 +594,8 @@ test("release readiness rejects movable first-party GitHub action refs", () => {
     "      - uses: actions/checkout@v6",
     "      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
     "      - uses: github/codeql-action/init@v4",
+    "      - name: Analyze",
+    "        uses: github/codeql-action/analyze@v4",
     "      - uses: ./local-action",
     "",
   ].join("\n"));
@@ -543,11 +605,13 @@ test("release readiness rejects movable first-party GitHub action refs", () => {
   assert.deepEqual(status.unpinned_actions, [
     { action: "actions/checkout", ref: "v6" },
     { action: "github/codeql-action/init", ref: "v4" },
+    { action: "github/codeql-action/analyze", ref: "v4" },
   ]);
   assert.deepEqual(status.inspected_actions, [
     { action: "actions/checkout", ref: "v6" },
     { action: "actions/setup-node", ref: "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" },
     { action: "github/codeql-action/init", ref: "v4" },
+    { action: "github/codeql-action/analyze", ref: "v4" },
   ]);
 });
 
