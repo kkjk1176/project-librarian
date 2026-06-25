@@ -336,6 +336,8 @@ test("release readiness requires bundled SQLite link metadata for native helpers
   fs.writeFileSync(sourcePath, [
     "#[cfg(target_env = \"musl\")]",
     "extern crate libsqlite3_sys as _;",
+    "#[link(name = \"sqlite3\")]",
+    "extern \"C\" {}",
     "",
   ].join("\n"));
 
@@ -344,6 +346,7 @@ test("release readiness requires bundled SQLite link metadata for native helpers
   assert.ok(muslOnly.missing.includes("unconditional libsqlite3-sys bundled dependency"));
   assert.ok(muslOnly.forbidden.includes("target-scoped libsqlite3-sys dependency"));
   assert.ok(muslOnly.forbidden.includes("cfg-gated libsqlite3_sys extern crate"));
+  assert.ok(muslOnly.forbidden.includes("direct sqlite3 link attribute"));
 });
 
 test("release readiness validates minimal permissions for current workflows", () => {
