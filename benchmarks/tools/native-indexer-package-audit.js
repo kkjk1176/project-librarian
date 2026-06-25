@@ -9,7 +9,10 @@ const supportedTriples = [
   "darwin-arm64",
   "darwin-x64",
   "linux-arm64",
+  "linux-arm64-musl",
   "linux-x64",
+  "linux-x64-musl",
+  "win32-arm64",
   "win32-x64",
 ];
 const supportedTripleSet = new Set(supportedTriples);
@@ -17,7 +20,10 @@ const binaryExpectations = new Map([
   ["darwin-arm64", { architecture: "arm64", format: "mach-o" }],
   ["darwin-x64", { architecture: "x64", format: "mach-o" }],
   ["linux-arm64", { architecture: "arm64", format: "elf" }],
+  ["linux-arm64-musl", { architecture: "arm64", format: "elf" }],
   ["linux-x64", { architecture: "x64", format: "elf" }],
+  ["linux-x64-musl", { architecture: "x64", format: "elf" }],
+  ["win32-arm64", { architecture: "arm64", format: "pe" }],
   ["win32-x64", { architecture: "x64", format: "pe" }],
 ]);
 const packagedHelperManifestFileName = "project-librarian-indexer-manifest.json";
@@ -31,10 +37,28 @@ const elfMachineTypes = new Map([
   [0xb7, "arm64"],
 ]);
 const peMachineTypes = new Map([
+  [0xaa64, "arm64"],
   [0x8664, "x64"],
 ]);
 
-function currentPlatformTriple(platform = process.platform, arch = process.arch) {
+function currentLinuxLibcVariant(platform = process.platform) {
+  if (platform !== "linux") return "";
+  const getReport = process.report && typeof process.report.getReport === "function"
+    ? process.report.getReport.bind(process.report)
+    : null;
+  if (!getReport) return "";
+  try {
+    const header = getReport().header || {};
+    return header.glibcVersionRuntime ? "glibc" : "musl";
+  } catch {
+    return "";
+  }
+}
+
+function currentPlatformTriple(platform = process.platform, arch = process.arch, libc = currentLinuxLibcVariant(platform)) {
+  if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
+    return `${platform}-${arch}-musl`;
+  }
   return `${platform}-${arch}`;
 }
 
@@ -46,12 +70,13 @@ function platformFromTriple(triple) {
   return String(triple).split("-")[0];
 }
 
-function defaultHelperPath(repoRoot = process.cwd(), profile = "release", platform = process.platform) {
-  return path.join(repoRoot, "native", "indexer-rs", "target", profile, helperBinaryName(platform));
+function defaultHelperPath(repoRoot = process.cwd(), profile = "release", platform = process.platform, rustTarget = "") {
+  const targetParts = rustTarget ? ["target", rustTarget, profile] : ["target", profile];
+  return path.join(repoRoot, "native", "indexer-rs", ...targetParts, helperBinaryName(platform));
 }
 
-function defaultPackagedHelperPath(repoRoot = process.cwd(), platform = process.platform, arch = process.arch) {
-  return path.join(repoRoot, "dist", "native", currentPlatformTriple(platform, arch), helperBinaryName(platform));
+function defaultPackagedHelperPath(repoRoot = process.cwd(), platform = process.platform, arch = process.arch, libc = currentLinuxLibcVariant(platform)) {
+  return path.join(repoRoot, "dist", "native", currentPlatformTriple(platform, arch, libc), helperBinaryName(platform));
 }
 
 function packagedHelperPathForTriple(repoRoot = process.cwd(), triple = currentPlatformTriple()) {
@@ -203,20 +228,19 @@ function packageFilesCanShipPackagedHelper(packageJson) {
 
 function stagePackagedHelper(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
-  const platform = options.platform ?? process.platform;
-  const arch = options.arch ?? process.arch;
-  const triple = currentPlatformTriple(platform, arch);
+  const triple = options.triple ?? currentPlatformTriple(options.platform ?? process.platform, options.arch ?? process.arch, options.libc);
+  const platform = platformFromTriple(triple);
   if (!supportedTripleSet.has(triple)) {
     throw new Error(`unsupported native helper platform: ${triple}`);
   }
-  const helperPath = path.resolve(options.helperPath ?? defaultHelperPath(repoRoot, options.profile ?? "release", platform));
+  const helperPath = path.resolve(options.helperPath ?? defaultHelperPath(repoRoot, options.profile ?? "release", platform, options.rustTarget ?? ""));
   if (!fs.existsSync(helperPath)) {
     throw new Error(`native helper does not exist: ${helperPath}`);
   }
-  if (!isExecutable(helperPath)) {
+  if (platform !== "win32" && !isExecutable(helperPath)) {
     throw new Error(`native helper is not executable: ${helperPath}`);
   }
-  const packagedHelperPath = path.resolve(options.packagedHelperPath ?? defaultPackagedHelperPath(repoRoot, platform, arch));
+  const packagedHelperPath = path.resolve(options.packagedHelperPath ?? packagedHelperPathForTriple(repoRoot, triple));
   fs.mkdirSync(path.dirname(packagedHelperPath), { recursive: true });
   fs.copyFileSync(helperPath, packagedHelperPath);
   if (platform !== "win32") fs.chmodSync(packagedHelperPath, 0o755);
@@ -527,12 +551,12 @@ function packagedHelperProvenanceStatus(options = {}) {
 
 function inspectNativeIndexerPackaging(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
-  const platform = options.platform ?? process.platform;
-  const arch = options.arch ?? process.arch;
-  const triple = currentPlatformTriple(platform, arch);
-  const helperPath = path.resolve(options.helperPath ?? defaultHelperPath(repoRoot, options.profile ?? "release", platform));
+  const triple = options.triple ?? currentPlatformTriple(options.platform ?? process.platform, options.arch ?? process.arch, options.libc);
+  const platform = platformFromTriple(triple);
+  const arch = triple.split("-")[1] ?? "";
+  const helperPath = path.resolve(options.helperPath ?? defaultHelperPath(repoRoot, options.profile ?? "release", platform, options.rustTarget ?? ""));
   const helperExists = fs.existsSync(helperPath);
-  const packagedHelperPath = path.resolve(options.packagedHelperPath ?? defaultPackagedHelperPath(repoRoot, platform, arch));
+  const packagedHelperPath = path.resolve(options.packagedHelperPath ?? packagedHelperPathForTriple(repoRoot, triple));
   const packagedHelperExists = fs.existsSync(packagedHelperPath);
   const packageJson = readPackageJson(repoRoot);
   const packageIncludesNative = packageFilesIncludeNative(packageJson);
@@ -593,6 +617,10 @@ function parseArgs(argv) {
       options.packagedHelperPath = argv[++index];
     } else if (arg === "--profile") {
       options.profile = argv[++index];
+    } else if (arg === "--rust-target") {
+      options.rustTarget = argv[++index];
+    } else if (arg === "--triple") {
+      options.triple = argv[++index];
     } else if (arg === "--require-helper") {
       options.requireHelper = true;
     } else if (arg === "--require-packaged-helper") {

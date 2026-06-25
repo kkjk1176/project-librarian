@@ -31,6 +31,7 @@ const {
   oidcWorkflowBoundaryStatus,
   manualPublishGuardStatus,
   nativeHelperPublishRunners,
+  nativeHelperPublishRustTargets,
   nativeHelperPublishWorkflowStatus,
   workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
@@ -227,6 +228,8 @@ test("release readiness validates the native helper publish artifact chain", () 
   assert.deepEqual(status.order_errors, []);
   assert.deepEqual(status.present_triples, supportedTriples);
   assert.equal(nativeHelperPublishRunners.get("darwin-x64"), "macos-15-intel");
+  assert.equal(nativeHelperPublishRunners.get("win32-arm64"), "windows-11-arm");
+  assert.equal(nativeHelperPublishRustTargets.get("linux-x64-musl"), "x86_64-unknown-linux-musl");
 
   const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-workflow-")), "publish.yml");
   const text = fs.readFileSync(workflow, "utf8").replace("needs: package-native-helper-matrix", "needs: verify");
@@ -241,8 +244,14 @@ test("release readiness validates the native helper publish artifact chain", () 
   assert.equal(staleRunner.ok, false);
   assert.ok(staleRunner.missing.includes("build matrix runner darwin-x64 -> macos-15-intel"));
 
+  const missingRustTargetFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-rust-target-")), "publish.yml");
+  fs.writeFileSync(missingRustTargetFixture, fs.readFileSync(workflow, "utf8").replace("rust_target: x86_64-unknown-linux-musl", "rust_target: x86_64-unknown-linux-gnu"));
+  const missingRustTarget = nativeHelperPublishWorkflowStatus(missingRustTargetFixture);
+  assert.equal(missingRustTarget.ok, false);
+  assert.ok(missingRustTarget.missing.includes("build matrix rust target linux-x64-musl -> x86_64-unknown-linux-musl"));
+
   const missingBuildInstallFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-install-")), "publish.yml");
-  fs.writeFileSync(missingBuildInstallFixture, fs.readFileSync(workflow, "utf8").replace("      - run: npm ci\n      - name: Stage packaged helper", "      - name: Stage packaged helper"));
+  fs.writeFileSync(missingBuildInstallFixture, fs.readFileSync(workflow, "utf8").replace("      - run: npm ci\n      - name: Install Rust target", "      - name: Install Rust target"));
   const missingBuildInstall = nativeHelperPublishWorkflowStatus(missingBuildInstallFixture);
   assert.equal(missingBuildInstall.ok, false);
   assert.ok(missingBuildInstall.missing.includes("build job installs dependencies"));
@@ -250,16 +259,16 @@ test("release readiness validates the native helper publish artifact chain", () 
   const stageBeforeInstallFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-stage-order-")), "publish.yml");
   fs.writeFileSync(stageBeforeInstallFixture, fs.readFileSync(workflow, "utf8").replace([
     "      - run: npm ci",
-    "      - name: Stage packaged helper",
-    "        run: npm run native:stage",
+    "      - name: Install Rust target",
+    "        run: rustup target add ${{ matrix.rust_target }}",
   ].join("\n"), [
-    "      - name: Stage packaged helper",
-    "        run: npm run native:stage",
+    "      - name: Install Rust target",
+    "        run: rustup target add ${{ matrix.rust_target }}",
     "      - run: npm ci",
   ].join("\n")));
   const stageBeforeInstall = nativeHelperPublishWorkflowStatus(stageBeforeInstallFixture);
   assert.equal(stageBeforeInstall.ok, false);
-  assert.ok(stageBeforeInstall.order_errors.includes("stage packaged helper must run after install build dependencies"));
+  assert.ok(stageBeforeInstall.order_errors.includes("install Rust target must run after install build dependencies"));
 
   const publishBeforeVerifyFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-order-")), "publish.yml");
   fs.writeFileSync(publishBeforeVerifyFixture, fs.readFileSync(workflow, "utf8").replace([

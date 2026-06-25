@@ -15,6 +15,7 @@ const {
   buildNativeCodeIndexJob,
   nativeCodeIndexHelperAvailability,
   nativeCodeIndexHelperBinaryName,
+  nativeCodeIndexHelperPlatformTriple,
   packagedNativeCodeIndexHelperPath,
   requireNativeCodeIndexHelperPath,
   runNativeCodeIndexHelper,
@@ -951,6 +952,24 @@ test("native helper resolution prefers explicit configuration before packaged he
     assert.equal(packaged.source, "packaged");
     assert.equal(packaged.helperPath, packagedHelper);
     assert.equal(requireNativeCodeIndexHelperPath({ env: {}, packageRoot }), packagedHelper);
+
+    assert.equal(nativeCodeIndexHelperPlatformTriple("linux", "x64", "musl"), "linux-x64-musl");
+    assert.equal(nativeCodeIndexHelperPlatformTriple("linux", "arm64", "glibc"), "linux-arm64");
+    const muslHelper = packagedNativeCodeIndexHelperPath({ arch: "x64", env: {}, libc: "musl", packageRoot, platform: "linux" });
+    fs.mkdirSync(path.dirname(muslHelper), { recursive: true });
+    writeExecutableHelper(muslHelper, "#!/bin/sh\nexit 0\n");
+    const muslPackaged = nativeCodeIndexHelperAvailability({ arch: "x64", env: {}, libc: "musl", packageRoot, platform: "linux" });
+    assert.equal(muslPackaged.available, true);
+    assert.equal(muslPackaged.platformTriple, "linux-x64-musl");
+    assert.equal(muslPackaged.helperPath, muslHelper);
+
+    const windowsArmHelper = packagedNativeCodeIndexHelperPath({ arch: "arm64", env: {}, packageRoot, platform: "win32" });
+    fs.mkdirSync(path.dirname(windowsArmHelper), { recursive: true });
+    writeExecutableHelper(windowsArmHelper, "MZ");
+    const windowsArmPackaged = nativeCodeIndexHelperAvailability({ arch: "arm64", env: {}, packageRoot, platform: "win32" });
+    assert.equal(windowsArmPackaged.available, true);
+    assert.equal(windowsArmPackaged.platformTriple, "win32-arm64");
+    assert.equal(windowsArmPackaged.helperPath, windowsArmHelper);
 
     const envHelper = path.join(cwd, nativeCodeIndexHelperBinaryName());
     writeExecutableHelper(envHelper, "#!/bin/sh\nexit 0\n");

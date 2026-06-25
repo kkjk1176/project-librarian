@@ -93,6 +93,48 @@ test("native package audit stages and validates packaged platform helper", () =>
   }
 });
 
+test("native package audit supports musl and Windows ARM64 helper triples", () => {
+  const cwd = makeTmpDir("native-package-extra-triples-");
+  try {
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({
+      files: ["dist/"],
+    }));
+    assert.ok(supportedTriples.includes("linux-x64-musl"));
+    assert.ok(supportedTriples.includes("linux-arm64-musl"));
+    assert.ok(supportedTriples.includes("win32-arm64"));
+    assert.equal(currentPlatformTriple("linux", "x64", "musl"), "linux-x64-musl");
+    assert.equal(currentPlatformTriple("linux", "arm64", "glibc"), "linux-arm64");
+
+    const rustTarget = "x86_64-unknown-linux-musl";
+    const helperPath = path.join(cwd, "native", "indexer-rs", "target", rustTarget, "release", helperBinaryName("linux"));
+    fs.mkdirSync(path.dirname(helperPath), { recursive: true });
+    fs.writeFileSync(helperPath, sampleBinaryForTriple("linux-x64-musl"));
+    fs.chmodSync(helperPath, 0o755);
+
+    const staged = stagePackagedHelper({ repoRoot: cwd, rustTarget, triple: "linux-x64-musl" });
+    assert.equal(staged.triple, "linux-x64-musl");
+    assert.equal(staged.packaged_helper_path, packagedHelperPathForTriple(cwd, "linux-x64-musl"));
+    assert.equal(packagedHelperBinaryStatus(staged.packaged_helper_path, "linux-x64-musl").ok, true);
+
+    const winArm = path.join(cwd, "project-librarian-indexer.exe");
+    fs.writeFileSync(winArm, sampleBinaryForTriple("win32-arm64"));
+    const inspected = inspectNativeHelperBinary(winArm);
+    assert.equal(inspected.format, "pe");
+    assert.deepEqual(inspected.architectures, ["arm64"]);
+    assert.equal(packagedHelperBinaryStatus(winArm, "win32-arm64").ok, true);
+
+    const windowsTarget = "aarch64-pc-windows-msvc";
+    const windowsHelperPath = path.join(cwd, "native", "indexer-rs", "target", windowsTarget, "release", helperBinaryName("win32"));
+    fs.mkdirSync(path.dirname(windowsHelperPath), { recursive: true });
+    fs.writeFileSync(windowsHelperPath, sampleBinaryForTriple("win32-arm64"));
+    const windowsStaged = stagePackagedHelper({ repoRoot: cwd, rustTarget: windowsTarget, triple: "win32-arm64" });
+    assert.equal(windowsStaged.packaged_helper_path, packagedHelperPathForTriple(cwd, "win32-arm64"));
+    assert.equal(packagedHelperBinaryStatus(windowsStaged.packaged_helper_path, "win32-arm64").ok, true);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("native package audit rejects a mislabeled staged platform helper", () => {
   const cwd = makeTmpDir("native-package-staged-binary-");
   try {

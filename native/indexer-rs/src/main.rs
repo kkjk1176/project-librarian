@@ -1,3 +1,8 @@
+// Keep our small handwritten SQLite FFI surface, but use libsqlite3-sys to
+// provide bundled/static SQLite link metadata for musl packaged helpers.
+#[cfg(target_env = "musl")]
+extern crate libsqlite3_sys as _;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;

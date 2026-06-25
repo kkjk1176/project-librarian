@@ -51,10 +51,29 @@ const supportedNativeHelperTriples = new Set([
     "darwin-arm64",
     "darwin-x64",
     "linux-arm64",
+    "linux-arm64-musl",
     "linux-x64",
+    "linux-x64-musl",
+    "win32-arm64",
     "win32-x64",
 ]);
-function nativeCodeIndexHelperPlatformTriple(platform = process.platform, arch = process.arch) {
+function nativeCodeIndexLinuxLibcVariant(platform = process.platform) {
+    if (platform !== "linux")
+        return "";
+    const report = process.report;
+    if (!report || typeof report.getReport !== "function")
+        return "";
+    try {
+        return report.getReport().header?.glibcVersionRuntime ? "glibc" : "musl";
+    }
+    catch {
+        return "";
+    }
+}
+function nativeCodeIndexHelperPlatformTriple(platform = process.platform, arch = process.arch, libc = nativeCodeIndexLinuxLibcVariant(platform)) {
+    if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
+        return `${platform}-${arch}-musl`;
+    }
     return `${platform}-${arch}`;
 }
 function nativeCodeIndexHelperBinaryName(platform = process.platform) {
@@ -66,7 +85,7 @@ function nativeCodeIndexHelperPackageRoot(options = {}) {
 function packagedNativeCodeIndexHelperPath(options = {}) {
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
-    return path.join(nativeCodeIndexHelperPackageRoot(options), "native", nativeCodeIndexHelperPlatformTriple(platform, arch), nativeCodeIndexHelperBinaryName(platform));
+    return path.join(nativeCodeIndexHelperPackageRoot(options), "native", nativeCodeIndexHelperPlatformTriple(platform, arch, options.libc), nativeCodeIndexHelperBinaryName(platform));
 }
 function configuredHelperPath(options = {}) {
     const optionPath = (options.helperPath ?? "").trim();
@@ -109,7 +128,7 @@ function requireNativeCodeIndexHelperPath(options = {}) {
 function nativeCodeIndexHelperAvailability(options = {}) {
     const platform = options.platform ?? process.platform;
     const arch = options.arch ?? process.arch;
-    const platformTriple = nativeCodeIndexHelperPlatformTriple(platform, arch);
+    const platformTriple = nativeCodeIndexHelperPlatformTriple(platform, arch, options.libc);
     const packagedHelperPath = packagedNativeCodeIndexHelperPath({ ...options, arch, platform });
     const configured = configuredHelperPath(options);
     if (configured.helperPath) {

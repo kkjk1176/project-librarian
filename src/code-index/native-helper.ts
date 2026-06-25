@@ -52,6 +52,7 @@ export interface NativeCodeIndexHelperOptions {
   arch?: string;
   env?: NodeJS.ProcessEnv;
   helperPath?: string;
+  libc?: "" | "glibc" | "musl";
   packageRoot?: string;
   platform?: NodeJS.Platform;
 }
@@ -123,14 +124,34 @@ const supportedNativeHelperTriples = new Set([
   "darwin-arm64",
   "darwin-x64",
   "linux-arm64",
+  "linux-arm64-musl",
   "linux-x64",
+  "linux-x64-musl",
+  "win32-arm64",
   "win32-x64",
 ]);
+
+function nativeCodeIndexLinuxLibcVariant(platform: NodeJS.Platform = process.platform): "" | "glibc" | "musl" {
+  if (platform !== "linux") return "";
+  const report = (process as unknown as {
+    report?: { getReport?: () => { header?: { glibcVersionRuntime?: string } } };
+  }).report;
+  if (!report || typeof report.getReport !== "function") return "";
+  try {
+    return report.getReport().header?.glibcVersionRuntime ? "glibc" : "musl";
+  } catch {
+    return "";
+  }
+}
 
 export function nativeCodeIndexHelperPlatformTriple(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
+  libc: "" | "glibc" | "musl" = nativeCodeIndexLinuxLibcVariant(platform),
 ): string {
+  if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
+    return `${platform}-${arch}-musl`;
+  }
   return `${platform}-${arch}`;
 }
 
@@ -148,7 +169,7 @@ export function packagedNativeCodeIndexHelperPath(options: NativeCodeIndexHelper
   return path.join(
     nativeCodeIndexHelperPackageRoot(options),
     "native",
-    nativeCodeIndexHelperPlatformTriple(platform, arch),
+    nativeCodeIndexHelperPlatformTriple(platform, arch, options.libc),
     nativeCodeIndexHelperBinaryName(platform),
   );
 }
@@ -193,7 +214,7 @@ export function requireNativeCodeIndexHelperPath(options: NativeCodeIndexHelperO
 export function nativeCodeIndexHelperAvailability(options: NativeCodeIndexHelperOptions = {}): NativeCodeIndexHelperAvailability {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
-  const platformTriple = nativeCodeIndexHelperPlatformTriple(platform, arch);
+  const platformTriple = nativeCodeIndexHelperPlatformTriple(platform, arch, options.libc);
   const packagedHelperPath = packagedNativeCodeIndexHelperPath({ ...options, arch, platform });
   const configured = configuredHelperPath(options);
   if (configured.helperPath) {

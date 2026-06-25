@@ -19,8 +19,21 @@ const nativeHelperPublishRunners = new Map([
   ["darwin-arm64", "macos-14"],
   ["darwin-x64", "macos-15-intel"],
   ["linux-arm64", "ubuntu-24.04-arm"],
+  ["linux-arm64-musl", "ubuntu-24.04-arm"],
   ["linux-x64", "ubuntu-latest"],
+  ["linux-x64-musl", "ubuntu-latest"],
+  ["win32-arm64", "windows-11-arm"],
   ["win32-x64", "windows-latest"],
+]);
+const nativeHelperPublishRustTargets = new Map([
+  ["darwin-arm64", "aarch64-apple-darwin"],
+  ["darwin-x64", "x86_64-apple-darwin"],
+  ["linux-arm64", "aarch64-unknown-linux-gnu"],
+  ["linux-arm64-musl", "aarch64-unknown-linux-musl"],
+  ["linux-x64", "x86_64-unknown-linux-gnu"],
+  ["linux-x64-musl", "x86_64-unknown-linux-musl"],
+  ["win32-arm64", "aarch64-pc-windows-msvc"],
+  ["win32-x64", "x86_64-pc-windows-msvc"],
 ]);
 
 const requiredPackFiles = [
@@ -465,8 +478,12 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
   for (const triple of supportedTriples) {
     if (!presentTriples.includes(triple)) missing.push(`build matrix triple ${triple}`);
     const expectedRunner = nativeHelperPublishRunners.get(triple);
+    const expectedRustTarget = nativeHelperPublishRustTargets.get(triple);
     if (expectedRunner && buildJob && !new RegExp(`-\\s+triple:\\s*${escapeRegExp(triple)}\\s*\\n\\s+runner:\\s*${escapeRegExp(expectedRunner)}\\b`).test(buildJob)) {
       missing.push(`build matrix runner ${triple} -> ${expectedRunner}`);
+    }
+    if (expectedRustTarget && buildJob && !new RegExp(`-\\s+triple:\\s*${escapeRegExp(triple)}\\s*\\n\\s+runner:\\s*${escapeRegExp(expectedRunner ?? "")}\\b\\s*\\n\\s+rust_target:\\s*${escapeRegExp(expectedRustTarget)}\\b`).test(buildJob)) {
+      missing.push(`build matrix rust target ${triple} -> ${expectedRustTarget}`);
     }
     if (packageJob && !new RegExp(`\\bname:\\s*native-helper-${triple}\\b`).test(packageJob)) {
       missing.push(`download artifact native-helper-${triple}`);
@@ -477,7 +494,10 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
   }
   const requiredPatterns = [
     ["build job installs dependencies", buildJob, /\bnpm\s+ci\b/],
-    ["shared helper staging script", buildJob, /\bnpm\s+run\s+native:stage\b/],
+    ["build job installs Rust target", buildJob, /\brustup\s+target\s+add\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+    ["musl helper build dependencies", buildJob, /\bapt-get\s+install\s+-y\s+musl-tools\b/],
+    ["targeted native helper build", buildJob, /\bcargo\s+build\b[^\n]*\s--target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+    ["targeted helper staging script", buildJob, /\bnative-indexer-package-audit\.js\s+--stage-packaged-helper\s+--require-packaged-helper\s+--triple\s+\$\{\{\s*matrix\.triple\s*\}\}\s+--rust-target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
     ["per-triple helper artifact upload", buildJob, /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
     ["per-triple helper artifact path", buildJob, /\bpath:\s*dist\/native\/\$\{\{\s*matrix\.triple\s*\}\}\//],
     ["package job needs verify", packageJob, /(?:^|\n)\s*-\s+verify\b/],
@@ -499,7 +519,9 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
   const orderErrors = [
     ...requirePatternOrder(buildJob, [
       ["install build dependencies", /\bnpm\s+ci\b/],
-      ["stage packaged helper", /\bnpm\s+run\s+native:stage\b/],
+      ["install Rust target", /\brustup\s+target\s+add\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+      ["build native helper", /\bcargo\s+build\b[^\n]*\s--target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+      ["stage packaged helper", /\bnative-indexer-package-audit\.js\s+--stage-packaged-helper\s+--require-packaged-helper\s+--triple\s+\$\{\{\s*matrix\.triple\s*\}\}\s+--rust-target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
       ["upload per-triple helper artifact", /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
     ]),
     ...requirePatternOrder(packageJob, [
@@ -937,6 +959,7 @@ module.exports = {
   oidcWorkflowBoundaryStatus,
   manualPublishGuardStatus,
   nativeHelperPublishRunners,
+  nativeHelperPublishRustTargets,
   nativeHelperPublishWorkflowStatus,
   workflowPermissionStatus,
 };
