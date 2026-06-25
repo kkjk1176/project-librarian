@@ -591,6 +591,9 @@ function nativeHelperSqliteLinkStatus(options = {}) {
   if (/^\s*#\[cfg[^\n]*\]\s*\n\s*extern crate libsqlite3_sys as _;\s*$/m.test(mainSource)) {
     forbidden.push("cfg-gated libsqlite3_sys extern crate");
   }
+  if (/^\s*#\[link\s*\(\s*name\s*=\s*["']sqlite3["'][^\)]*\)\s*\]/m.test(mainSource)) {
+    forbidden.push("direct sqlite3 link attribute");
+  }
 
   const ok = missing.length === 0 && forbidden.length === 0;
   return {

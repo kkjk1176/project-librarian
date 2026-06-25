@@ -1,5 +1,5 @@
-// Keep our small handwritten SQLite FFI surface, but use libsqlite3-sys to
-// provide bundled/static SQLite link metadata for packaged helpers.
+// Keep our small handwritten SQLite FFI surface, but leave SQLite linkage to
+// libsqlite3-sys so packaged helpers use the bundled/static library metadata.
 extern crate libsqlite3_sys as _;
 
 use serde::{Deserialize, Serialize};
@@ -706,7 +706,6 @@ const SQLITE_DONE: c_int = 101;
 const SQLITE_OPEN_READWRITE: c_int = 0x00000002;
 const SQLITE_OPEN_CREATE: c_int = 0x00000004;
 
-#[link(name = "sqlite3")]
 extern "C" {
     fn sqlite3_bind_double(statement: *mut sqlite3_stmt, index: c_int, value: c_double) -> c_int;
     fn sqlite3_bind_int64(statement: *mut sqlite3_stmt, index: c_int, value: i64) -> c_int;
