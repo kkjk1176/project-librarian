@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
+const { helperBinaryName, supportedTriples } = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -30,6 +31,12 @@ const forbiddenPackPathPatterns = [
   /^tests\//,
   /^wiki\//,
 ];
+
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
 
 function fail(message) {
   console.error(message);
@@ -56,6 +63,7 @@ Runs local-only release checks:
   - benchmark claim ledger classification
   - benchmark raw hygiene audit
   - npm pack --dry-run --json package inspection
+  - native helper package matrix inspection when dist/native files are shipped
   - dist executable/parity and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
   - release provenance/attestation status
@@ -112,14 +120,24 @@ function parsePackJson(stdout) {
 }
 
 function packFilePaths(packEntries) {
+  return packFileRecords(packEntries).map((file) => file.path);
+}
+
+function packFileRecords(packEntries) {
   const files = [];
   for (const entry of packEntries) {
     const entryFiles = Array.isArray(entry?.files) ? entry.files : [];
     for (const file of entryFiles) {
-      if (file && typeof file.path === "string") files.push(normalizePackPath(file.path));
+      if (file && typeof file.path === "string") {
+        files.push({
+          mode: typeof file.mode === "number" ? file.mode : null,
+          path: normalizePackPath(file.path),
+        });
+      }
     }
   }
-  return Array.from(new Set(files)).sort();
+  return Array.from(new Map(files.map((file) => [file.path, file])).values())
+    .sort((left, right) => compareStrings(left.path, right.path));
 }
 
 function inspectPackFiles(files) {
@@ -131,6 +149,60 @@ function inspectPackFiles(files) {
     missing_required: missingRequired,
     ok: missingRequired.length === 0 && forbidden.length === 0,
     total_files: files.length,
+  };
+}
+
+function normalizePackFileRecord(file) {
+  if (typeof file === "string") return { mode: null, path: normalizePackPath(file) };
+  return {
+    mode: typeof file?.mode === "number" ? file.mode : null,
+    path: normalizePackPath(file?.path ?? ""),
+  };
+}
+
+function isPackagedNativeHelperExecutable(record, triple) {
+  const platform = String(triple).split("-")[0];
+  if (platform === "win32") return true;
+  return typeof record.mode !== "number" || (record.mode & 0o111) !== 0;
+}
+
+function nativeHelperPackageMatrixStatus(files) {
+  const expected = supportedTriples.map((triple) => {
+    const platform = String(triple).split("-")[0];
+    return {
+      path: `dist/native/${triple}/${helperBinaryName(platform)}`,
+      triple,
+    };
+  }).sort();
+  const expectedPaths = expected.map((file) => file.path).sort();
+  const records = files.map(normalizePackFileRecord).filter((file) => file.path);
+  const nativeFiles = records.filter((file) => file.path.startsWith("dist/native/"))
+    .sort((left, right) => compareStrings(left.path, right.path));
+  const nativeFileByPath = new Map(nativeFiles.map((file) => [file.path, file]));
+  const expectedSet = new Set(expectedPaths);
+  const present = expectedPaths.filter((file) => nativeFileByPath.has(file));
+  const missing = nativeFiles.length > 0 ? expectedPaths.filter((file) => !nativeFileByPath.has(file)) : [];
+  const nonExecutable = expected
+    .filter((file) => {
+      const record = nativeFileByPath.get(file.path);
+      return record && !isPackagedNativeHelperExecutable(record, file.triple);
+    })
+    .map((file) => file.path);
+  const unexpected = nativeFiles.map((file) => file.path).filter((file) => !expectedSet.has(file));
+  const matrixComplete = nativeFiles.length > 0 && missing.length === 0 && nonExecutable.length === 0 && unexpected.length === 0;
+  return {
+    ok: nativeFiles.length === 0 || matrixComplete,
+    expected_files: expectedPaths,
+    missing_files: missing,
+    non_executable_files: nonExecutable,
+    packaged_files: nativeFiles.map((file) => file.path),
+    present_files: present,
+    status: matrixComplete
+      ? "packaged-helper-matrix-ready"
+      : nativeFiles.length > 0
+        ? "partial-packaged-helper-matrix"
+        : "no-packaged-helper",
+    unexpected_files: unexpected,
   };
 }
 
@@ -534,11 +606,19 @@ function main() {
 
   const packEntries = parsePackJson(pack.stdout);
   const files = packFilePaths(packEntries);
+  const fileRecords = packFileRecords(packEntries);
   const packInspection = inspectPackFiles(files);
   console.log(`${packInspection.ok ? "PASS" : "FAIL"} package contents: ${packInspection.total_files} files inspected`);
   if (!packInspection.ok) {
     console.error(JSON.stringify(packInspection, null, 2));
     fail("release readiness failed: package contents");
+  }
+
+  const nativeMatrix = nativeHelperPackageMatrixStatus(fileRecords);
+  console.log(`${nativeMatrix.ok ? "PASS" : "FAIL"} native helper package matrix: ${nativeMatrix.status}`);
+  if (!nativeMatrix.ok) {
+    console.error(JSON.stringify(nativeMatrix, null, 2));
+    fail("release readiness failed: native helper package matrix");
   }
 
   const distStatus = distExecutableStatus();
@@ -609,6 +689,7 @@ function main() {
     checks: results.map((result) => ({ label: result.label, status: result.status, ok: result.ok })),
     dist: distStatus,
     dist_parity: distParity,
+    native_helper_package_matrix: nativeMatrix,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
     readme_code_evidence_freshness: codeEvidenceFreshnessStatus,
@@ -631,7 +712,9 @@ module.exports = {
   distExecutableStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
+  nativeHelperPackageMatrixStatus,
   normalizePackPath,
+  packFileRecords,
   packFilePaths,
   parsePackJson,
   rawCodexHomeHygieneStatus,

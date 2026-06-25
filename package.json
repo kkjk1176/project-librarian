@@ -61,6 +61,7 @@
     "audit:supply-chain": "npm audit --omit=dev",
     "native:build": "cargo build --release --manifest-path native/indexer-rs/Cargo.toml",
     "native:package-audit": "node benchmarks/tools/native-indexer-package-audit.js",
+    "native:package-audit:matrix": "node benchmarks/tools/native-indexer-package-audit.js --require-packaged-helper-matrix",
     "native:stage": "npm run build && npm run native:build && node benchmarks/tools/native-indexer-package-audit.js --stage-packaged-helper --require-packaged-helper",
     "perf:code-efficiency": "node benchmarks/tools/code-performance-efficiency.js --full",
     "perf:code-efficiency:native": "node benchmarks/tools/code-performance-efficiency.js --full --compare-native",

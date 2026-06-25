@@ -12,6 +12,8 @@ const {
   githubActionReferencePinningStatus,
   inspectPackFiles,
   normalizePackPath,
+  nativeHelperPackageMatrixStatus,
+  packFileRecords,
   packFilePaths,
   parsePackJson,
   rawCodexHomeHygieneStatus,
@@ -26,10 +28,14 @@ const {
 test("release readiness parses npm pack JSON and normalizes package paths", () => {
   const entries = parsePackJson(JSON.stringify([{
     files: [
-      { path: "package/README.md" },
-      { path: "package/dist/init-project-wiki.js" },
+      { path: "package/README.md", mode: 0o644 },
+      { path: "package/dist/init-project-wiki.js", mode: 0o755 },
     ],
   }]));
+  assert.deepEqual(packFileRecords(entries), [
+    { mode: 0o644, path: "README.md" },
+    { mode: 0o755, path: "dist/init-project-wiki.js" },
+  ]);
   assert.deepEqual(packFilePaths(entries), ["README.md", "dist/init-project-wiki.js"]);
   assert.equal(normalizePackPath("package/wiki/startup.md"), "wiki/startup.md");
 });
@@ -61,6 +67,44 @@ test("release readiness package inspection requires shipped surface and rejects 
   assert.equal(bad.ok, false);
   assert.deepEqual(bad.missing_required, []);
   assert.deepEqual(bad.forbidden, [".omx/state/session.json", "native/indexer-rs/target/debug/project-librarian-indexer", "wiki/startup.md"]);
+});
+
+test("release readiness rejects partial native helper package matrices", () => {
+  const noNative = nativeHelperPackageMatrixStatus([
+    "LICENSE",
+    "README.md",
+    "dist/init-project-wiki.js",
+  ]);
+  assert.equal(noNative.ok, true);
+  assert.equal(noNative.status, "no-packaged-helper");
+
+  const partial = nativeHelperPackageMatrixStatus([
+    "dist/native/darwin-arm64/project-librarian-indexer",
+  ]);
+  assert.equal(partial.ok, false);
+  assert.equal(partial.status, "partial-packaged-helper-matrix");
+  assert.ok(partial.missing_files.includes("dist/native/linux-x64/project-librarian-indexer"));
+
+  const full = nativeHelperPackageMatrixStatus(partial.expected_files.map((file) => ({
+    mode: file.includes("win32-") ? 0o644 : 0o755,
+    path: file,
+  })));
+  assert.equal(full.ok, true);
+  assert.equal(full.status, "packaged-helper-matrix-ready");
+
+  const nonExecutable = nativeHelperPackageMatrixStatus(partial.expected_files.map((file) => ({
+    mode: file.includes("linux-x64/") ? 0o644 : 0o755,
+    path: file,
+  })));
+  assert.equal(nonExecutable.ok, false);
+  assert.deepEqual(nonExecutable.non_executable_files, ["dist/native/linux-x64/project-librarian-indexer"]);
+
+  const unexpected = nativeHelperPackageMatrixStatus([
+    ...partial.expected_files,
+    "dist/native/linux-x64/README.txt",
+  ]);
+  assert.equal(unexpected.ok, false);
+  assert.deepEqual(unexpected.unexpected_files, ["dist/native/linux-x64/README.txt"]);
 });
 
 test("release readiness uses an isolated npm cache for pack inspection", () => {
