@@ -250,6 +250,31 @@ test("release readiness validates the native helper publish artifact chain", () 
   assert.equal(missingRustTarget.ok, false);
   assert.ok(missingRustTarget.missing.includes("build matrix rust target linux-x64-musl -> x86_64-unknown-linux-musl"));
 
+  const quotedScalarFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-quoted-")), "publish.yml");
+  fs.writeFileSync(quotedScalarFixture, fs.readFileSync(workflow, "utf8")
+    .replaceAll("triple: darwin-arm64", "triple: \"darwin-arm64\"")
+    .replaceAll("runner: macos-14", "runner: \"macos-14\"")
+    .replaceAll("rust_target: aarch64-apple-darwin", "rust_target: \"aarch64-apple-darwin\""));
+  const quotedScalar = nativeHelperPublishWorkflowStatus(quotedScalarFixture);
+  assert.equal(quotedScalar.ok, true, JSON.stringify(quotedScalar.missing));
+
+  const unsupportedTripleFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-unsupported-")), "publish.yml");
+  fs.writeFileSync(unsupportedTripleFixture, fs.readFileSync(workflow, "utf8").replace([
+    "          - triple: win32-x64",
+    "            runner: windows-latest",
+    "            rust_target: x86_64-pc-windows-msvc",
+  ].join("\n"), [
+    "          - triple: win32-x64",
+    "            runner: windows-latest",
+    "            rust_target: x86_64-pc-windows-msvc",
+    "          - triple: linux-riscv64",
+    "            runner: ubuntu-latest",
+    "            rust_target: riscv64gc-unknown-linux-gnu",
+  ].join("\n")));
+  const unsupportedTriple = nativeHelperPublishWorkflowStatus(unsupportedTripleFixture);
+  assert.equal(unsupportedTriple.ok, false);
+  assert.ok(unsupportedTriple.missing.includes("unsupported build matrix triple linux-riscv64"));
+
   const missingBuildInstallFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-install-")), "publish.yml");
   fs.writeFileSync(missingBuildInstallFixture, fs.readFileSync(workflow, "utf8").replace("      - run: npm ci\n      - name: Install Rust target", "      - name: Install Rust target"));
   const missingBuildInstall = nativeHelperPublishWorkflowStatus(missingBuildInstallFixture);

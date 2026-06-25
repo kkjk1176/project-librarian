@@ -8,6 +8,7 @@ const path = require("node:path");
 const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
 const {
   helperBinaryName,
+  nativeHelperMatrixTargets,
   packagedHelperBinaryStatus,
   packagedHelperManifestRelativePath,
   packagedHelperProvenanceStatus,
@@ -15,26 +16,8 @@ const {
 } = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const nativeHelperPublishRunners = new Map([
-  ["darwin-arm64", "macos-14"],
-  ["darwin-x64", "macos-15-intel"],
-  ["linux-arm64", "ubuntu-24.04-arm"],
-  ["linux-arm64-musl", "ubuntu-24.04-arm"],
-  ["linux-x64", "ubuntu-latest"],
-  ["linux-x64-musl", "ubuntu-latest"],
-  ["win32-arm64", "windows-11-arm"],
-  ["win32-x64", "windows-latest"],
-]);
-const nativeHelperPublishRustTargets = new Map([
-  ["darwin-arm64", "aarch64-apple-darwin"],
-  ["darwin-x64", "x86_64-apple-darwin"],
-  ["linux-arm64", "aarch64-unknown-linux-gnu"],
-  ["linux-arm64-musl", "aarch64-unknown-linux-musl"],
-  ["linux-x64", "x86_64-unknown-linux-gnu"],
-  ["linux-x64-musl", "x86_64-unknown-linux-musl"],
-  ["win32-arm64", "aarch64-pc-windows-msvc"],
-  ["win32-x64", "x86_64-pc-windows-msvc"],
-]);
+const nativeHelperPublishRunners = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.runner]));
+const nativeHelperPublishRustTargets = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.rustTarget]));
 
 const requiredPackFiles = [
   "LICENSE",
@@ -66,6 +49,19 @@ function compareStrings(left, right) {
 
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeWorkflowScalar(text) {
+  const trimmed = String(text).trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function workflowScalarPattern(value) {
+  const escaped = escapeRegExp(value);
+  return `(?:"${escaped}"|'${escaped}'|${escaped})`;
 }
 
 function patternIndex(text, pattern) {
@@ -470,8 +466,15 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
   const buildJob = jobs.get("build-native-helper") ?? "";
   const packageJob = jobs.get("package-native-helper-matrix") ?? "";
   const publishJob = jobs.get("publish") ?? "";
-  const presentTriples = supportedTriples.filter((triple) => new RegExp(`\\btriple:\\s*${triple}\\b`).test(buildJob));
+  const declaredTriples = Array.from(buildJob.matchAll(/\btriple:\s*([^\s#]+)/g), (match) => match[1])
+    .filter(Boolean)
+    .map(normalizeWorkflowScalar);
+  const declaredTripleSet = new Set(declaredTriples);
+  const presentTriples = supportedTriples.filter((triple) => declaredTripleSet.has(triple));
   const missing = [];
+  for (const triple of declaredTriples) {
+    if (!supportedTriples.includes(triple)) missing.push(`unsupported build matrix triple ${triple}`);
+  }
   if (!buildJob) missing.push("build-native-helper job");
   if (!packageJob) missing.push("package-native-helper-matrix job");
   if (!publishJob) missing.push("publish job");
@@ -479,10 +482,10 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
     if (!presentTriples.includes(triple)) missing.push(`build matrix triple ${triple}`);
     const expectedRunner = nativeHelperPublishRunners.get(triple);
     const expectedRustTarget = nativeHelperPublishRustTargets.get(triple);
-    if (expectedRunner && buildJob && !new RegExp(`-\\s+triple:\\s*${escapeRegExp(triple)}\\s*\\n\\s+runner:\\s*${escapeRegExp(expectedRunner)}\\b`).test(buildJob)) {
+    if (expectedRunner && buildJob && !new RegExp(`-\\s+triple:\\s*${workflowScalarPattern(triple)}\\s*\\n\\s+runner:\\s*${workflowScalarPattern(expectedRunner)}(?=\\s|#|$)`).test(buildJob)) {
       missing.push(`build matrix runner ${triple} -> ${expectedRunner}`);
     }
-    if (expectedRustTarget && buildJob && !new RegExp(`-\\s+triple:\\s*${escapeRegExp(triple)}\\s*\\n\\s+runner:\\s*${escapeRegExp(expectedRunner ?? "")}\\b\\s*\\n\\s+rust_target:\\s*${escapeRegExp(expectedRustTarget)}\\b`).test(buildJob)) {
+    if (expectedRustTarget && buildJob && !new RegExp(`-\\s+triple:\\s*${workflowScalarPattern(triple)}\\s*\\n\\s+runner:\\s*${workflowScalarPattern(expectedRunner ?? "")}(?=\\s|#|$)\\s*\\n\\s+rust_target:\\s*${workflowScalarPattern(expectedRustTarget)}(?=\\s|#|$)`).test(buildJob)) {
       missing.push(`build matrix rust target ${triple} -> ${expectedRustTarget}`);
     }
     if (packageJob && !new RegExp(`\\bname:\\s*native-helper-${triple}\\b`).test(packageJob)) {

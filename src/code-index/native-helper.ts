@@ -3,6 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CodeParserMode } from "./schema";
+import {
+  nativeCodeIndexHelperTripleForPlatform,
+  supportedNativeHelperTriples,
+} from "./native-helper-matrix";
 import { normalizePath, root } from "../workspace";
 
 export type NativeCodeIndexEngine = "native-rust";
@@ -120,16 +124,7 @@ export interface NativeCodeIndexRows {
   }>;
 }
 
-const supportedNativeHelperTriples = new Set([
-  "darwin-arm64",
-  "darwin-x64",
-  "linux-arm64",
-  "linux-arm64-musl",
-  "linux-x64",
-  "linux-x64-musl",
-  "win32-arm64",
-  "win32-x64",
-]);
+const supportedNativeHelperTripleSet = new Set<string>(supportedNativeHelperTriples);
 
 function nativeCodeIndexLinuxLibcVariant(platform: NodeJS.Platform = process.platform): "" | "glibc" | "musl" {
   if (platform !== "linux") return "";
@@ -149,10 +144,7 @@ export function nativeCodeIndexHelperPlatformTriple(
   arch: string = process.arch,
   libc: "" | "glibc" | "musl" = nativeCodeIndexLinuxLibcVariant(platform),
 ): string {
-  if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
-    return `${platform}-${arch}-musl`;
-  }
-  return `${platform}-${arch}`;
+  return nativeCodeIndexHelperTripleForPlatform(platform, arch, libc);
 }
 
 export function nativeCodeIndexHelperBinaryName(platform: NodeJS.Platform = process.platform): string {
@@ -238,7 +230,7 @@ export function nativeCodeIndexHelperAvailability(options: NativeCodeIndexHelper
       };
     }
   }
-  if (!supportedNativeHelperTriples.has(platformTriple)) {
+  if (!supportedNativeHelperTripleSet.has(platformTriple)) {
     return {
       available: false,
       helperPath: "",

@@ -4,28 +4,20 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  nativeCodeIndexHelperPlatformFromTriple,
+  nativeCodeIndexHelperTargets,
+  nativeCodeIndexHelperTripleForPlatform,
+  supportedNativeHelperTriples,
+} = require("../../dist/code-index/native-helper-matrix");
 
-const supportedTriples = [
-  "darwin-arm64",
-  "darwin-x64",
-  "linux-arm64",
-  "linux-arm64-musl",
-  "linux-x64",
-  "linux-x64-musl",
-  "win32-arm64",
-  "win32-x64",
-];
+const nativeHelperMatrixTargets = nativeCodeIndexHelperTargets;
+const supportedTriples = [...supportedNativeHelperTriples];
 const supportedTripleSet = new Set(supportedTriples);
-const binaryExpectations = new Map([
-  ["darwin-arm64", { architecture: "arm64", format: "mach-o" }],
-  ["darwin-x64", { architecture: "x64", format: "mach-o" }],
-  ["linux-arm64", { architecture: "arm64", format: "elf" }],
-  ["linux-arm64-musl", { architecture: "arm64", format: "elf" }],
-  ["linux-x64", { architecture: "x64", format: "elf" }],
-  ["linux-x64-musl", { architecture: "x64", format: "elf" }],
-  ["win32-arm64", { architecture: "arm64", format: "pe" }],
-  ["win32-x64", { architecture: "x64", format: "pe" }],
-]);
+const binaryExpectations = new Map(nativeHelperMatrixTargets.map((target) => [
+  target.triple,
+  { architecture: target.architecture, format: target.format },
+]));
 const packagedHelperManifestFileName = "project-librarian-indexer-manifest.json";
 const packagedHelperManifestSchemaVersion = 1;
 const machoCpuTypes = new Map([
@@ -56,10 +48,7 @@ function currentLinuxLibcVariant(platform = process.platform) {
 }
 
 function currentPlatformTriple(platform = process.platform, arch = process.arch, libc = currentLinuxLibcVariant(platform)) {
-  if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
-    return `${platform}-${arch}-musl`;
-  }
-  return `${platform}-${arch}`;
+  return nativeCodeIndexHelperTripleForPlatform(platform, arch, libc);
 }
 
 function helperBinaryName(platform = process.platform) {
@@ -67,7 +56,7 @@ function helperBinaryName(platform = process.platform) {
 }
 
 function platformFromTriple(triple) {
-  return String(triple).split("-")[0];
+  return nativeCodeIndexHelperPlatformFromTriple(triple);
 }
 
 function defaultHelperPath(repoRoot = process.cwd(), profile = "release", platform = process.platform, rustTarget = "") {
@@ -681,6 +670,7 @@ module.exports = {
   packagedHelperProvenanceStatus,
   readPackagedHelperManifest,
   stagePackagedHelper,
+  nativeHelperMatrixTargets,
   supportedTriples,
   writePackagedHelperManifest,
 };

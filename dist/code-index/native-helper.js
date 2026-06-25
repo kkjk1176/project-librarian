@@ -46,17 +46,9 @@ const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const native_helper_matrix_1 = require("./native-helper-matrix");
 const workspace_1 = require("../workspace");
-const supportedNativeHelperTriples = new Set([
-    "darwin-arm64",
-    "darwin-x64",
-    "linux-arm64",
-    "linux-arm64-musl",
-    "linux-x64",
-    "linux-x64-musl",
-    "win32-arm64",
-    "win32-x64",
-]);
+const supportedNativeHelperTripleSet = new Set(native_helper_matrix_1.supportedNativeHelperTriples);
 function nativeCodeIndexLinuxLibcVariant(platform = process.platform) {
     if (platform !== "linux")
         return "";
@@ -71,10 +63,7 @@ function nativeCodeIndexLinuxLibcVariant(platform = process.platform) {
     }
 }
 function nativeCodeIndexHelperPlatformTriple(platform = process.platform, arch = process.arch, libc = nativeCodeIndexLinuxLibcVariant(platform)) {
-    if (platform === "linux" && libc === "musl" && (arch === "x64" || arch === "arm64")) {
-        return `${platform}-${arch}-musl`;
-    }
-    return `${platform}-${arch}`;
+    return (0, native_helper_matrix_1.nativeCodeIndexHelperTripleForPlatform)(platform, arch, libc);
 }
 function nativeCodeIndexHelperBinaryName(platform = process.platform) {
     return platform === "win32" ? "project-librarian-indexer.exe" : "project-librarian-indexer";
@@ -153,7 +142,7 @@ function nativeCodeIndexHelperAvailability(options = {}) {
             };
         }
     }
-    if (!supportedNativeHelperTriples.has(platformTriple)) {
+    if (!supportedNativeHelperTripleSet.has(platformTriple)) {
         return {
             available: false,
             helperPath: "",
