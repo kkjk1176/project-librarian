@@ -33,6 +33,7 @@ const {
   nativeHelperPublishRunners,
   nativeHelperPublishRustTargets,
   nativeHelperPublishWorkflowStatus,
+  nativeHelperSqliteLinkStatus,
   workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
@@ -310,6 +311,39 @@ test("release readiness validates the native helper publish artifact chain", () 
   const publishBeforeVerify = nativeHelperPublishWorkflowStatus(publishBeforeVerifyFixture);
   assert.equal(publishBeforeVerify.ok, false);
   assert.ok(publishBeforeVerify.order_errors.includes("publish package must run after verify helper matrix provenance"));
+});
+
+test("release readiness requires bundled SQLite link metadata for native helpers", () => {
+  const status = nativeHelperSqliteLinkStatus();
+  assert.equal(status.ok, true, status.message);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.forbidden, []);
+
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-sqlite-link-"));
+  const cargoTomlPath = path.join(fixture, "Cargo.toml");
+  const sourcePath = path.join(fixture, "main.rs");
+  fs.writeFileSync(cargoTomlPath, [
+    "[package]",
+    "name = \"fixture\"",
+    "",
+    "[dependencies]",
+    "serde = \"1\"",
+    "",
+    "[target.'cfg(target_env = \"musl\")'.dependencies]",
+    "libsqlite3-sys = { version = \"=0.35.0\", features = [\"bundled\"] }",
+    "",
+  ].join("\n"));
+  fs.writeFileSync(sourcePath, [
+    "#[cfg(target_env = \"musl\")]",
+    "extern crate libsqlite3_sys as _;",
+    "",
+  ].join("\n"));
+
+  const muslOnly = nativeHelperSqliteLinkStatus({ cargoTomlPath, sourcePath });
+  assert.equal(muslOnly.ok, false);
+  assert.ok(muslOnly.missing.includes("unconditional libsqlite3-sys bundled dependency"));
+  assert.ok(muslOnly.forbidden.includes("target-scoped libsqlite3-sys dependency"));
+  assert.ok(muslOnly.forbidden.includes("cfg-gated libsqlite3_sys extern crate"));
 });
 
 test("release readiness validates minimal permissions for current workflows", () => {
