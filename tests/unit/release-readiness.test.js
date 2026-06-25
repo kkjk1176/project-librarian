@@ -15,6 +15,7 @@ const {
 const {
   benchmarkClaimStatus,
   codeEvidenceFreshnessDocStatus,
+  codeEvidenceScaleGateDocStatus,
   distParityStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
@@ -25,6 +26,7 @@ const {
   packFilePaths,
   parsePackJson,
   rawCodexHomeHygieneStatus,
+  readmeCliReferenceStatus,
   releaseProvenanceStatus,
   temporaryNpmCacheEnv,
   trustedPublishingWorkflowStatus,
@@ -203,14 +205,55 @@ test("release readiness recognizes the current README benchmark boundary as rele
 
 test("release readiness requires README to gate code-evidence claims on freshness", () => {
   const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
+  const readmeKo = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.ko.md"), "utf8");
   const status = codeEvidenceFreshnessDocStatus(readme);
   assert.equal(status.ok, true, status.message);
   assert.deepEqual(status.missing, []);
+  assert.equal(codeEvidenceFreshnessDocStatus(readmeKo).ok, true, codeEvidenceFreshnessDocStatus(readmeKo).message);
 
   const missingFreshness = codeEvidenceFreshnessDocStatus("Use --code-report for structure answers.");
   assert.equal(missingFreshness.ok, false);
   assert.ok(missingFreshness.missing.includes("--code-status"));
   assert.ok(missingFreshness.missing.includes("stale_files: 0"));
+
+  const missingKoreanBoundary = codeEvidenceFreshnessDocStatus(
+    "Use --code-report, --code-impact, and --code-context-pack after --code-status, code_status, and stale_files: 0.",
+  );
+  assert.equal(missingKoreanBoundary.ok, false);
+  assert.ok(missingKoreanBoundary.missing.includes("stale reports boundary"));
+});
+
+test("release readiness requires README CLI reference coverage", () => {
+  const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
+  const readmeKo = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.ko.md"), "utf8");
+  assert.equal(readmeCliReferenceStatus(readme).ok, true, readmeCliReferenceStatus(readme).message);
+  assert.equal(readmeCliReferenceStatus(readmeKo).ok, true, readmeCliReferenceStatus(readmeKo).message);
+
+  const missingOptions = readmeCliReferenceStatus(`## CLI Reference
+
+| Command / Option | Purpose |
+| --- | --- |
+| \`project-librarian --code-index\` | Build the code-evidence index. |
+
+## Development
+`);
+  assert.equal(missingOptions.ok, false);
+  assert.ok(missingOptions.missing.includes("--acknowledge-small-repo"));
+  assert.ok(missingOptions.missing.includes("--code-parser"));
+  assert.ok(missingOptions.missing.includes("--last-success-command"));
+});
+
+test("release readiness requires README to document the code-evidence scale gate", () => {
+  const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
+  const readmeKo = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.ko.md"), "utf8");
+  assert.equal(codeEvidenceScaleGateDocStatus(readme).ok, true, codeEvidenceScaleGateDocStatus(readme).message);
+  assert.equal(codeEvidenceScaleGateDocStatus(readmeKo).ok, true, codeEvidenceScaleGateDocStatus(readmeKo).message);
+
+  const missingException = codeEvidenceScaleGateDocStatus(
+    "Below ~5k files, --code-index requires --acknowledge-small-repo and skips MCP auto-registration.",
+  );
+  assert.equal(missingException.ok, false);
+  assert.ok(missingException.missing.includes("existing .project-wiki index exception"));
 });
 
 test("release readiness validates the trusted publishing workflow", () => {

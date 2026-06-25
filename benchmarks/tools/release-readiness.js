@@ -771,7 +771,7 @@ function codeEvidenceFreshnessDocStatus(readmeText) {
   const hasStatusCommand = /project-librarian --code-status|--code-status/.test(readmeText);
   const hasMcpStatus = /\bcode_status\b/.test(readmeText);
   const hasFreshMetric = /stale_files:\s*0/.test(readmeText);
-  const hasAuthoritativeBoundary = /Stale reports are pointers for rebuild, not authoritative project truth/i.test(readmeText);
+  const hasAuthoritativeBoundary = /Stale reports are pointers for rebuild, not authoritative project truth|오래된 보고서는 재빌드가 필요하다는 신호이지 권위 있는 프로젝트 진실이 아닙니다/i.test(readmeText);
   const hasEvidenceSurfaces = /--code-report/.test(readmeText) && /--code-impact/.test(readmeText) && /--code-context-pack/.test(readmeText);
   const missing = [
     ["--code-status", hasStatusCommand],
@@ -786,6 +786,110 @@ function codeEvidenceFreshnessDocStatus(readmeText) {
     message: missing.length === 0
       ? "README requires fresh code-evidence status before citing report/tool output"
       : `README code-evidence freshness contract is missing: ${missing.join(", ")}`,
+  };
+}
+
+const requiredReadmeCliReferenceOptions = [
+  "--acknowledge-small-repo",
+  "--adopt-existing",
+  "--agents",
+  "--capture-inbox",
+  "--category",
+  "--code-context-pack",
+  "--code-files",
+  "--code-impact",
+  "--code-index",
+  "--code-index-engine",
+  "--code-index-full",
+  "--code-index-health",
+  "--code-index-incremental",
+  "--code-index-out",
+  "--code-parser",
+  "--code-query",
+  "--code-report",
+  "--code-report-section",
+  "--code-scope",
+  "--code-search-symbol",
+  "--code-status",
+  "--content",
+  "--decision",
+  "--doctor",
+  "--dry-run",
+  "--fix",
+  "--glossary-init",
+  "--blocked",
+  "--goal",
+  "--handoff-clear",
+  "--handoff-injection-disable",
+  "--handoff-injection-enable",
+  "--handoff-injection-status",
+  "--handoff-promote-inbox",
+  "--handoff-save",
+  "--handoff-show",
+  "--handoff-status",
+  "--incremental",
+  "--issue-body-file",
+  "--issue-create",
+  "--issue-draft",
+  "--issue-title",
+  "--last-failure-command",
+  "--last-success-command",
+  "--link-check",
+  "--lint",
+  "--migrate",
+  "--migration-doctor",
+  "--migration-lint",
+  "--migration-quality-check",
+  "--next",
+  "--no-git-config",
+  "--open-question",
+  "--prune-check",
+  "--prune-check-strict",
+  "--quality-check",
+  "--query",
+  "--refresh-index",
+  "--review-migration",
+  "--semantic-migrate",
+  "--state",
+  "--title",
+  "--verification",
+  "--wiki-impact",
+  "--wiki-visualize",
+  "--wiki-visualize-out",
+];
+
+function readmeCliReferenceSection(readmeText) {
+  return readmeText.match(/(?:^|\n)## (?:CLI Reference|CLI 참조)\n([\s\S]*?)(?=\n## |\s*$)/)?.[1] ?? "";
+}
+
+function readmeCliReferenceStatus(readmeText) {
+  const section = readmeCliReferenceSection(readmeText);
+  const missing = requiredReadmeCliReferenceOptions.filter((option) => !section.includes(option));
+  return {
+    ok: section.length > 0 && missing.length === 0,
+    missing,
+    message: section.length === 0
+      ? "README CLI reference section is missing"
+      : missing.length === 0
+        ? "README CLI reference covers the release-critical user-facing options"
+        : `README CLI reference is missing options: ${missing.join(", ")}`,
+  };
+}
+
+function codeEvidenceScaleGateDocStatus(readmeText) {
+  const checks = [
+    ["~5k scale gate", /(?:~5k|약 5k|5000|5,000)/i.test(readmeText)],
+    ["--acknowledge-small-repo", /--acknowledge-small-repo/.test(readmeText)],
+    ["MCP auto-registration", /MCP\s+auto-registration|MCP 자동 등록/i.test(readmeText)],
+    ["existing .project-wiki index exception", /existing `?\.project-wiki`? SQLite index|기존 `?\.project-wiki`? SQLite 인덱스/i.test(readmeText)],
+  ];
+  const missing = checks.filter(([, ok]) => !ok).map(([label]) => label);
+  return {
+    ok: missing.length === 0,
+    missing,
+    message: missing.length === 0
+      ? "README documents the code-evidence small-repo gate and existing-index MCP exception"
+      : `README code-evidence scale gate contract is missing: ${missing.join(", ")}`,
   };
 }
 
@@ -956,6 +1060,7 @@ function main() {
   }
 
   const readmeText = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+  const readmeKoText = fs.readFileSync(path.join(repoRoot, "README.ko.md"), "utf8");
   const readmeStatus = benchmarkClaimStatus(readmeText);
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
@@ -963,6 +1068,26 @@ function main() {
   const codeEvidenceFreshnessStatus = codeEvidenceFreshnessDocStatus(readmeText);
   console.log(`${codeEvidenceFreshnessStatus.ok ? "PASS" : "FAIL"} README code-evidence freshness: ${codeEvidenceFreshnessStatus.message}`);
   if (!codeEvidenceFreshnessStatus.ok) fail("release readiness failed: README code-evidence freshness");
+
+  const codeEvidenceFreshnessKoStatus = codeEvidenceFreshnessDocStatus(readmeKoText);
+  console.log(`${codeEvidenceFreshnessKoStatus.ok ? "PASS" : "FAIL"} README.ko code-evidence freshness: ${codeEvidenceFreshnessKoStatus.message}`);
+  if (!codeEvidenceFreshnessKoStatus.ok) fail("release readiness failed: README.ko code-evidence freshness");
+
+  const readmeCliStatus = readmeCliReferenceStatus(readmeText);
+  console.log(`${readmeCliStatus.ok ? "PASS" : "FAIL"} README CLI reference: ${readmeCliStatus.message}`);
+  if (!readmeCliStatus.ok) fail("release readiness failed: README CLI reference");
+
+  const readmeKoCliStatus = readmeCliReferenceStatus(readmeKoText);
+  console.log(`${readmeKoCliStatus.ok ? "PASS" : "FAIL"} README.ko CLI reference: ${readmeKoCliStatus.message}`);
+  if (!readmeKoCliStatus.ok) fail("release readiness failed: README.ko CLI reference");
+
+  const scaleGateStatus = codeEvidenceScaleGateDocStatus(readmeText);
+  console.log(`${scaleGateStatus.ok ? "PASS" : "FAIL"} README code-evidence scale gate: ${scaleGateStatus.message}`);
+  if (!scaleGateStatus.ok) fail("release readiness failed: README code-evidence scale gate");
+
+  const scaleGateKoStatus = codeEvidenceScaleGateDocStatus(readmeKoText);
+  console.log(`${scaleGateKoStatus.ok ? "PASS" : "FAIL"} README.ko code-evidence scale gate: ${scaleGateKoStatus.message}`);
+  if (!scaleGateKoStatus.ok) fail("release readiness failed: README.ko code-evidence scale gate");
 
   const rawHygieneStatus = rawCodexHomeHygieneStatus();
   console.log(`${rawHygieneStatus.candidate_count > 0 ? "WARN" : "PASS"} raw hygiene audit: ${rawHygieneStatus.message}`);
@@ -1038,6 +1163,11 @@ function main() {
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
     readme_code_evidence_freshness: codeEvidenceFreshnessStatus,
+    readme_ko_code_evidence_freshness: codeEvidenceFreshnessKoStatus,
+    readme_cli_reference: readmeCliStatus,
+    readme_ko_cli_reference: readmeKoCliStatus,
+    readme_code_evidence_scale_gate: scaleGateStatus,
+    readme_ko_code_evidence_scale_gate: scaleGateKoStatus,
     raw_hygiene: rawHygieneStatus,
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
@@ -1056,6 +1186,7 @@ if (require.main === module) {
 module.exports = {
   benchmarkClaimStatus,
   codeEvidenceFreshnessDocStatus,
+  codeEvidenceScaleGateDocStatus,
   distParityStatus,
   distExecutableStatus,
   githubActionReferencePinningStatus,
@@ -1068,6 +1199,7 @@ module.exports = {
   packFilePaths,
   parsePackJson,
   rawCodexHomeHygieneStatus,
+  readmeCliReferenceStatus,
   releaseProvenanceStatus,
   requiredPackFiles,
   temporaryNpmCacheEnv,
