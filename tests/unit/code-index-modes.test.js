@@ -3,7 +3,7 @@ const test = require("node:test");
 
 process.argv = [process.execPath, "code-index-modes.test.js", "--code-context-pack", "healthHandler"];
 
-const { runCodeContextPackMode } = require("../../dist/code-index/modes.js");
+const { resolveCodeIndexEngine, runCodeContextPackMode } = require("../../dist/code-index/modes.js");
 
 function fakeCompatibleDatabase() {
   return {
@@ -15,7 +15,7 @@ function fakeCompatibleDatabase() {
       return {
         all(key) {
           if (/SELECT value FROM meta WHERE key = \?/.test(sql) && key === "schema_version") {
-            return [{ value: "4" }];
+            return [{ value: "5" }];
           }
           throw new Error(`unexpected fake database query: ${sql}`);
         },
@@ -100,4 +100,22 @@ test("code context pack mode reuses one staleness calculation for warning and ou
   assert.equal(packCalls, 1);
   assert.deepEqual(logs, ["context pack output"]);
   assert.equal(database.closeCalls, 1);
+});
+
+test("auto code index engine resolves to native for helper-backed eligible full runs", () => {
+  const mixedSmall = { discoveredFileCount: 42, nativeEligibleFileCount: 41, nativeIneligibleFileCount: 1 };
+  const configOnly = { discoveredFileCount: 42, nativeEligibleFileCount: 0, nativeIneligibleFileCount: 42 };
+  assert.equal(resolveCodeIndexEngine("typescript", mixedSmall, () => true, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("native-rust", mixedSmall, () => false, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, (context) => context.nativeEligibleFileCount >= 1, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", configOnly, (context) => context.nativeEligibleFileCount >= 1, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, () => true, true), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, () => false, false), "typescript");
+
+  let observedContext;
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, (context) => {
+    observedContext = context;
+    return false;
+  }, false), "typescript");
+  assert.deepEqual(observedContext, mixedSmall);
 });

@@ -7,7 +7,24 @@ exports.insertEdge = insertEdge;
 exports.insertMatches = insertMatches;
 exports.insertGoImport = insertGoImport;
 function oneLine(text) {
-    return text.replace(/\s+/g, " ").trim().slice(0, 240);
+    let output = "";
+    let pendingSpace = false;
+    for (let index = 0; index < text.length && output.length < 240; index += 1) {
+        const code = text.charCodeAt(index);
+        if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32) {
+            if (output.length > 0)
+                pendingSpace = true;
+            continue;
+        }
+        if (pendingSpace) {
+            output += " ";
+            pendingSpace = false;
+            if (output.length >= 240)
+                break;
+        }
+        output += text[index];
+    }
+    return output;
 }
 function lineNumber(text, index) {
     return text.slice(0, index).split(/\r?\n/).length;

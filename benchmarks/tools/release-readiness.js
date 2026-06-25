@@ -6,8 +6,18 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
+const {
+  helperBinaryName,
+  nativeHelperMatrixTargets,
+  packagedHelperBinaryStatus,
+  packagedHelperManifestRelativePath,
+  packagedHelperProvenanceStatus,
+  supportedTriples,
+} = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
+const nativeHelperPublishRunners = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.runner]));
+const nativeHelperPublishRustTargets = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.rustTarget]));
 
 const requiredPackFiles = [
   "LICENSE",
@@ -24,11 +34,56 @@ const forbiddenPackPathPatterns = [
   /^\.omc\//,
   /^\.project-wiki\//,
   /^benchmarks\/reports\/llm\/raw\//,
+  /^native\//,
   /^node_modules\//,
   /^src\//,
   /^tests\//,
   /^wiki\//,
 ];
+
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeWorkflowScalar(text) {
+  const trimmed = String(text).trim();
+  if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function workflowScalarPattern(value) {
+  const escaped = escapeRegExp(value);
+  return `(?:"${escaped}"|'${escaped}'|${escaped})`;
+}
+
+function patternIndex(text, pattern) {
+  const match = pattern.exec(text);
+  return match ? match.index : -1;
+}
+
+function requirePatternOrder(body, steps) {
+  const orderErrors = [];
+  let previousIndex = -1;
+  let previousLabel = null;
+  for (const [label, pattern] of steps) {
+    const index = patternIndex(body, pattern);
+    if (index < 0) continue;
+    if (previousIndex >= 0 && index <= previousIndex) {
+      orderErrors.push(`${label} must run after ${previousLabel}`);
+    }
+    previousIndex = index;
+    previousLabel = label;
+  }
+  return orderErrors;
+}
 
 function fail(message) {
   console.error(message);
@@ -55,8 +110,10 @@ Runs local-only release checks:
   - benchmark claim ledger classification
   - benchmark raw hygiene audit
   - npm pack --dry-run --json package inspection
+  - native helper package matrix and provenance manifest inspection when dist/native files are shipped
   - dist executable/parity and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
+  - native helper publish workflow artifact-chain checks
   - release provenance/attestation status
 
 Use --only-dist-parity to run only the generated dist/ drift check.
@@ -111,14 +168,24 @@ function parsePackJson(stdout) {
 }
 
 function packFilePaths(packEntries) {
+  return packFileRecords(packEntries).map((file) => file.path);
+}
+
+function packFileRecords(packEntries) {
   const files = [];
   for (const entry of packEntries) {
     const entryFiles = Array.isArray(entry?.files) ? entry.files : [];
     for (const file of entryFiles) {
-      if (file && typeof file.path === "string") files.push(normalizePackPath(file.path));
+      if (file && typeof file.path === "string") {
+        files.push({
+          mode: typeof file.mode === "number" ? file.mode : null,
+          path: normalizePackPath(file.path),
+        });
+      }
     }
   }
-  return Array.from(new Set(files)).sort();
+  return Array.from(new Map(files.map((file) => [file.path, file])).values())
+    .sort((left, right) => compareStrings(left.path, right.path));
 }
 
 function inspectPackFiles(files) {
@@ -130,6 +197,124 @@ function inspectPackFiles(files) {
     missing_required: missingRequired,
     ok: missingRequired.length === 0 && forbidden.length === 0,
     total_files: files.length,
+  };
+}
+
+function normalizePackFileRecord(file) {
+  if (typeof file === "string") return { mode: null, path: normalizePackPath(file) };
+  return {
+    mode: typeof file?.mode === "number" ? file.mode : null,
+    path: normalizePackPath(file?.path ?? ""),
+  };
+}
+
+function isPackagedNativeHelperExecutable(record, triple) {
+  const platform = String(triple).split("-")[0];
+  if (platform === "win32") return true;
+  return typeof record.mode !== "number" || (record.mode & 0o111) !== 0;
+}
+
+function nativeHelperPackageMatrixStatus(files, options = {}) {
+  const expected = supportedTriples.map((triple) => {
+    const platform = String(triple).split("-")[0];
+    return {
+      path: `dist/native/${triple}/${helperBinaryName(platform)}`,
+      triple,
+    };
+  }).sort();
+  const expectedPaths = expected.map((file) => file.path).sort();
+  const records = files.map(normalizePackFileRecord).filter((file) => file.path);
+  const nativeFiles = records.filter((file) => file.path.startsWith("dist/native/"))
+    .filter((file) => file.path !== packagedHelperManifestRelativePath())
+    .sort((left, right) => compareStrings(left.path, right.path));
+  const nativeFileByPath = new Map(nativeFiles.map((file) => [file.path, file]));
+  const expectedSet = new Set(expectedPaths);
+  const present = expectedPaths.filter((file) => nativeFileByPath.has(file));
+  const missing = nativeFiles.length > 0 ? expectedPaths.filter((file) => !nativeFileByPath.has(file)) : [];
+  const nonExecutable = expected
+    .filter((file) => {
+      const record = nativeFileByPath.get(file.path);
+      return record && !isPackagedNativeHelperExecutable(record, file.triple);
+    })
+    .map((file) => file.path);
+  const binaryMismatches = options.verifyBinaryFormat
+    ? expected
+      .filter((file) => nativeFileByPath.has(file.path))
+      .map((file) => packagedHelperBinaryStatus(path.join(options.repoRoot ?? repoRoot, file.path), file.triple))
+      .filter((status) => !status.ok)
+      .map((status) => ({
+        actual_architectures: status.actual_architectures,
+        actual_format: status.actual_format,
+        expected_architecture: status.expected_architecture,
+        expected_format: status.expected_format,
+        path: path.relative(options.repoRoot ?? repoRoot, status.path).split(path.sep).join("/"),
+        triple: status.triple,
+      }))
+    : [];
+  const unexpected = nativeFiles.map((file) => file.path).filter((file) => !expectedSet.has(file));
+  const matrixComplete = nativeFiles.length > 0
+    && binaryMismatches.length === 0
+    && missing.length === 0
+    && nonExecutable.length === 0
+    && unexpected.length === 0;
+  const status = matrixComplete
+    ? "packaged-helper-matrix-ready"
+    : binaryMismatches.length > 0
+      ? "packaged-helper-binary-mismatch"
+      : nativeFiles.length > 0
+        ? "partial-packaged-helper-matrix"
+        : "no-packaged-helper";
+  return {
+    ok: nativeFiles.length === 0 || matrixComplete,
+    binary_mismatches: binaryMismatches,
+    expected_files: expectedPaths,
+    missing_files: missing,
+    non_executable_files: nonExecutable,
+    packaged_files: nativeFiles.map((file) => file.path),
+    present_files: present,
+    status,
+    unexpected_files: unexpected,
+  };
+}
+
+function nativeHelperPackageProvenanceStatus(files, options = {}) {
+  const records = files.map(normalizePackFileRecord).filter((file) => file.path);
+  const manifestPath = packagedHelperManifestRelativePath();
+  const matrixStatus = options.matrixStatus ?? nativeHelperPackageMatrixStatus(records, options);
+  const manifestIncluded = records.some((file) => file.path === manifestPath);
+  if (matrixStatus.status === "no-packaged-helper") {
+    return {
+      ok: !manifestIncluded,
+      manifest_file: manifestPath,
+      manifest_included: manifestIncluded,
+      matrix_status: matrixStatus.status,
+      mismatches: manifestIncluded ? [{
+        field: "manifest",
+        path: manifestPath,
+        reason: "manifest is present without packaged helpers",
+      }] : [],
+      status: manifestIncluded ? "packaged-helper-provenance-stale" : "no-packaged-helper",
+    };
+  }
+  if (!manifestIncluded) {
+    return {
+      ok: false,
+      manifest_file: manifestPath,
+      manifest_included: false,
+      matrix_status: matrixStatus.status,
+      mismatches: [{
+        field: "manifest",
+        path: manifestPath,
+        reason: "manifest is required in npm pack contents when packaged helpers are present",
+      }],
+      status: "packaged-helper-provenance-missing",
+    };
+  }
+  const provenance = packagedHelperProvenanceStatus({ repoRoot: options.repoRoot ?? repoRoot });
+  return {
+    ...provenance,
+    manifest_file: manifestPath,
+    manifest_included: true,
   };
 }
 
@@ -263,6 +448,108 @@ function manualPublishGuardStatus(text) {
     message: guardsReleaseTag && rejectsNonRelease
       ? "manual publish dispatch is guarded to refs/tags/v* and rejects non-release refs"
       : "manual publish dispatch must reject non-release refs before publish",
+  };
+}
+
+function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".github", "workflows", "publish.yml")) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: false,
+      missing: ["publish workflow"],
+      order_errors: [],
+      present_triples: [],
+      message: ".github/workflows/publish.yml is missing",
+    };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const jobs = new Map(workflowJobBlocks(text).map((job) => [job.name, job.body]));
+  const buildJob = jobs.get("build-native-helper") ?? "";
+  const packageJob = jobs.get("package-native-helper-matrix") ?? "";
+  const publishJob = jobs.get("publish") ?? "";
+  const declaredTriples = Array.from(buildJob.matchAll(/\btriple:\s*([^\s#]+)/g), (match) => match[1])
+    .filter(Boolean)
+    .map(normalizeWorkflowScalar);
+  const declaredTripleSet = new Set(declaredTriples);
+  const presentTriples = supportedTriples.filter((triple) => declaredTripleSet.has(triple));
+  const missing = [];
+  for (const triple of declaredTriples) {
+    if (!supportedTriples.includes(triple)) missing.push(`unsupported build matrix triple ${triple}`);
+  }
+  if (!buildJob) missing.push("build-native-helper job");
+  if (!packageJob) missing.push("package-native-helper-matrix job");
+  if (!publishJob) missing.push("publish job");
+  for (const triple of supportedTriples) {
+    if (!presentTriples.includes(triple)) missing.push(`build matrix triple ${triple}`);
+    const expectedRunner = nativeHelperPublishRunners.get(triple);
+    const expectedRustTarget = nativeHelperPublishRustTargets.get(triple);
+    if (expectedRunner && buildJob && !new RegExp(`-\\s+triple:\\s*${workflowScalarPattern(triple)}\\s*\\n\\s+runner:\\s*${workflowScalarPattern(expectedRunner)}(?=\\s|#|$)`).test(buildJob)) {
+      missing.push(`build matrix runner ${triple} -> ${expectedRunner}`);
+    }
+    if (expectedRustTarget && buildJob && !new RegExp(`-\\s+triple:\\s*${workflowScalarPattern(triple)}\\s*\\n\\s+runner:\\s*${workflowScalarPattern(expectedRunner ?? "")}(?=\\s|#|$)\\s*\\n\\s+rust_target:\\s*${workflowScalarPattern(expectedRustTarget)}(?=\\s|#|$)`).test(buildJob)) {
+      missing.push(`build matrix rust target ${triple} -> ${expectedRustTarget}`);
+    }
+    if (packageJob && !new RegExp(`\\bname:\\s*native-helper-${triple}\\b`).test(packageJob)) {
+      missing.push(`download artifact native-helper-${triple}`);
+    }
+    if (packageJob && !new RegExp(`\\bpath:\\s*dist/native/${triple}\\b`).test(packageJob)) {
+      missing.push(`download path dist/native/${triple}`);
+    }
+  }
+  const requiredPatterns = [
+    ["build job installs dependencies", buildJob, /\bnpm\s+ci\b/],
+    ["build job installs Rust target", buildJob, /\brustup\s+target\s+add\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+    ["musl helper build dependencies", buildJob, /\bapt-get\s+install\s+-y\s+musl-tools\b/],
+    ["targeted native helper build", buildJob, /\bcargo\s+build\b[^\n]*\s--target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+    ["targeted helper staging script", buildJob, /\bnative-indexer-package-audit\.js\s+--stage-packaged-helper\s+--require-packaged-helper\s+--triple\s+\$\{\{\s*matrix\.triple\s*\}\}\s+--rust-target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+    ["per-triple helper artifact upload", buildJob, /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
+    ["per-triple helper artifact path", buildJob, /\bpath:\s*dist\/native\/\$\{\{\s*matrix\.triple\s*\}\}\//],
+    ["package job needs verify", packageJob, /(?:^|\n)\s*-\s+verify\b/],
+    ["package job needs helper build", packageJob, /(?:^|\n)\s*-\s+build-native-helper\b/],
+    ["package job installs dependencies", packageJob, /\bnpm\s+ci\b/],
+    ["helper manifest generation", packageJob, /\bnpm\s+run\s+native:package-manifest\b/],
+    ["helper-inclusive release check", packageJob, /\bnpm\s+run\s+release:check\b/],
+    ["matrix artifact upload", packageJob, /\bname:\s*native-helper-package-matrix\b/],
+    ["matrix artifact path", packageJob, /\bpath:\s*dist\/native\//],
+    ["publish job depends on matrix package", publishJob, /\bneeds:\s*package-native-helper-matrix\b/],
+    ["publish job downloads matrix artifact", publishJob, /\bname:\s*native-helper-package-matrix\b/],
+    ["publish job downloads matrix to dist/native", publishJob, /\bpath:\s*dist\/native\b/],
+    ["publish job verifies helper matrix/provenance", publishJob, /\bnative-indexer-package-audit\.js\s+--require-packaged-helper-matrix\s+--require-packaged-helper-provenance\b/],
+    ["script-disabled publish", publishJob, /\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/],
+  ];
+  for (const [label, body, pattern] of requiredPatterns) {
+    if (!body || !pattern.test(body)) missing.push(label);
+  }
+  const orderErrors = [
+    ...requirePatternOrder(buildJob, [
+      ["install build dependencies", /\bnpm\s+ci\b/],
+      ["install Rust target", /\brustup\s+target\s+add\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+      ["build native helper", /\bcargo\s+build\b[^\n]*\s--target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+      ["stage packaged helper", /\bnative-indexer-package-audit\.js\s+--stage-packaged-helper\s+--require-packaged-helper\s+--triple\s+\$\{\{\s*matrix\.triple\s*\}\}\s+--rust-target\s+\$\{\{\s*matrix\.rust_target\s*\}\}/],
+      ["upload per-triple helper artifact", /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
+    ]),
+    ...requirePatternOrder(packageJob, [
+      ["download darwin arm64 helper", /\bname:\s*native-helper-darwin-arm64\b/],
+      ["restore helper executable bits", /\bfind\s+dist\/native\s+-type\s+f\s+-name\s+project-librarian-indexer\s+-exec\s+chmod\s+755/],
+      ["generate helper manifest", /\bnpm\s+run\s+native:package-manifest\b/],
+      ["run helper-inclusive release check", /\bnpm\s+run\s+release:check\b/],
+      ["upload helper package matrix", /\bname:\s*native-helper-package-matrix\b/],
+    ]),
+    ...requirePatternOrder(publishJob, [
+      ["download helper package matrix", /\bname:\s*native-helper-package-matrix\b/],
+      ["restore helper executable bits", /\bfind\s+dist\/native\s+-type\s+f\s+-name\s+project-librarian-indexer\s+-exec\s+chmod\s+755/],
+      ["verify helper matrix provenance", /\bnative-indexer-package-audit\.js\s+--require-packaged-helper-matrix\s+--require-packaged-helper-provenance\b/],
+      ["publish package", /\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/],
+    ]),
+  ];
+  const ok = missing.length === 0 && orderErrors.length === 0;
+  return {
+    ok,
+    missing: Array.from(new Set(missing)).sort(),
+    order_errors: Array.from(new Set(orderErrors)).sort(),
+    present_triples: presentTriples,
+    message: ok
+      ? "publish workflow builds, manifests, verifies, and publishes the supported native helper matrix through the audited artifact chain"
+      : "publish workflow is missing the native helper build/package/audit artifact chain",
   };
 }
 
@@ -533,11 +820,32 @@ function main() {
 
   const packEntries = parsePackJson(pack.stdout);
   const files = packFilePaths(packEntries);
+  const fileRecords = packFileRecords(packEntries);
   const packInspection = inspectPackFiles(files);
   console.log(`${packInspection.ok ? "PASS" : "FAIL"} package contents: ${packInspection.total_files} files inspected`);
   if (!packInspection.ok) {
     console.error(JSON.stringify(packInspection, null, 2));
     fail("release readiness failed: package contents");
+  }
+
+  const nativeMatrix = nativeHelperPackageMatrixStatus(fileRecords, {
+    repoRoot,
+    verifyBinaryFormat: true,
+  });
+  console.log(`${nativeMatrix.ok ? "PASS" : "FAIL"} native helper package matrix: ${nativeMatrix.status}`);
+  if (!nativeMatrix.ok) {
+    console.error(JSON.stringify(nativeMatrix, null, 2));
+    fail("release readiness failed: native helper package matrix");
+  }
+
+  const nativeProvenance = nativeHelperPackageProvenanceStatus(fileRecords, {
+    matrixStatus: nativeMatrix,
+    repoRoot,
+  });
+  console.log(`${nativeProvenance.ok ? "PASS" : "FAIL"} native helper package provenance: ${nativeProvenance.status}`);
+  if (!nativeProvenance.ok) {
+    console.error(JSON.stringify(nativeProvenance, null, 2));
+    fail("release readiness failed: native helper package provenance");
   }
 
   const distStatus = distExecutableStatus();
@@ -571,6 +879,13 @@ function main() {
   if (!trustedPublishingStatus.ok) {
     console.error(JSON.stringify(trustedPublishingStatus, null, 2));
     fail("release readiness failed: trusted publishing workflow");
+  }
+
+  const nativeHelperPublishWorkflow = nativeHelperPublishWorkflowStatus();
+  console.log(`${nativeHelperPublishWorkflow.ok ? "PASS" : "FAIL"} native helper publish workflow: ${nativeHelperPublishWorkflow.message}`);
+  if (!nativeHelperPublishWorkflow.ok) {
+    console.error(JSON.stringify(nativeHelperPublishWorkflow, null, 2));
+    fail("release readiness failed: native helper publish workflow");
   }
 
   const workflowPermissions = [
@@ -608,12 +923,15 @@ function main() {
     checks: results.map((result) => ({ label: result.label, status: result.status, ok: result.ok })),
     dist: distStatus,
     dist_parity: distParity,
+    native_helper_package_matrix: nativeMatrix,
+    native_helper_package_provenance: nativeProvenance,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
     readme_code_evidence_freshness: codeEvidenceFreshnessStatus,
     raw_hygiene: rawHygieneStatus,
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
+    native_helper_publish_workflow: nativeHelperPublishWorkflow,
     workflow_permissions: workflowPermissions,
     workflow_action_pinning: workflowActionPinning,
   }, null, 2));
@@ -630,7 +948,10 @@ module.exports = {
   distExecutableStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
+  nativeHelperPackageProvenanceStatus,
+  nativeHelperPackageMatrixStatus,
   normalizePackPath,
+  packFileRecords,
   packFilePaths,
   parsePackJson,
   rawCodexHomeHygieneStatus,
@@ -640,5 +961,8 @@ module.exports = {
   trustedPublishingWorkflowStatus,
   oidcWorkflowBoundaryStatus,
   manualPublishGuardStatus,
+  nativeHelperPublishRunners,
+  nativeHelperPublishRustTargets,
+  nativeHelperPublishWorkflowStatus,
   workflowPermissionStatus,
 };

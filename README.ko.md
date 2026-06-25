@@ -340,7 +340,9 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 
 ## 언어 지원 표
 
-이 표는 심볼/import 추출이 구현된 언어를 나열합니다. 그 외 인식되는 확장자는 목록 전용입니다. 기본 모드는 `typescript-ast`, `python-light`, `go-light`, 설정 추출, 목록 항목을 사용합니다. `--code-parser tree-sitter`는 지원되는 소스 파일을 `tree-sitter-*` 프로파일로 전환합니다.
+이 표는 심볼/import 추출이 구현된 언어를 나열합니다. 그 외 인식되는 확장자는 목록 전용입니다. 기본 모드는 `typescript-ast`, 표에 있는 비-JS 언어의 `*-light` 추출, 설정 추출, 목록 항목을 사용합니다. `--code-parser tree-sitter`는 지원되는 소스 파일을 `tree-sitter-*` 프로파일로 전환합니다.
+
+실험적 `--code-index-engine native-rust`는 `typescript-ast`, `config`, 표에 있는 `*-light` 프로파일, 목록 전용 소스 파일을 native helper로 처리합니다. `--code-index-engine`을 생략하면 `auto`입니다. full index auto는 helper를 사용할 수 있고 구조적으로 추출되는 native 프로파일이 하나 이상 있을 때 native helper를 사용하며, config-only 또는 inventory-only 저장소는 TypeScript에 남깁니다. 호환되는 incremental auto는 helper를 사용할 수 있고 변경 파일이 native-eligible이면 Rust direct-writer를 사용합니다. Helper 탐색은 `PROJECT_LIBRARIAN_NATIVE_INDEXER`를 먼저 보고, 없으면 `dist/native/<platform>-<arch>/project-librarian-indexer` 또는 `.exe`를 확인합니다. Linux musl 설치는 `dist/native/linux-<arch>-musl/`을 확인합니다. `npm run native:stage`는 로컬 릴리스 준비용으로 현재 플랫폼 helper를 빌드해 패키지 경로에 배치하고, `npm run native:package-audit -- --require-packaged-helper`는 그 staged package 경로를 검증합니다. 공개 릴리스는 staged helper 하나만 ship하면 안 됩니다. `release:check`는 packaged native helper가 아예 없거나 지원 플랫폼 전체 matrix(`darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-arm64-musl`, `linux-x64`, `linux-x64-musl`, `win32-arm64`, `win32-x64`)가 있을 때만 통과하며, helper 실행 비트, Mach-O/ELF/PE 플랫폼 헤더, packaged-helper SHA-256 manifest도 확인합니다. GitHub publish workflow는 지원 helper matrix를 빌드하고, `npm run native:package-manifest`와 `npm run native:package-audit:matrix`를 통과시킨 뒤, helper가 포함된 최종 package가 `npm run release:check`를 통과한 경우에만 publish합니다.
 
 | 언어 | 확장자 | 기본 추출 | Tree-sitter 추출 | 인덱싱되는 근거 |
 | --- | --- | --- | --- | --- |
@@ -348,14 +350,14 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 | JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | `tree-sitter-javascript` | 함수, 클래스, 메서드, 변수, import, export, `require()` 호출, 일반 HTTP route |
 | Python | `.py` | `python-light` | `tree-sitter-python` | 함수, 클래스, `import`, `from ... import` |
 | Go | `.go` | `go-light` | `tree-sitter-go` | 함수, 메서드, 타입, const, var, 단일 import, import 블록 |
-| Rust | `.rs` | 목록 전용 | `tree-sitter-rust` | 함수, struct, enum, trait, impl, `use` import |
-| Java | `.java` | 목록 전용 | `tree-sitter-java` | 클래스, interface, enum, 메서드, import |
-| PHP | `.php` | 목록 전용 | `tree-sitter-php` | 함수, 클래스, interface, trait, 메서드, namespace use |
-| Kotlin | `.kt`, `.kts` | 목록 전용 | `tree-sitter-kotlin` | 함수, 클래스, object, import |
-| Swift | `.swift` | 목록 전용 | `tree-sitter-swift` | 함수, 클래스, struct, protocol, enum, import |
-| C | `.c`, `.h` | 목록 전용 | `tree-sitter-c` | 함수, struct, enum, include |
-| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | 목록 전용 | `tree-sitter-cpp` | 함수, class/struct, namespace, enum, include/using |
-| C# | `.cs` | 목록 전용 | `tree-sitter-csharp` | class, interface, struct, enum, 메서드, using |
+| Rust | `.rs` | `rust-light` | `tree-sitter-rust` | 함수, struct, enum, trait, impl, `use` import |
+| Java | `.java` | `java-light` | `tree-sitter-java` | 클래스, interface, enum, 메서드, import |
+| PHP | `.php` | `php-light` | `tree-sitter-php` | 함수, 클래스, interface, trait, 메서드, namespace use |
+| Kotlin | `.kt`, `.kts` | `kotlin-light` | `tree-sitter-kotlin` | 함수, 클래스, object, import |
+| Swift | `.swift` | `swift-light` | `tree-sitter-swift` | 함수, 클래스, struct, protocol, enum, import |
+| C | `.c`, `.h` | `c-light` | `tree-sitter-c` | 함수, struct, enum, include |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | `cpp-light` | `tree-sitter-cpp` | 함수, class/struct, namespace, enum, include/using |
+| C# | `.cs` | `csharp-light` | `tree-sitter-csharp` | class, interface, struct, enum, 메서드, using |
 
 인식되지만 목록 전용인 확장자에는 `.rb`, `.vue`, `.css`가 있습니다. 설정 파일(`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`, `Dockerfile`, `Makefile`)은 설정 근거 또는 목록 근거로 인덱싱됩니다.
 
@@ -404,6 +406,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--no-git-config` | `git core.hooksPath`를 바꾸지 않고 훅 파일을 설치합니다. |
 | `--code-index` | 폐기 가능한 코드 근거 인덱스를 빌드합니다. |
 | `--code-index-health` | 코드 근거 캐시 호환성을 검사하고 쓰기 없이 재빌드 안내를 출력합니다. |
+| `--code-index-engine <engine>` | 기본 `auto` 인덱스 엔진을 `typescript` 또는 `native-rust`로 강제합니다. |
 | `--code-report` | 근거 인덱스에서 아키텍처/소유권 요약을 출력합니다. |
 | `--code-report-section <section>` | 한 섹션만 출력: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, `edges`. |
 | `--code-impact <term>` | 파일, 심볼, route, import, edge, 소유자 영향 근거를 보여줍니다. |
@@ -435,17 +438,19 @@ npm pack --dry-run
 
 지원 런타임 하한은 Node.js 22.13+입니다. TypeScript가 지원 사용자에게 없는 API를 허용하지 않도록 개발용 타입 정의는 Node 22 지원 계약에 맞추거나 Node 22 호환성 검사를 함께 둬야 합니다.
 
-`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, dist 실행 가능 여부와 소스 동기화, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
+`npm run release:check`는 로컬 전용 관리자 게이트입니다. 테스트, Node 내장 coverage, 벤치마크 파서 smoke, real-corpus 오프라인 데모, 벤치마크 release preview, 벤치마크 claim ledger 분류, raw 보관 상태 감사, package dry-run 검사, native helper package matrix, binary format, SHA-256 provenance manifest 검사, dist 실행 가능 여부와 소스 동기화, README 벤치마크 claim 경계 문구를 확인합니다. publish하지 않고 raw 벤치마크 산출물을 삭제하지 않으며 measured Codex 벤치마크도 실행하지 않습니다.
 
-`release:check` 통과는 런타임 보증이 아니라 재현 가능한 릴리스 준비 근거로 봐야 합니다. 현재 checkout에서 위 로컬 게이트를 통과했음을 증명하며, package dry run이 예상 publish 경계(`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, `SKILL.md`) 안에 머물고 소스 파일, 테스트, 저장소 로컬 위키/워크플로 상태, raw 벤치마크 출력, 로컬 캐시를 제외하는지도 확인합니다.
+`release:check` 통과는 런타임 보증이 아니라 재현 가능한 릴리스 준비 근거로 봐야 합니다. 현재 checkout에서 위 로컬 게이트를 통과했음을 증명하며, package dry run이 예상 publish 경계(`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, `SKILL.md`) 안에 머물고 소스 파일, 테스트, 저장소 로컬 위키/워크플로 상태, raw 벤치마크 출력, 로컬 캐시를 제외하며, partial, 잘못 라벨링된, manifest 없는, stale manifest, checksum mismatch 상태의 `dist/native/` helper matrix를 포함하지 않는지도 확인합니다.
 
-배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. 이 워크플로는 보호된 `npm-publish` GitHub Environment를 대상으로 하고, GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하므로 npm provenance가 자동 생성됩니다. `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 되며, 릴리스 핵심 GitHub 공식 Actions는 전체 commit SHA로 고정합니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
+배포는 GitHub Release가 published 상태가 된 뒤 `.github/workflows/publish.yml`에서 처리합니다. OIDC가 없는 job들이 source package를 검증하고, 지원되는 각 native helper를 빌드하고, `dist/native/`를 조립하고, helper manifest를 생성한 뒤 helper가 포함된 package에 대해 `release:check`를 실행합니다. 최종 publish job은 보호된 `npm-publish` GitHub Environment를 대상으로 하고, GitHub OIDC 기반 npm trusted publishing(`id-token: write`)과 `npm publish --access public`을 사용하므로 npm provenance가 자동 생성됩니다. `NODE_AUTH_TOKEN`이나 npm token secret을 쓰면 안 되며, 릴리스 핵심 GitHub 공식 Actions는 전체 commit SHA로 고정합니다. `release:check`는 이 워크플로 계약도 로컬에서 검사합니다.
 
 trusted publishing과 npm provenance는 패키지가 이 GitHub OIDC 워크플로를 통해 게시되었음을 증명합니다. 벤치마크 정확성, 최종 사용자 저장소의 코드 근거 freshness, 보안 감사를 증명하지는 않으며, 그런 항목은 별도의 근거 트랙으로 다룹니다.
 
 관리자 벤치마크 명령은 [benchmarks/README.md](benchmarks/README.md)에 있습니다. 이 명령은 릴리스 근거와 공개 주장 검증을 위한 것이며, 일반 사용자 설정 절차가 아닙니다.
 
-코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서는 `mixed-monorepo`, `web-service`, `python-cli`, `docs-heavy` 체크인 corpus도 합성 scale fixture와 분리해 측정합니다.
+코드 근거 런타임/스토리지 점검에는 `npm run perf:code-efficiency`를 사용합니다. 이 명령은 3k/10k/50k 픽스처를 생성하고 `benchmarks/reports/code-performance-efficiency/current.json`과 `.md`를 작성합니다. 명령 시간에는 CLI 시작과 freshness 확인이 포함되며, `query_groups` 섹션은 대표 file/symbol/route/import/edge 쿼리의 직접 DB 시간을 따로 보고합니다. 보고서는 `mixed-monorepo`, `web-service`, `python-cli`, `docs-heavy` 체크인 corpus도 합성 scale fixture와 분리해 측정합니다. `--compare-native`와 반복 가능한 `--actual-repo <path>`를 함께 쓰면 로컬 실제 repo도 같은 TypeScript/Rust 시간 및 row-delta 보고서에 포함되며, 원본 디렉터리는 수정하지 않습니다.
+
+실제 저장소 기준 native 정책 점검에는 `npm run perf:code-full-rebuild -- --source-root <dir> --helper <helper>`로 fresh repo copy에서 강제 TypeScript/Rust full rebuild를 비교하고, `npm run perf:code-incremental -- --source-root <dir> --helper <helper>`로 제어된 파일 변경 후 TypeScript incremental과 Rust incremental writer를 비교합니다.
 
 측정형 LLM 벤치마크 실행은 1일보다 오래된 이전 raw run 디렉터리와 격리 Codex home을 자동 삭제하고, claimable 실행 실패 시에도 현재 실행의 home을 삭제한 뒤 종료합니다. raw JSONL, stderr, 보고서, manifest는 보존 기간 안의 실행에 대해서만 감사용으로 유지됩니다. 무시된 오래된 raw 출력은 격리 Codex home을 삭제하기 전에 dry-run-first 헬퍼로 여전히 먼저 감사할 수 있습니다.
 

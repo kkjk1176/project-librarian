@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { CodeParserMode, IndexStatements } from "../schema";
 import { indexConfigs } from "./config";
-import { indexGoLight, indexPythonLight } from "./light-languages";
+import { genericLightProfileByLanguage, indexGenericLight, indexGoLight, indexPythonLight, type GenericLightLanguage } from "./light-languages";
 import { treeSitterBackends } from "./tree-sitter";
 import { indexJavaScriptLike } from "./typescript";
 import type { CodeFile, ExtractionBackend } from "./types";
@@ -32,11 +32,16 @@ export function extractionProfile(relativePath: string, language: string, parser
   if (isJavaScriptLikeProfileInput(language)) return "typescript-ast";
   if (language === "python") return "python-light";
   if (language === "go") return "go-light";
+  if (isGenericLightLanguage(language)) return genericLightProfileByLanguage[language];
   return "inventory-only";
 }
 
 function isJavaScriptLikeProfileInput(language: string): boolean {
   return language === "javascript" || language === "typescript";
+}
+
+function isGenericLightLanguage(language: string): language is GenericLightLanguage {
+  return ["c", "cpp", "csharp", "java", "kotlin", "php", "rust", "swift"].includes(language);
 }
 
 export interface ExtractionBackendRegistry {
@@ -66,6 +71,13 @@ export function createExtractionBackendRegistry(fail: Fail): ExtractionBackendRe
       profile: "go-light",
       strength: "light",
     },
+    ...Object.entries(genericLightProfileByLanguage).map(([language, profile]) => ({
+      id: "regex-light",
+      index: (file: CodeFile, statements: IndexStatements) => indexGenericLight(file, statements, language as GenericLightLanguage),
+      label: `${language} lightweight regex`,
+      profile,
+      strength: "light" as const,
+    })),
     ...treeSitterBackends(fail),
     {
       id: "config-key-value",

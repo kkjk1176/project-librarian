@@ -15,6 +15,8 @@ export interface ParsedArgs {
   codeImpactMode: boolean;
   codeImpactTarget: string;
   codeIndexFullMode: boolean;
+  codeIndexEngine: string;
+  codeIndexEngineMode: boolean;
   codeIndexHealthMode: boolean;
   codeIndexIncrementalMode: boolean;
   codeIndexMode: boolean;
@@ -103,6 +105,7 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--code-files", value: "none", aliases: ["--code-evidence-files"] },
   { name: "--code-impact", value: "value", aliases: ["--code-evidence-impact"] },
   { name: "--code-index", value: "none", aliases: ["--code-evidence-index"] },
+  { name: "--code-index-engine", value: "value", aliases: ["--code-evidence-index-engine"] },
   { name: "--code-index-full", value: "none", aliases: ["--code-evidence-index-full"] },
   { name: "--code-index-health", value: "none" },
   { name: "--code-index-incremental", value: "none", aliases: ["--incremental", "--code-incremental", "--code-evidence-index-incremental"] },
@@ -270,6 +273,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     codeFilesMode: hasAnyFlag("--code-files"),
     codeImpactMode: hasAnyFlag("--code-impact"),
     codeImpactTarget,
+    codeIndexEngine: argValueFromAny("--code-index-engine") || "auto",
+    codeIndexEngineMode: hasAnyFlag("--code-index-engine"),
     codeIndexFullMode: hasAnyFlag("--code-index-full"),
     codeIndexHealthMode: args.has("--code-index-health"),
     codeIndexIncrementalMode: hasAnyFlag("--code-index-incremental"),
@@ -394,6 +399,8 @@ export const reviewMigrationMode = parsedArgs.reviewMigrationMode;
 export const noGitConfigMode = parsedArgs.noGitConfigMode;
 export const acknowledgeSmallRepoMode = parsedArgs.acknowledgeSmallRepoMode;
 export const codeIndexMode = parsedArgs.codeIndexMode;
+export const codeIndexEngine = parsedArgs.codeIndexEngine;
+export const codeIndexEngineMode = parsedArgs.codeIndexEngineMode;
 export const codeIndexIncrementalMode = parsedArgs.codeIndexIncrementalMode;
 export const codeIndexFullMode = parsedArgs.codeIndexFullMode;
 export const codeIndexHealthMode = parsedArgs.codeIndexHealthMode;

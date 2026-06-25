@@ -1,19 +1,20 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
+import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexEngine, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexOutput, codeIndexScopes, codeIndexMode, codeParser, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "./args";
 import { openDatabase as openSqliteDatabase, type SqliteDatabase } from "./code-index-db";
-import { codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
+import { cachedDiscoveredCodeFileStat, codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
 import { collectCodeEvidence } from "./code-index/evidence";
 import { createExtractionBackendRegistry, extractionProfile } from "./code-index/extractors/registry";
 import { oneLine } from "./code-index/extractors/shared";
 import type { CodeFile, CodeFileFingerprint } from "./code-index/extractors/types";
 import { formatCodeIndexHealthRemediation, inspectCodeIndexHealth, type CodeIndexHealth } from "./code-index/index-health";
-import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexHealthMode as runCodeIndexHealthModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexModeRuntime } from "./code-index/modes";
+import { isCodeEvidenceMode as isCodeEvidenceModeImpl, isCodeEvidenceModeFor as isCodeEvidenceModeForImpl, runCodeContextPackMode as runCodeContextPackModeImpl, runCodeFilesMode as runCodeFilesModeImpl, runCodeImpactMode as runCodeImpactModeImpl, runCodeIndexHealthMode as runCodeIndexHealthModeImpl, runCodeIndexMode as runCodeIndexModeImpl, runCodeQueryMode as runCodeQueryModeImpl, runCodeReportMode as runCodeReportModeImpl, runCodeSearchSymbolMode as runCodeSearchSymbolModeImpl, runCodeStatusMode as runCodeStatusModeImpl, type CodeIndexEngine, type CodeIndexModeRuntime, type NativeCodeIndexIncrementalModeRequest, type NativeCodeIndexModeRequest } from "./code-index/modes";
+import { buildNativeCodeIndexJob, nativeCodeIndexHelperAvailable, requireNativeCodeIndexHelperPath, runNativeCodeIndexHelper, runNativeCodeIndexRowsHelper, type NativeCodeIndexFile, type NativeCodeIndexOutputMode, type NativeCodeIndexRows } from "./code-index/native-helper";
 import { codeownerRules, matchedCodeownerRules, ownershipContext, ownershipInfo, type MatchedCodeownerRule, type OwnershipContext, type OwnershipInfo } from "./code-index/ownership";
 import { codeReportForRequestedSection, codeReportMetadata, evidenceCoverage, invalidCodeReportSectionMessage, workspaceDependencyGraph, workspaceSummary, type CodeReportRuntime } from "./code-index/reports";
-import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
+import { codeIndexSchemaVersion, codeIndexSnapshot, createIndexStatements, createSecondaryIndexes, fileFtsRowid, incrementalCompatibility, indexedParserMode, indexedScopes, readMetaValue, removeIndexedFile, setupDatabase, writeIndexMetadata, type CodeParserMode, type IndexStatements } from "./code-index/schema";
 import { searchSymbols } from "./code-index/search";
 import { abs, mkdirp, normalizePath, requireContainedProjectFile, root, write } from "./workspace";
 
@@ -52,6 +53,8 @@ interface CodeEvidenceModeFlags {
 
 export const codeContextPackCharCap = 4000;
 export const codeContextPackTruncationNotice = "[truncated - refine the query]";
+export const nativeCodeIndexAutoFileThreshold = 1;
+const codeFileFingerprintPaths = new Map<string, string>();
 
 function fail(message: string): never {
   console.error(message);
@@ -88,12 +91,44 @@ function selectedCodeParserMode(): CodeParserMode {
   fail(`invalid --code-parser: ${codeParser}; expected one of: default, tree-sitter`);
 }
 
+function selectedCodeIndexEngine(): CodeIndexEngine {
+  const requested = codeIndexEngine.trim().toLowerCase();
+  if (!requested || requested === "auto") return "auto";
+  if (requested === "typescript") return "typescript";
+  if (requested === "native-rust") return "native-rust";
+  fail(`invalid --code-index-engine: ${codeIndexEngine}; expected one of: auto, typescript, native-rust`);
+}
+
+function codeIndexEngineSelectionContext(discoveredFiles: string[], parserMode: CodeParserMode) {
+  let nativeEligibleFileCount = 0;
+  for (const filePath of discoveredFiles) {
+    const language = fileLanguage(filePath) || "config";
+    if (nativeAutoEligibleProfile(extractionProfile(filePath, language, parserMode))) nativeEligibleFileCount += 1;
+  }
+  return {
+    discoveredFileCount: discoveredFiles.length,
+    nativeEligibleFileCount,
+    nativeIneligibleFileCount: discoveredFiles.length - nativeEligibleFileCount,
+  };
+}
+
+function shouldUseNativeCodeIndexAuto(context: { nativeEligibleFileCount: number }): boolean {
+  return context.nativeEligibleFileCount >= nativeCodeIndexAutoFileThreshold
+    && nativeCodeIndexHelperAvailable();
+}
+
+function nativeCodeIndexAvailable(): boolean {
+  return nativeCodeIndexHelperAvailable();
+}
+
 function normalizedMtimeMs(stat: fs.Stats): number {
   return Number(stat.mtimeMs.toFixed(3));
 }
 
 function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
-  const { stat } = requireContainedProjectFile(relativePath, "code-index file");
+  const discovered = cachedDiscoveredCodeFileStat(relativePath);
+  const { absolutePath, stat } = discovered ?? requireContainedProjectFile(relativePath, "code-index file");
+  codeFileFingerprintPaths.set(relativePath, absolutePath);
   return {
     mtimeMs: normalizedMtimeMs(stat),
     path: relativePath,
@@ -101,20 +136,38 @@ function readCodeFileFingerprint(relativePath: string): CodeFileFingerprint {
   };
 }
 
-function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default"): CodeFile {
-  const { absolutePath } = requireContainedProjectFile(relativePath, "code-index file");
+function lineCount(text: string): number {
+  if (text.length === 0) return 0;
+  let lines = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) lines += 1;
+  }
+  return lines;
+}
+
+function readCodeFile(relativePath: string, parserMode: CodeParserMode = "default", fingerprint?: CodeFileFingerprint): CodeFile {
+  let effectiveFingerprint = fingerprint;
+  let absolutePath = effectiveFingerprint ? codeFileFingerprintPaths.get(relativePath) : undefined;
+  if (!absolutePath || !effectiveFingerprint) {
+    const contained = requireContainedProjectFile(relativePath, "code-index file");
+    absolutePath = contained.absolutePath;
+    effectiveFingerprint ??= {
+      mtimeMs: normalizedMtimeMs(contained.stat),
+      path: relativePath,
+      size: contained.stat.size,
+    };
+  }
   const text = fs.readFileSync(absolutePath, "utf8");
-  const fingerprint = readCodeFileFingerprint(relativePath);
   const language = fileLanguage(relativePath) || "config";
   return {
-    bytes: fingerprint.size,
+    bytes: effectiveFingerprint.size,
     hash: crypto.createHash("sha256").update(text).digest("hex"),
     language,
-    lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
-    mtimeMs: fingerprint.mtimeMs,
+    lines: lineCount(text),
+    mtimeMs: effectiveFingerprint.mtimeMs,
     path: relativePath,
     profile: extractionProfile(relativePath, language, parserMode),
-    size: fingerprint.size,
+    size: effectiveFingerprint.size,
     text,
   };
 }
@@ -126,8 +179,9 @@ function extractionBackendForProfile(profile: string) {
 }
 
 function indexCodeFile(file: CodeFile, statements: IndexStatements): void {
-  statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
-  statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
+  const ftsRowid = fileFtsRowid(file.path);
+  statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
+  statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.text);
   extractionBackendForProfile(file.profile).index(file, statements);
 }
 
@@ -162,6 +216,282 @@ function removeDatabaseFiles(databasePath: string): void {
   }
 }
 
+function moveDatabaseFiles(sourcePath: string, targetPath: string): void {
+  const backupPath = `${targetPath}.backup-${process.pid}-${Date.now()}`;
+  removeDatabaseFiles(backupPath);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const target = `${targetPath}${suffix}`;
+    if (fs.existsSync(target)) fs.renameSync(target, `${backupPath}${suffix}`);
+  }
+  try {
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const source = `${sourcePath}${suffix}`;
+      if (fs.existsSync(source)) fs.renameSync(source, `${targetPath}${suffix}`);
+    }
+    removeDatabaseFiles(backupPath);
+  } catch (error) {
+    removeDatabaseFiles(targetPath);
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const backup = `${backupPath}${suffix}`;
+      if (fs.existsSync(backup)) fs.renameSync(backup, `${targetPath}${suffix}`);
+    }
+    throw error;
+  }
+}
+
+function removeTemporaryDatabaseFiles(databasePath: string): void {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const filePath = `${databasePath}${suffix}`;
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+}
+
+function nativeCodeIndexFileFor(filePath: string, parserMode: CodeParserMode) {
+  const fingerprint = readCodeFileFingerprint(filePath);
+  const language = fileLanguage(filePath) || "config";
+  return {
+    ...fingerprint,
+    language,
+    profile: extractionProfile(filePath, language, parserMode),
+  };
+}
+
+function nativeCodeIndexFileFromCodeFile(file: CodeFile): NativeCodeIndexFile {
+  return {
+    language: file.language,
+    mtimeMs: file.mtimeMs,
+    path: file.path,
+    profile: file.profile,
+    size: file.size,
+  };
+}
+
+function nativeCodeIndexFileFromFingerprint(file: CodeFileFingerprint, parserMode: CodeParserMode): NativeCodeIndexFile {
+  const language = fileLanguage(file.path) || "config";
+  return {
+    language,
+    mtimeMs: file.mtimeMs,
+    path: file.path,
+    profile: extractionProfile(file.path, language, parserMode),
+    size: file.size,
+  };
+}
+
+function nativeEligibleProfile(profile: string): boolean {
+  return nativeAutoEligibleProfile(profile) || profile === "config" || profile === "inventory-only";
+}
+
+function nativeCodeIndexIncrementalEligible(files: CodeFileFingerprint[], parserMode: CodeParserMode): boolean {
+  return files.every((file) => nativeEligibleProfile(nativeCodeIndexFileFromFingerprint(file, parserMode).profile));
+}
+
+function nativeAutoEligibleProfile(profile: string): boolean {
+  return [
+    "typescript-ast",
+    "python-light",
+    "go-light",
+    "c-light",
+    "cpp-light",
+    "csharp-light",
+    "java-light",
+    "kotlin-light",
+    "php-light",
+    "rust-light",
+    "swift-light",
+  ].includes(profile);
+}
+
+function nativeCodeIndexOutputMode(): NativeCodeIndexOutputMode {
+  const requested = (process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY ?? "sqlite-direct").trim();
+  if (requested === "row-stream" || requested === "sqlite-bridge" || requested === "sqlite-direct") return requested;
+  fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
+}
+
+function appendTypeScriptPartitionToNativeDatabase(databasePath: string, files: CodeFileFingerprint[], parserMode: CodeParserMode): number {
+  if (files.length === 0) return 0;
+  const database = openDatabase(databasePath);
+  try {
+    const statements = createIndexStatements(database);
+    database.exec("BEGIN");
+    for (const file of files) indexCodeFile(readCodeFile(file.path, parserMode, file), statements);
+    database.exec("COMMIT");
+    return files.length;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures after helper-created database errors.
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function writeNativeRowsToDatabase(databasePath: string, rows: NativeCodeIndexRows, scopes: string[], parserMode: CodeParserMode): void {
+  removeDatabaseFiles(databasePath);
+  const database = openDatabase(databasePath);
+  try {
+    setupDatabase(database, { secondaryIndexes: false });
+    const statements = createIndexStatements(database);
+    database.exec("BEGIN");
+    statements.insertMeta.run("created_at", new Date().toISOString());
+    writeIndexMetadata(scopes, parserMode, statements);
+    for (const file of rows.files) {
+      const ftsRowid = fileFtsRowid(file.path);
+      statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.kind, file.bytes, file.lines, file.hash, file.mtime_ms, file.size);
+      statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.content);
+    }
+    for (const symbol of rows.symbols) {
+      statements.insertSymbol.run(symbol.name, symbol.kind, symbol.file_path, symbol.line, symbol.signature);
+      statements.insertSymbolFts.run(symbol.name, symbol.kind, symbol.file_path, symbol.signature);
+    }
+    for (const imported of rows.imports) {
+      statements.insertImport.run(imported.from_file, imported.to_ref, imported.imported, imported.line, imported.raw);
+    }
+    for (const route of rows.routes) {
+      statements.insertRoute.run(route.method, route.route, route.file_path, route.line, route.handler);
+    }
+    for (const config of rows.configs) {
+      statements.insertConfig.run(config.key, config.value, config.file_path, config.line);
+    }
+    for (const edge of rows.edges) {
+      statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
+    }
+    createSecondaryIndexes(database);
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures after row-stream setup errors.
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+function runNativeCodeIndexMode(request: NativeCodeIndexModeRequest): void {
+  let helperPath = "";
+  try {
+    helperPath = requireNativeCodeIndexHelperPath();
+  } catch (error: unknown) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  prepareOutputPath();
+  const tempDatabasePath = `${request.databasePath.absolutePath}.native-${process.pid}-${Date.now()}.tmp`;
+  removeDatabaseFiles(tempDatabasePath);
+  const manifestFiles: NativeCodeIndexFile[] = [];
+  const nativeFiles: NativeCodeIndexFile[] = [];
+  const typescriptFiles: NativeCodeIndexFile[] = [];
+  for (const filePath of request.discoveredFiles) {
+    const file = nativeCodeIndexFileFor(filePath, request.parserMode);
+    manifestFiles.push(file);
+    if (nativeEligibleProfile(file.profile)) nativeFiles.push(file);
+    else typescriptFiles.push(file);
+  }
+  const typescriptProfiles = [...new Set(typescriptFiles.map((file) => file.profile))].sort();
+  const outputMode = nativeCodeIndexOutputMode();
+  const rowsPath = `${tempDatabasePath}.rows.json`;
+  const job = buildNativeCodeIndexJob({
+    database_path: tempDatabasePath,
+    files: nativeFiles,
+    output_mode: outputMode,
+    parser_mode: request.parserMode,
+    schema_version: codeIndexSchemaVersion,
+    scopes: request.scopes,
+    ...(outputMode === "row-stream" ? { rows_path: rowsPath } : {}),
+  });
+  let summary;
+  let typescriptIndexedFiles = 0;
+  try {
+    if (outputMode === "row-stream") {
+      const result = runNativeCodeIndexRowsHelper(job, { helperPath });
+      summary = result.summary;
+      writeNativeRowsToDatabase(tempDatabasePath, result.rows, request.scopes, request.parserMode);
+    } else {
+      summary = runNativeCodeIndexHelper(job, { helperPath });
+    }
+    if (!fs.existsSync(tempDatabasePath)) {
+      fail(`native code index helper did not create database: ${tempDatabasePath}`);
+    }
+    typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles, request.parserMode);
+    moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
+  } catch (error: unknown) {
+    removeTemporaryDatabaseFiles(tempDatabasePath);
+    fail(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (fs.existsSync(rowsPath)) fs.unlinkSync(rowsPath);
+  }
+  console.log("Project wiki code evidence index complete.");
+  console.log(`database: ${request.databasePath.relativePath}`);
+  console.log("mode: full");
+  console.log(`parser_mode: ${request.parserMode}`);
+  console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+  if (request.requestedEngine === "auto") console.log("engine_selection: auto");
+  console.log(`native_strategy: ${outputMode}`);
+  console.log(`scopes: ${request.scopes.join(", ")}`);
+  console.log(`files: ${manifestFiles.length}`);
+  console.log(`native_files: ${nativeFiles.length}`);
+  console.log(`typescript_files: ${typescriptIndexedFiles}`);
+  if (typescriptProfiles.length > 0) console.log(`typescript_profiles: ${typescriptProfiles.join(", ")}`);
+  console.log(`reindexed_files: ${manifestFiles.length}`);
+  console.log(`deleted_files: ${summary.deleted_files ?? 0}`);
+  console.log(`unchanged_files: ${summary.unchanged_files ?? 0}`);
+}
+
+function runNativeCodeIndexIncrementalMode(request: NativeCodeIndexIncrementalModeRequest): void {
+  let helperPath = "";
+  try {
+    helperPath = requireNativeCodeIndexHelperPath();
+  } catch (error: unknown) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const nativeFiles = request.reindexedFiles.map((file) => nativeCodeIndexFileFromFingerprint(file, request.parserMode));
+  const ineligibleProfiles = [...new Set(nativeFiles
+    .filter((file) => !nativeEligibleProfile(file.profile))
+    .map((file) => file.profile))].sort();
+  if (ineligibleProfiles.length > 0) {
+    fail(`native incremental writer does not support parser profiles: ${ineligibleProfiles.join(", ")}`);
+  }
+  prepareOutputPath();
+  const outputMode: NativeCodeIndexOutputMode = "sqlite-direct";
+  const job = buildNativeCodeIndexJob({
+    database_path: request.databasePath.absolutePath,
+    deleted_paths: request.deletedPaths,
+    files: nativeFiles,
+    mode: "incremental",
+    output_mode: outputMode,
+    parser_mode: request.parserMode,
+    schema_version: codeIndexSchemaVersion,
+    scopes: request.scopes,
+  });
+  let summary;
+  try {
+    summary = runNativeCodeIndexHelper(job, { helperPath });
+    if (!fs.existsSync(request.databasePath.absolutePath)) {
+      fail(`native incremental writer did not preserve database: ${request.databasePath.absolutePath}`);
+    }
+  } catch (error: unknown) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  console.log("Project wiki code evidence index complete.");
+  console.log(`database: ${request.databasePath.relativePath}`);
+  console.log("mode: incremental");
+  console.log(`parser_mode: ${request.parserMode}`);
+  console.log("engine: native-rust");
+  if (request.requestedEngine === "auto") console.log("engine_selection: auto");
+  console.log(`native_strategy: ${outputMode}`);
+  console.log(`scopes: ${request.scopes.join(", ")}`);
+  console.log(`files: ${request.discoveredFiles.length}`);
+  console.log(`native_files: ${nativeFiles.length}`);
+  console.log("typescript_files: 0");
+  console.log(`reindexed_files: ${summary.reindexed_files ?? nativeFiles.length}`);
+  console.log(`deleted_files: ${summary.deleted_files ?? request.deletedPaths.length}`);
+  console.log(`unchanged_files: ${request.unchangedFiles}`);
+}
+
 export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness {
   const scopes = indexedScopes(database);
   const parserMode = indexedParserMode(database);
@@ -182,7 +512,7 @@ export function codeIndexStaleness(database: SqliteDatabase): CodeIndexStaleness
       continue;
     }
     if (existing.mtimeMs === file.mtimeMs && existing.size === file.size) continue;
-    if (readCodeFile(file.path, parserMode).hash !== existing.hash) changed += 1;
+    if (readCodeFile(file.path, parserMode, file).hash !== existing.hash) changed += 1;
   }
   const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
 
@@ -392,13 +722,20 @@ function codeIndexModeRuntime(): CodeIndexModeRuntime {
     codeScopes,
     fail,
     indexCodeFile,
+    nativeCodeIndexAvailable,
+    nativeCodeIndexIncrementalEligible,
     openDatabase,
     prepareOutputPath,
     readCodeFileFingerprint,
     readCodeFile,
     removeDatabaseFiles,
     requireExistingIndex,
+    runNativeCodeIndexIncrementalMode,
+    runNativeCodeIndexMode,
+    selectedCodeIndexEngine,
     selectedCodeParserMode,
+    codeIndexEngineSelectionContext,
+    shouldUseNativeCodeIndexAuto,
     warnIfCodeIndexStale,
   };
 }

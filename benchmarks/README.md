@@ -4,9 +4,14 @@ Project Librarian benchmark evidence is based on actual Codex JSONL usage and lo
 
 ## Code performance efficiency harness
 
-`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes `fts_variants` for benchmark-only current/contentless-delete/external-content FTS comparisons, including DB size deltas, query-plan details, and normalized search parity hashes. The `sample_corpora` section covers checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy`) so synthetic scale evidence and mixed sample evidence stay separate.
+`npm run perf:code-efficiency` generates 3k/10k/50k code-evidence fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks. The `query_groups` section is direct DB timing for representative file/symbol/route/import/edge queries, so query tuning can be evaluated separately after staleness cost is isolated. The report also writes `fts_variants` for benchmark-only current/contentless-delete/external-content FTS comparisons, including DB size deltas, query-plan details, and normalized search parity hashes. The `sample_corpora` section covers checked-in non-scale fixtures (`mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy`) so synthetic scale evidence and mixed sample evidence stay separate. Use repeated `--actual-repo <path>` options to add local real repositories to the same TS/Rust timing and row-delta report; each actual repository is measured from a temporary materialized copy so the source directory is not modified.
 
 Use `--quick` only for harness diagnostics; quick reports are marked diagnostic-only for adoption decisions. Use `--report-dir <path>` for ad hoc reports that should not overwrite checked-in release evidence.
+
+```sh
+npm run build
+node benchmarks/tools/code-performance-efficiency.js --quick --compare-native --native-strategy sqlite-direct --actual-repo /path/to/repo --report-dir /tmp/project-librarian-code-perf
+```
 
 ## Claim ledger
 

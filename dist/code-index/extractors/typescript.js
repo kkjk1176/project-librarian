@@ -138,18 +138,22 @@ function signatureFor(node, sourceFile) {
     return (0, shared_1.oneLine)(node.getText(sourceFile));
 }
 function indexJavaScriptLike(file, statements) {
-    const sourceFile = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKindForPath(file.path));
+    const sourceFile = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, false, scriptKindForPath(file.path));
     function visit(node, context) {
         let nextContext = context;
         if (ts.isFunctionDeclaration(node)) {
             const name = node.name?.text ?? "";
-            (0, shared_1.insertSymbol)(statements, name, "function", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            (0, shared_1.insertSymbol)(statements, name, "function", file, line, signature);
             if (name)
                 nextContext = name;
         }
         else if (ts.isClassDeclaration(node)) {
             const name = node.name?.text ?? "";
-            (0, shared_1.insertSymbol)(statements, name, "class", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            (0, shared_1.insertSymbol)(statements, name, "class", file, line, signature);
             if (name)
                 nextContext = name;
         }
@@ -164,45 +168,55 @@ function indexJavaScriptLike(file, statements) {
         }
         else if (ts.isMethodDeclaration(node)) {
             const name = propertyNameText(node.name, sourceFile);
-            (0, shared_1.insertSymbol)(statements, name, "method", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            (0, shared_1.insertSymbol)(statements, name, "method", file, line, signature);
             for (const route of routeFromDecorator(node, sourceFile)) {
-                statements.insertRoute.run(route.method, route.route, file.path, tsLine(sourceFile, node), name);
-                (0, shared_1.insertEdge)(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", name, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+                statements.insertRoute.run(route.method, route.route, file.path, line, name);
+                (0, shared_1.insertEdge)(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", name, file, line, signature);
             }
             if (name)
                 nextContext = name;
         }
         else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
             const symbolKind = node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) ? "function" : "variable";
-            (0, shared_1.insertSymbol)(statements, node.name.text, symbolKind, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            (0, shared_1.insertSymbol)(statements, node.name.text, symbolKind, file, line, signature);
             if (symbolKind === "function")
                 nextContext = node.name.text;
         }
         else if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
             const imported = importBindingText(node.importClause, sourceFile);
-            statements.insertImport.run(file.path, node.moduleSpecifier.text, imported, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            (0, shared_1.insertEdge)(statements, "import", "file", file.path, "module", node.moduleSpecifier.text, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            statements.insertImport.run(file.path, node.moduleSpecifier.text, imported, line, signature);
+            (0, shared_1.insertEdge)(statements, "import", "file", file.path, "module", node.moduleSpecifier.text, file, line, signature);
         }
         else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
             const exported = node.exportClause ? (0, shared_1.oneLine)(node.exportClause.getText(sourceFile)) : "";
-            statements.insertImport.run(file.path, node.moduleSpecifier.text, exported, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            (0, shared_1.insertEdge)(statements, "export", "file", file.path, "module", node.moduleSpecifier.text, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
+            statements.insertImport.run(file.path, node.moduleSpecifier.text, exported, line, signature);
+            (0, shared_1.insertEdge)(statements, "export", "file", file.path, "module", node.moduleSpecifier.text, file, line, signature);
         }
         else if (ts.isCallExpression(node)) {
+            const line = tsLine(sourceFile, node);
+            const signature = signatureFor(node, sourceFile);
             const route = routeFromCall(node, sourceFile);
             if (route) {
-                statements.insertRoute.run(route.method, route.route, file.path, tsLine(sourceFile, node), route.handler);
-                (0, shared_1.insertEdge)(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", route.handler, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+                statements.insertRoute.run(route.method, route.route, file.path, line, route.handler);
+                (0, shared_1.insertEdge)(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", route.handler, file, line, signature);
             }
             if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
                 const moduleName = stringArg(node.arguments[0]);
                 if (moduleName) {
-                    statements.insertImport.run(file.path, moduleName, "", tsLine(sourceFile, node), signatureFor(node, sourceFile));
-                    (0, shared_1.insertEdge)(statements, "import", "file", file.path, "module", moduleName, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+                    statements.insertImport.run(file.path, moduleName, "", line, signature);
+                    (0, shared_1.insertEdge)(statements, "import", "file", file.path, "module", moduleName, file, line, signature);
                 }
             }
             else {
-                (0, shared_1.insertEdge)(statements, "call", context ? "symbol" : "file", context || file.path, "symbol", callTarget(node.expression, sourceFile), file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
+                (0, shared_1.insertEdge)(statements, "call", context ? "symbol" : "file", context || file.path, "symbol", callTarget(node.expression, sourceFile), file, line, signature);
             }
         }
         ts.forEachChild(node, (child) => visit(child, nextContext));

@@ -32,6 +32,133 @@ jobs:
       - name: Dry-run package contents
         run: npm pack --dry-run --json
 
+  build-native-helper:
+    name: Build native helper (${{ matrix.triple }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: darwin-arm64
+            runner: macos-14
+            rust_target: aarch64-apple-darwin
+          - triple: darwin-x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+          - triple: linux-arm64
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+          - triple: linux-arm64-musl
+            runner: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-musl
+          - triple: linux-x64
+            runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+          - triple: linux-x64-musl
+            runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-musl
+          - triple: win32-arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+          - triple: win32-x64
+            runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+    steps:
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.x"
+          package-manager-cache: false
+      - run: npm ci
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.rust_target }}
+      - name: Install musl tools
+        if: ${{ contains(matrix.triple, 'musl') }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build native helper
+        run: cargo build --release --locked --manifest-path native/indexer-rs/Cargo.toml --target ${{ matrix.rust_target }}
+        env:
+          CC_aarch64_unknown_linux_musl: musl-gcc
+          CC_x86_64_unknown_linux_musl: musl-gcc
+      - name: Stage packaged helper
+        run: node benchmarks/tools/native-indexer-package-audit.js --stage-packaged-helper --require-packaged-helper --triple ${{ matrix.triple }} --rust-target ${{ matrix.rust_target }}
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-helper-${{ matrix.triple }}
+          path: dist/native/${{ matrix.triple }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  package-native-helper-matrix:
+    needs:
+      - verify
+      - build-native-helper
+    runs-on: ubuntu-latest
+    steps:
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.x"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - run: npm ci
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-darwin-arm64
+          path: dist/native/darwin-arm64
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-darwin-x64
+          path: dist/native/darwin-x64
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-linux-arm64
+          path: dist/native/linux-arm64
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-linux-arm64-musl
+          path: dist/native/linux-arm64-musl
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-linux-x64
+          path: dist/native/linux-x64
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-linux-x64-musl
+          path: dist/native/linux-x64-musl
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-win32-arm64
+          path: dist/native/win32-arm64
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-win32-x64
+          path: dist/native/win32-x64
+      - name: Restore executable bits
+        run: find dist/native -type f -name project-librarian-indexer -exec chmod 755 {} \;
+      - run: npm run native:package-manifest
+      - run: npm run release:check
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-helper-package-matrix
+          path: dist/native/
+          if-no-files-found: error
+          retention-days: 1
+
   reject-manual-non-release-ref:
     if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run && !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
@@ -41,7 +168,7 @@ jobs:
           exit 1
 
   publish:
-    needs: verify
+    needs: package-native-helper-matrix
     if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run && startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     environment: npm-publish
@@ -57,5 +184,14 @@ jobs:
           node-version: "24.x"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+      # Full-SHA pinned for supply-chain integrity; Dependabot updates the ref.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: native-helper-package-matrix
+          path: dist/native
+      - name: Restore executable bits
+        run: find dist/native -type f -name project-librarian-indexer -exec chmod 755 {} \;
+      - name: Verify packaged helper matrix
+        run: node benchmarks/tools/native-indexer-package-audit.js --require-packaged-helper-matrix --require-packaged-helper-provenance
       - name: Publish to npm through trusted publishing
         run: npm publish --access public --ignore-scripts

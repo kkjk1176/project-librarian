@@ -38,6 +38,7 @@ exports.fileLanguage = fileLanguage;
 exports.isJavaScriptLike = isJavaScriptLike;
 exports.shouldIndexFile = shouldIndexFile;
 exports.isIgnoredCodePath = isIgnoredCodePath;
+exports.cachedDiscoveredCodeFileStat = cachedDiscoveredCodeFileStat;
 exports.discoverCodeFiles = discoverCodeFiles;
 exports.smallRepoCodeIndexGate = smallRepoCodeIndexGate;
 const childProcess = __importStar(require("node:child_process"));
@@ -76,6 +77,7 @@ const languageByExtension = {
 };
 const configExtensions = new Set([".json", ".yaml", ".yml", ".toml"]);
 exports.maxIndexedBytes = 1024 * 1024;
+const discoveredCodeFileStats = new Map();
 function fileLanguage(relativePath) {
     if (path.basename(relativePath) === ".env.example")
         return "config";
@@ -170,7 +172,11 @@ function gitTrackedAndUnignoredFiles(scopes) {
 function indexableFileStat(file) {
     return (0, workspace_1.containedProjectFileStat)(file);
 }
+function cachedDiscoveredCodeFileStat(relativePath) {
+    return discoveredCodeFileStats.get(relativePath);
+}
 function discoverCodeFiles(scopes) {
+    discoveredCodeFileStats.clear();
     const gitFiles = gitTrackedAndUnignoredFiles(scopes);
     const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
     const files = [];
@@ -178,8 +184,10 @@ function discoverCodeFiles(scopes) {
         if (isIgnoredCodePath(file) || !shouldIndexFile(file))
             continue;
         const stat = indexableFileStat(file);
-        if (stat && stat.size <= exports.maxIndexedBytes)
+        if (stat && stat.size <= exports.maxIndexedBytes) {
+            discoveredCodeFileStats.set(file, { absolutePath: (0, workspace_1.abs)(file), stat });
             files.push(file);
+        }
     }
     return files.sort();
 }

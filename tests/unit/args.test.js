@@ -85,6 +85,16 @@ test("parseArgs handles code evidence aliases and comma scopes", () => {
   assert.deepEqual(parsed.codeIndexScopes, ["src", "tests", "benchmarks"]);
 });
 
+test("parseArgs defaults code index engine selection to auto unless explicitly overridden", () => {
+  const implicit = parseArgs([]);
+  assert.equal(implicit.codeIndexEngine, "auto");
+  assert.equal(implicit.codeIndexEngineMode, false);
+
+  const explicit = parseArgs(["--code-index", "--code-index-engine", "typescript"]);
+  assert.equal(explicit.codeIndexEngine, "typescript");
+  assert.equal(explicit.codeIndexEngineMode, true);
+});
+
 test("parseArgs handles code context pack aliases", () => {
   const parsed = parseArgs(["--code-evidence-context-pack", "healthHandler"]);
   assert.equal(parsed.codeContextPackMode, true);
@@ -94,6 +104,7 @@ test("parseArgs handles code context pack aliases", () => {
 test("parseArgs handles code evidence alias groups from the flag schema", () => {
   const parsed = parseArgs([
     "--code-evidence-index",
+    "--code-evidence-index-engine=auto",
     "--code-evidence-index-full",
     "--code-evidence-index-incremental",
     "--code-evidence-parser=tree-sitter",
@@ -107,6 +118,8 @@ test("parseArgs handles code evidence alias groups from the flag schema", () => 
     "--code-evidence-out=.project-wiki/custom.sqlite",
   ]);
   assert.equal(parsed.codeIndexMode, true);
+  assert.equal(parsed.codeIndexEngineMode, true);
+  assert.equal(parsed.codeIndexEngine, "auto");
   assert.equal(parsed.codeIndexFullMode, true);
   assert.equal(parsed.codeIndexIncrementalMode, true);
   assert.equal(parsed.codeParserMode, true);

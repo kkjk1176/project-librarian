@@ -62,6 +62,7 @@ Options:
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
+  --code-index-engine <engine>     With --code-index, override default auto engine: typescript or native-rust.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
   --code-query <sql>               Run conservative read-only SQL over the code evidence index.
   --code-status, --code-files      Inspect the code evidence index.
@@ -163,6 +164,10 @@ if (args_1.acknowledgeSmallRepoMode && !args_1.codeIndexMode) {
 }
 if (args_1.codeIndexFullMode && !args_1.codeIndexMode) {
     console.error("--code-index-full is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.codeIndexEngineMode && !args_1.codeIndexMode) {
+    console.error("--code-index-engine is only supported with --code-index.");
     process.exit(1);
 }
 if (args_1.codeParserMode && !args_1.codeIndexMode) {
