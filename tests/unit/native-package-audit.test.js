@@ -12,14 +12,27 @@ const {
   packageFilesCanShipPackagedHelper,
   packageFilesIncludeNative,
   packagedHelperBinaryStatus,
+  packagedHelperManifestPath,
   packagedHelperMatrixStatus,
   packagedHelperPathForTriple,
+  packagedHelperProvenanceStatus,
+  readPackagedHelperManifest,
   stagePackagedHelper,
   supportedTriples,
+  writePackagedHelperManifest,
 } = require("../../benchmarks/tools/native-indexer-package-audit.js");
 
 function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function writeFullHelperMatrix(cwd) {
+  for (const triple of supportedTriples) {
+    const helper = packagedHelperPathForTriple(cwd, triple);
+    fs.mkdirSync(path.dirname(helper), { recursive: true });
+    fs.writeFileSync(helper, sampleBinaryForTriple(triple));
+    if (!triple.startsWith("win32-")) fs.chmodSync(helper, 0o755);
+  }
 }
 
 test("native package audit reports local helper and missing packaged helper", () => {
@@ -170,6 +183,57 @@ test("native package audit rejects mislabeled packaged helper binaries", () => {
     assert.equal(matrix.ok, false);
     assert.equal(matrix.status, "packaged-helper-binary-mismatch");
     assert.deepEqual(matrix.binary_mismatches.map((item) => item.triple), ["linux-x64"]);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native package audit requires packaged helper provenance manifests", () => {
+  const cwd = makeTmpDir("native-package-provenance-");
+  try {
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({
+      files: ["dist/"],
+    }));
+
+    const empty = packagedHelperProvenanceStatus({ repoRoot: cwd });
+    assert.equal(empty.ok, true);
+    assert.equal(empty.status, "no-packaged-helper");
+
+    fs.mkdirSync(path.dirname(packagedHelperManifestPath(cwd)), { recursive: true });
+    fs.writeFileSync(packagedHelperManifestPath(cwd), "{}\n");
+    const stale = packagedHelperProvenanceStatus({ repoRoot: cwd });
+    assert.equal(stale.ok, false);
+    assert.equal(stale.status, "packaged-helper-provenance-stale");
+    fs.rmSync(packagedHelperManifestPath(cwd));
+
+    writeFullHelperMatrix(cwd);
+    const missingManifest = inspectNativeIndexerPackaging({
+      repoRoot: cwd,
+      requirePackagedHelperMatrix: true,
+      requirePackagedHelperProvenance: true,
+    });
+    assert.equal(missingManifest.packaged_helper_matrix.status, "packaged-helper-matrix-ready");
+    assert.equal(missingManifest.packaged_helper_provenance.status, "packaged-helper-provenance-missing");
+    assert.equal(missingManifest.ok, false);
+
+    const written = writePackagedHelperManifest({ repoRoot: cwd });
+    assert.equal(fs.existsSync(written.manifest_path), true);
+    const manifest = readPackagedHelperManifest(cwd);
+    assert.deepEqual(manifest.helpers.map((entry) => entry.triple).sort(), [...supportedTriples].sort());
+
+    const ready = inspectNativeIndexerPackaging({
+      repoRoot: cwd,
+      requirePackagedHelperMatrix: true,
+      requirePackagedHelperProvenance: true,
+    });
+    assert.equal(ready.packaged_helper_provenance.status, "packaged-helper-provenance-ready");
+    assert.equal(ready.ok, ready.supported_platform);
+
+    fs.appendFileSync(packagedHelperPathForTriple(cwd, "linux-x64"), "changed");
+    const changed = packagedHelperProvenanceStatus({ repoRoot: cwd });
+    assert.equal(changed.ok, false);
+    assert.equal(changed.status, "packaged-helper-provenance-mismatch");
+    assert.ok(changed.mismatches.some((item) => item.triple === "linux-x64" && item.field === "sha256"));
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

@@ -5,6 +5,12 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { sampleBinaryForTriple } = require("./native-binary-fixtures.js");
+const {
+  packagedHelperManifestRelativePath,
+  packagedHelperPathForTriple,
+  supportedTriples,
+  writePackagedHelperManifest,
+} = require("../../benchmarks/tools/native-indexer-package-audit.js");
 
 const {
   benchmarkClaimStatus,
@@ -14,6 +20,7 @@ const {
   inspectPackFiles,
   normalizePackPath,
   nativeHelperPackageMatrixStatus,
+  nativeHelperPackageProvenanceStatus,
   packFileRecords,
   packFilePaths,
   parsePackJson,
@@ -75,9 +82,16 @@ test("release readiness rejects partial native helper package matrices", () => {
     "LICENSE",
     "README.md",
     "dist/init-project-wiki.js",
+    packagedHelperManifestRelativePath(),
   ]);
   assert.equal(noNative.ok, true);
   assert.equal(noNative.status, "no-packaged-helper");
+
+  const staleProvenance = nativeHelperPackageProvenanceStatus([
+    packagedHelperManifestRelativePath(),
+  ]);
+  assert.equal(staleProvenance.ok, false);
+  assert.equal(staleProvenance.status, "packaged-helper-provenance-stale");
 
   const partial = nativeHelperPackageMatrixStatus([
     "dist/native/darwin-arm64/project-librarian-indexer",
@@ -106,6 +120,39 @@ test("release readiness rejects partial native helper package matrices", () => {
   ]);
   assert.equal(unexpected.ok, false);
   assert.deepEqual(unexpected.unexpected_files, ["dist/native/linux-x64/README.txt"]);
+});
+
+test("release readiness requires packaged native helper provenance manifests", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "release-native-provenance-"));
+  try {
+    const expectedFiles = nativeHelperPackageMatrixStatus([]).expected_files;
+    for (const triple of supportedTriples) {
+      const helperPath = packagedHelperPathForTriple(cwd, triple);
+      fs.mkdirSync(path.dirname(helperPath), { recursive: true });
+      fs.writeFileSync(helperPath, sampleBinaryForTriple(triple));
+      if (!triple.startsWith("win32-")) fs.chmodSync(helperPath, 0o755);
+    }
+
+    const missing = nativeHelperPackageProvenanceStatus(expectedFiles, {
+      matrixStatus: nativeHelperPackageMatrixStatus(expectedFiles),
+      repoRoot: cwd,
+    });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.status, "packaged-helper-provenance-missing");
+
+    writePackagedHelperManifest({ repoRoot: cwd });
+    const ready = nativeHelperPackageProvenanceStatus([
+      ...expectedFiles,
+      packagedHelperManifestRelativePath(),
+    ], {
+      matrixStatus: nativeHelperPackageMatrixStatus(expectedFiles),
+      repoRoot: cwd,
+    });
+    assert.equal(ready.ok, true);
+    assert.equal(ready.status, "packaged-helper-provenance-ready");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("release readiness can validate packaged native helper binary formats", () => {

@@ -6,7 +6,13 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
-const { helperBinaryName, packagedHelperBinaryStatus, supportedTriples } = require("./native-indexer-package-audit");
+const {
+  helperBinaryName,
+  packagedHelperBinaryStatus,
+  packagedHelperManifestRelativePath,
+  packagedHelperProvenanceStatus,
+  supportedTriples,
+} = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -63,7 +69,7 @@ Runs local-only release checks:
   - benchmark claim ledger classification
   - benchmark raw hygiene audit
   - npm pack --dry-run --json package inspection
-  - native helper package matrix inspection when dist/native files are shipped
+  - native helper package matrix and provenance manifest inspection when dist/native files are shipped
   - dist executable/parity and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
   - release provenance/attestation status
@@ -177,6 +183,7 @@ function nativeHelperPackageMatrixStatus(files, options = {}) {
   const expectedPaths = expected.map((file) => file.path).sort();
   const records = files.map(normalizePackFileRecord).filter((file) => file.path);
   const nativeFiles = records.filter((file) => file.path.startsWith("dist/native/"))
+    .filter((file) => file.path !== packagedHelperManifestRelativePath())
     .sort((left, right) => compareStrings(left.path, right.path));
   const nativeFileByPath = new Map(nativeFiles.map((file) => [file.path, file]));
   const expectedSet = new Set(expectedPaths);
@@ -225,6 +232,47 @@ function nativeHelperPackageMatrixStatus(files, options = {}) {
     present_files: present,
     status,
     unexpected_files: unexpected,
+  };
+}
+
+function nativeHelperPackageProvenanceStatus(files, options = {}) {
+  const records = files.map(normalizePackFileRecord).filter((file) => file.path);
+  const manifestPath = packagedHelperManifestRelativePath();
+  const matrixStatus = options.matrixStatus ?? nativeHelperPackageMatrixStatus(records, options);
+  const manifestIncluded = records.some((file) => file.path === manifestPath);
+  if (matrixStatus.status === "no-packaged-helper") {
+    return {
+      ok: !manifestIncluded,
+      manifest_file: manifestPath,
+      manifest_included: manifestIncluded,
+      matrix_status: matrixStatus.status,
+      mismatches: manifestIncluded ? [{
+        field: "manifest",
+        path: manifestPath,
+        reason: "manifest is present without packaged helpers",
+      }] : [],
+      status: manifestIncluded ? "packaged-helper-provenance-stale" : "no-packaged-helper",
+    };
+  }
+  if (!manifestIncluded) {
+    return {
+      ok: false,
+      manifest_file: manifestPath,
+      manifest_included: false,
+      matrix_status: matrixStatus.status,
+      mismatches: [{
+        field: "manifest",
+        path: manifestPath,
+        reason: "manifest is required in npm pack contents when packaged helpers are present",
+      }],
+      status: "packaged-helper-provenance-missing",
+    };
+  }
+  const provenance = packagedHelperProvenanceStatus({ repoRoot: options.repoRoot ?? repoRoot });
+  return {
+    ...provenance,
+    manifest_file: manifestPath,
+    manifest_included: true,
   };
 }
 
@@ -646,6 +694,16 @@ function main() {
     fail("release readiness failed: native helper package matrix");
   }
 
+  const nativeProvenance = nativeHelperPackageProvenanceStatus(fileRecords, {
+    matrixStatus: nativeMatrix,
+    repoRoot,
+  });
+  console.log(`${nativeProvenance.ok ? "PASS" : "FAIL"} native helper package provenance: ${nativeProvenance.status}`);
+  if (!nativeProvenance.ok) {
+    console.error(JSON.stringify(nativeProvenance, null, 2));
+    fail("release readiness failed: native helper package provenance");
+  }
+
   const distStatus = distExecutableStatus();
   console.log(`${distStatus.ok ? "PASS" : "FAIL"} dist executable: ${distStatus.message}`);
   if (!distStatus.ok) fail("release readiness failed: dist executable");
@@ -715,6 +773,7 @@ function main() {
     dist: distStatus,
     dist_parity: distParity,
     native_helper_package_matrix: nativeMatrix,
+    native_helper_package_provenance: nativeProvenance,
     package: packInspection,
     readme_benchmark_claim: readmeStatus,
     readme_code_evidence_freshness: codeEvidenceFreshnessStatus,
@@ -737,6 +796,7 @@ module.exports = {
   distExecutableStatus,
   githubActionReferencePinningStatus,
   inspectPackFiles,
+  nativeHelperPackageProvenanceStatus,
   nativeHelperPackageMatrixStatus,
   normalizePackPath,
   packFileRecords,

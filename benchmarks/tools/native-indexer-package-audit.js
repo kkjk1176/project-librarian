@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -19,6 +20,8 @@ const binaryExpectations = new Map([
   ["linux-x64", { architecture: "x64", format: "elf" }],
   ["win32-x64", { architecture: "x64", format: "pe" }],
 ]);
+const packagedHelperManifestFileName = "project-librarian-indexer-manifest.json";
+const packagedHelperManifestSchemaVersion = 1;
 const machoCpuTypes = new Map([
   [0x01000007, "x64"],
   [0x0100000c, "arm64"],
@@ -53,6 +56,24 @@ function defaultPackagedHelperPath(repoRoot = process.cwd(), platform = process.
 
 function packagedHelperPathForTriple(repoRoot = process.cwd(), triple = currentPlatformTriple()) {
   return path.join(repoRoot, "dist", "native", triple, helperBinaryName(platformFromTriple(triple)));
+}
+
+function packagedHelperManifestRelativePath() {
+  return `dist/native/${packagedHelperManifestFileName}`;
+}
+
+function packagedHelperManifestPath(repoRoot = process.cwd()) {
+  return path.join(repoRoot, "dist", "native", packagedHelperManifestFileName);
+}
+
+function repoRelativePath(repoRoot, filePath) {
+  return path.relative(repoRoot, filePath).split(path.sep).join("/");
+}
+
+function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest("hex");
 }
 
 function readInt32(buffer, offset, endian) {
@@ -251,12 +272,13 @@ function packagedHelperMatrixStatus(options = {}) {
     for (const triple of fs.readdirSync(nativeRoot)) {
       const tripleRoot = path.join(nativeRoot, triple);
       if (!fs.statSync(tripleRoot).isDirectory()) {
-        unexpected.push(path.relative(repoRoot, tripleRoot).split(path.sep).join("/"));
+        const relativePath = repoRelativePath(repoRoot, tripleRoot);
+        if (relativePath !== packagedHelperManifestRelativePath()) unexpected.push(relativePath);
         continue;
       }
       const expectedName = helperBinaryName(platformFromTriple(triple));
       for (const entry of fs.readdirSync(tripleRoot)) {
-        const relativePath = path.relative(repoRoot, path.join(tripleRoot, entry)).split(path.sep).join("/");
+        const relativePath = repoRelativePath(repoRoot, path.join(tripleRoot, entry));
         if (!supportedTripleSet.has(triple) || entry !== expectedName) unexpected.push(relativePath);
       }
     }
@@ -289,6 +311,220 @@ function packagedHelperMatrixStatus(options = {}) {
   };
 }
 
+function expectedPackagedHelperManifestEntries(repoRoot = process.cwd()) {
+  const resolvedRoot = path.resolve(repoRoot);
+  return supportedTriples.map((triple) => {
+    const filePath = packagedHelperPathForTriple(resolvedRoot, triple);
+    const expected = binaryExpectations.get(triple);
+    const stat = fs.statSync(filePath);
+    return {
+      architecture: expected?.architecture ?? "unknown",
+      format: expected?.format ?? "unknown",
+      path: repoRelativePath(resolvedRoot, filePath),
+      sha256: sha256File(filePath),
+      size: stat.size,
+      triple,
+    };
+  });
+}
+
+function buildPackagedHelperManifest(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const matrixStatus = packagedHelperMatrixStatus({ repoRoot });
+  if (matrixStatus.status !== "packaged-helper-matrix-ready") {
+    throw new Error(`cannot write packaged helper manifest until matrix is ready: ${matrixStatus.status}`);
+  }
+  return {
+    artifact: "project-librarian-indexer",
+    helpers: expectedPackagedHelperManifestEntries(repoRoot),
+    schema_version: packagedHelperManifestSchemaVersion,
+  };
+}
+
+function writePackagedHelperManifest(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const manifest = buildPackagedHelperManifest({ repoRoot });
+  const manifestPath = packagedHelperManifestPath(repoRoot);
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  return {
+    manifest,
+    manifest_path: manifestPath,
+  };
+}
+
+function readPackagedHelperManifest(repoRoot = process.cwd()) {
+  const resolvedRoot = path.resolve(repoRoot);
+  const manifestPath = packagedHelperManifestPath(resolvedRoot);
+  return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+}
+
+function manifestEntryMismatch(expected, actual) {
+  const mismatches = [];
+  for (const field of ["path", "sha256", "size", "format", "architecture"]) {
+    if (actual?.[field] !== expected[field]) {
+      mismatches.push({
+        actual: actual?.[field],
+        expected: expected[field],
+        field,
+        triple: expected.triple,
+      });
+    }
+  }
+  return mismatches;
+}
+
+function packagedHelperProvenanceStatus(options = {}) {
+  const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
+  const matrixStatus = packagedHelperMatrixStatus({ repoRoot });
+  const manifestPath = packagedHelperManifestPath(repoRoot);
+  const manifestExists = fs.existsSync(manifestPath);
+  const manifestRelativePath = packagedHelperManifestRelativePath();
+  if (matrixStatus.status === "no-packaged-helper") {
+    return {
+      ok: !manifestExists,
+      expected_helpers: [],
+      manifest_helpers: [],
+      manifest_path: manifestPath,
+      manifest_relative_path: manifestRelativePath,
+      matrix_status: matrixStatus.status,
+      mismatches: manifestExists ? [{
+        field: "manifest",
+        path: manifestRelativePath,
+        reason: "manifest is present without packaged helpers",
+      }] : [],
+      status: manifestExists ? "packaged-helper-provenance-stale" : "no-packaged-helper",
+    };
+  }
+  if (!manifestExists) {
+    return {
+      ok: false,
+      expected_helpers: [],
+      manifest_helpers: [],
+      manifest_path: manifestPath,
+      manifest_relative_path: manifestRelativePath,
+      matrix_status: matrixStatus.status,
+      mismatches: [{
+        field: "manifest",
+        path: manifestRelativePath,
+        reason: "manifest is required when packaged helpers are present",
+      }],
+      status: "packaged-helper-provenance-missing",
+    };
+  }
+
+  let manifest;
+  try {
+    manifest = readPackagedHelperManifest(repoRoot);
+  } catch (error) {
+    return {
+      ok: false,
+      expected_helpers: [],
+      manifest_helpers: [],
+      manifest_path: manifestPath,
+      manifest_relative_path: manifestRelativePath,
+      matrix_status: matrixStatus.status,
+      mismatches: [{
+        error: error instanceof Error ? error.message : String(error),
+        field: "manifest",
+        path: manifestRelativePath,
+        reason: "manifest could not be parsed",
+      }],
+      status: "packaged-helper-provenance-invalid",
+    };
+  }
+
+  const expectedHelpers = matrixStatus.status === "packaged-helper-matrix-ready"
+    ? expectedPackagedHelperManifestEntries(repoRoot)
+    : [];
+  const expectedByTriple = new Map(expectedHelpers.map((entry) => [entry.triple, entry]));
+  const helpers = Array.isArray(manifest?.helpers) ? manifest.helpers : [];
+  const manifestHelpers = helpers.map((entry) => ({
+    architecture: entry?.architecture,
+    format: entry?.format,
+    path: entry?.path,
+    sha256: entry?.sha256,
+    size: entry?.size,
+    triple: entry?.triple,
+  }));
+  const countsByTriple = new Map();
+  for (const helper of manifestHelpers) {
+    countsByTriple.set(helper.triple, (countsByTriple.get(helper.triple) ?? 0) + 1);
+  }
+  const duplicateTriples = Array.from(countsByTriple.entries())
+    .filter(([, count]) => count > 1)
+    .map(([triple]) => triple)
+    .sort();
+  const missingTriples = supportedTriples.filter((triple) => !countsByTriple.has(triple)).sort();
+  const unexpectedTriples = Array.from(countsByTriple.keys())
+    .filter((triple) => !supportedTripleSet.has(triple))
+    .sort();
+  const unexpectedPaths = manifestHelpers
+    .filter((entry) => typeof entry.path === "string" && !expectedByTriple.has(entry.triple))
+    .map((entry) => entry.path)
+    .sort();
+  const mismatches = [];
+  if (manifest?.schema_version !== packagedHelperManifestSchemaVersion) {
+    mismatches.push({
+      actual: manifest?.schema_version,
+      expected: packagedHelperManifestSchemaVersion,
+      field: "schema_version",
+    });
+  }
+  if (manifest?.artifact !== "project-librarian-indexer") {
+    mismatches.push({
+      actual: manifest?.artifact,
+      expected: "project-librarian-indexer",
+      field: "artifact",
+    });
+  }
+  if (!Array.isArray(manifest?.helpers)) {
+    mismatches.push({
+      actual: typeof manifest?.helpers,
+      expected: "array",
+      field: "helpers",
+    });
+  }
+  if (matrixStatus.status !== "packaged-helper-matrix-ready") {
+    mismatches.push({
+      actual: matrixStatus.status,
+      expected: "packaged-helper-matrix-ready",
+      field: "matrix_status",
+    });
+  }
+  for (const expected of expectedHelpers) {
+    const actual = manifestHelpers.find((entry) => entry.triple === expected.triple);
+    if (actual) mismatches.push(...manifestEntryMismatch(expected, actual));
+  }
+  for (const triple of duplicateTriples) {
+    mismatches.push({ field: "triple", reason: "duplicate helper entry", triple });
+  }
+  for (const triple of missingTriples) {
+    mismatches.push({ field: "triple", reason: "missing helper entry", triple });
+  }
+  for (const triple of unexpectedTriples) {
+    mismatches.push({ field: "triple", reason: "unsupported helper entry", triple });
+  }
+  for (const helperPath of unexpectedPaths) {
+    mismatches.push({ field: "path", path: helperPath, reason: "unexpected helper path" });
+  }
+  const ok = mismatches.length === 0;
+  return {
+    ok,
+    duplicate_triples: duplicateTriples,
+    expected_helpers: expectedHelpers,
+    manifest_helpers: manifestHelpers,
+    manifest_path: manifestPath,
+    manifest_relative_path: manifestRelativePath,
+    matrix_status: matrixStatus.status,
+    missing_triples: missingTriples,
+    mismatches,
+    status: ok ? "packaged-helper-provenance-ready" : "packaged-helper-provenance-mismatch",
+    unexpected_paths: unexpectedPaths,
+    unexpected_triples: unexpectedTriples,
+  };
+}
+
 function inspectNativeIndexerPackaging(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? process.cwd());
   const platform = options.platform ?? process.platform;
@@ -310,11 +546,13 @@ function inspectNativeIndexerPackaging(options = {}) {
   const packagedHelperReady = packagedHelperInBoundary && Boolean(packagedHelperBinary?.ok);
   const anyHelperReady = helperReady || packagedHelperReady;
   const matrixStatus = packagedHelperMatrixStatus({ repoRoot });
+  const provenanceStatus = packagedHelperProvenanceStatus({ repoRoot });
   return {
     ok: supportedTripleSet.has(triple)
       && (!options.requireHelper || anyHelperReady)
       && (!options.requirePackagedHelper || packagedHelperReady)
       && (!options.requirePackagedHelperMatrix || matrixStatus.status === "packaged-helper-matrix-ready")
+      && (!options.requirePackagedHelperProvenance || provenanceStatus.status === "packaged-helper-provenance-ready")
       && (!options.requirePackagingEnabled || packageCanShipPackagedHelper),
     platform,
     arch,
@@ -334,6 +572,7 @@ function inspectNativeIndexerPackaging(options = {}) {
     package_files_can_ship_packaged_helper: packageCanShipPackagedHelper,
     package_files: Array.isArray(packageJson.files) ? packageJson.files : [],
     packaged_helper_matrix: matrixStatus,
+    packaged_helper_provenance: provenanceStatus,
     packaging_status: matrixStatus.status === "packaged-helper-matrix-ready" || matrixStatus.status === "packaged-helper-binary-mismatch"
       ? matrixStatus.status
       : packagedHelperInBoundary
@@ -360,10 +599,14 @@ function parseArgs(argv) {
       options.requirePackagedHelper = true;
     } else if (arg === "--require-packaged-helper-matrix") {
       options.requirePackagedHelperMatrix = true;
+    } else if (arg === "--require-packaged-helper-provenance") {
+      options.requirePackagedHelperProvenance = true;
     } else if (arg === "--require-packaging-enabled") {
       options.requirePackagingEnabled = true;
     } else if (arg === "--stage-packaged-helper") {
       options.stagePackagedHelper = true;
+    } else if (arg === "--write-packaged-helper-manifest") {
+      options.writePackagedHelperManifest = true;
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
@@ -376,6 +619,7 @@ function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
     if (options.stagePackagedHelper) stagePackagedHelper(options);
+    if (options.writePackagedHelperManifest) writePackagedHelperManifest(options);
     result = inspectNativeIndexerPackaging(options);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -391,17 +635,24 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildPackagedHelperManifest,
   currentPlatformTriple,
   defaultHelperPath,
   defaultPackagedHelperPath,
+  expectedPackagedHelperManifestEntries,
   helperBinaryName,
   inspectNativeIndexerPackaging,
   inspectNativeHelperBinary,
   packageFilesCanShipPackagedHelper,
   packageFilesIncludeNative,
   packagedHelperBinaryStatus,
+  packagedHelperManifestPath,
+  packagedHelperManifestRelativePath,
   packagedHelperMatrixStatus,
   packagedHelperPathForTriple,
+  packagedHelperProvenanceStatus,
+  readPackagedHelperManifest,
   stagePackagedHelper,
   supportedTriples,
+  writePackagedHelperManifest,
 };
