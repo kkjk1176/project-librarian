@@ -15,6 +15,13 @@ const {
 } = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
+const nativeHelperPublishRunners = new Map([
+  ["darwin-arm64", "macos-14"],
+  ["darwin-x64", "macos-15-intel"],
+  ["linux-arm64", "ubuntu-24.04-arm"],
+  ["linux-x64", "ubuntu-latest"],
+  ["win32-x64", "windows-latest"],
+]);
 
 const requiredPackFiles = [
   "LICENSE",
@@ -42,6 +49,31 @@ function compareStrings(left, right) {
   if (left < right) return -1;
   if (left > right) return 1;
   return 0;
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function patternIndex(text, pattern) {
+  const match = pattern.exec(text);
+  return match ? match.index : -1;
+}
+
+function requirePatternOrder(body, steps) {
+  const orderErrors = [];
+  let previousIndex = -1;
+  let previousLabel = null;
+  for (const [label, pattern] of steps) {
+    const index = patternIndex(body, pattern);
+    if (index < 0) continue;
+    if (previousIndex >= 0 && index <= previousIndex) {
+      orderErrors.push(`${label} must run after ${previousLabel}`);
+    }
+    previousIndex = index;
+    previousLabel = label;
+  }
+  return orderErrors;
 }
 
 function fail(message) {
@@ -72,6 +104,7 @@ Runs local-only release checks:
   - native helper package matrix and provenance manifest inspection when dist/native files are shipped
   - dist executable/parity and README benchmark-claim labeling checks
   - trusted publishing workflow safety checks
+  - native helper publish workflow artifact-chain checks
   - release provenance/attestation status
 
 Use --only-dist-parity to run only the generated dist/ drift check.
@@ -409,6 +442,92 @@ function manualPublishGuardStatus(text) {
   };
 }
 
+function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".github", "workflows", "publish.yml")) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: false,
+      missing: ["publish workflow"],
+      order_errors: [],
+      present_triples: [],
+      message: ".github/workflows/publish.yml is missing",
+    };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const jobs = new Map(workflowJobBlocks(text).map((job) => [job.name, job.body]));
+  const buildJob = jobs.get("build-native-helper") ?? "";
+  const packageJob = jobs.get("package-native-helper-matrix") ?? "";
+  const publishJob = jobs.get("publish") ?? "";
+  const presentTriples = supportedTriples.filter((triple) => new RegExp(`\\btriple:\\s*${triple}\\b`).test(buildJob));
+  const missing = [];
+  if (!buildJob) missing.push("build-native-helper job");
+  if (!packageJob) missing.push("package-native-helper-matrix job");
+  if (!publishJob) missing.push("publish job");
+  for (const triple of supportedTriples) {
+    if (!presentTriples.includes(triple)) missing.push(`build matrix triple ${triple}`);
+    const expectedRunner = nativeHelperPublishRunners.get(triple);
+    if (expectedRunner && buildJob && !new RegExp(`-\\s+triple:\\s*${escapeRegExp(triple)}\\s*\\n\\s+runner:\\s*${escapeRegExp(expectedRunner)}\\b`).test(buildJob)) {
+      missing.push(`build matrix runner ${triple} -> ${expectedRunner}`);
+    }
+    if (packageJob && !new RegExp(`\\bname:\\s*native-helper-${triple}\\b`).test(packageJob)) {
+      missing.push(`download artifact native-helper-${triple}`);
+    }
+    if (packageJob && !new RegExp(`\\bpath:\\s*dist/native/${triple}\\b`).test(packageJob)) {
+      missing.push(`download path dist/native/${triple}`);
+    }
+  }
+  const requiredPatterns = [
+    ["build job installs dependencies", buildJob, /\bnpm\s+ci\b/],
+    ["shared helper staging script", buildJob, /\bnpm\s+run\s+native:stage\b/],
+    ["per-triple helper artifact upload", buildJob, /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
+    ["per-triple helper artifact path", buildJob, /\bpath:\s*dist\/native\/\$\{\{\s*matrix\.triple\s*\}\}\//],
+    ["package job needs verify", packageJob, /(?:^|\n)\s*-\s+verify\b/],
+    ["package job needs helper build", packageJob, /(?:^|\n)\s*-\s+build-native-helper\b/],
+    ["package job installs dependencies", packageJob, /\bnpm\s+ci\b/],
+    ["helper manifest generation", packageJob, /\bnpm\s+run\s+native:package-manifest\b/],
+    ["helper-inclusive release check", packageJob, /\bnpm\s+run\s+release:check\b/],
+    ["matrix artifact upload", packageJob, /\bname:\s*native-helper-package-matrix\b/],
+    ["matrix artifact path", packageJob, /\bpath:\s*dist\/native\//],
+    ["publish job depends on matrix package", publishJob, /\bneeds:\s*package-native-helper-matrix\b/],
+    ["publish job downloads matrix artifact", publishJob, /\bname:\s*native-helper-package-matrix\b/],
+    ["publish job downloads matrix to dist/native", publishJob, /\bpath:\s*dist\/native\b/],
+    ["publish job verifies helper matrix/provenance", publishJob, /\bnative-indexer-package-audit\.js\s+--require-packaged-helper-matrix\s+--require-packaged-helper-provenance\b/],
+    ["script-disabled publish", publishJob, /\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/],
+  ];
+  for (const [label, body, pattern] of requiredPatterns) {
+    if (!body || !pattern.test(body)) missing.push(label);
+  }
+  const orderErrors = [
+    ...requirePatternOrder(buildJob, [
+      ["install build dependencies", /\bnpm\s+ci\b/],
+      ["stage packaged helper", /\bnpm\s+run\s+native:stage\b/],
+      ["upload per-triple helper artifact", /\bname:\s*native-helper-\$\{\{\s*matrix\.triple\s*\}\}/],
+    ]),
+    ...requirePatternOrder(packageJob, [
+      ["download darwin arm64 helper", /\bname:\s*native-helper-darwin-arm64\b/],
+      ["restore helper executable bits", /\bfind\s+dist\/native\s+-type\s+f\s+-name\s+project-librarian-indexer\s+-exec\s+chmod\s+755/],
+      ["generate helper manifest", /\bnpm\s+run\s+native:package-manifest\b/],
+      ["run helper-inclusive release check", /\bnpm\s+run\s+release:check\b/],
+      ["upload helper package matrix", /\bname:\s*native-helper-package-matrix\b/],
+    ]),
+    ...requirePatternOrder(publishJob, [
+      ["download helper package matrix", /\bname:\s*native-helper-package-matrix\b/],
+      ["restore helper executable bits", /\bfind\s+dist\/native\s+-type\s+f\s+-name\s+project-librarian-indexer\s+-exec\s+chmod\s+755/],
+      ["verify helper matrix provenance", /\bnative-indexer-package-audit\.js\s+--require-packaged-helper-matrix\s+--require-packaged-helper-provenance\b/],
+      ["publish package", /\bnpm\s+publish\b[^\n]*\s--ignore-scripts\b/],
+    ]),
+  ];
+  const ok = missing.length === 0 && orderErrors.length === 0;
+  return {
+    ok,
+    missing: Array.from(new Set(missing)).sort(),
+    order_errors: Array.from(new Set(orderErrors)).sort(),
+    present_triples: presentTriples,
+    message: ok
+      ? "publish workflow builds, manifests, verifies, and publishes the supported native helper matrix through the audited artifact chain"
+      : "publish workflow is missing the native helper build/package/audit artifact chain",
+  };
+}
+
 function formatBytes(bytes) {
   const units = ["B", "KiB", "MiB", "GiB"];
   let value = bytes;
@@ -737,6 +856,13 @@ function main() {
     fail("release readiness failed: trusted publishing workflow");
   }
 
+  const nativeHelperPublishWorkflow = nativeHelperPublishWorkflowStatus();
+  console.log(`${nativeHelperPublishWorkflow.ok ? "PASS" : "FAIL"} native helper publish workflow: ${nativeHelperPublishWorkflow.message}`);
+  if (!nativeHelperPublishWorkflow.ok) {
+    console.error(JSON.stringify(nativeHelperPublishWorkflow, null, 2));
+    fail("release readiness failed: native helper publish workflow");
+  }
+
   const workflowPermissions = [
     ".github/workflows/benchmark.yml",
     ".github/workflows/branch-policy.yml",
@@ -780,6 +906,7 @@ function main() {
     raw_hygiene: rawHygieneStatus,
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
+    native_helper_publish_workflow: nativeHelperPublishWorkflow,
     workflow_permissions: workflowPermissions,
     workflow_action_pinning: workflowActionPinning,
   }, null, 2));
@@ -809,5 +936,7 @@ module.exports = {
   trustedPublishingWorkflowStatus,
   oidcWorkflowBoundaryStatus,
   manualPublishGuardStatus,
+  nativeHelperPublishRunners,
+  nativeHelperPublishWorkflowStatus,
   workflowPermissionStatus,
 };

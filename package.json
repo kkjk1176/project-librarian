@@ -59,7 +59,7 @@
     "build": "tsc && chmod +x dist/init-project-wiki.js",
     "check:dist": "node benchmarks/tools/release-readiness.js --only-dist-parity",
     "audit:supply-chain": "npm audit --omit=dev",
-    "native:build": "cargo build --release --manifest-path native/indexer-rs/Cargo.toml",
+    "native:build": "cargo build --release --locked --manifest-path native/indexer-rs/Cargo.toml",
     "native:package-audit": "node benchmarks/tools/native-indexer-package-audit.js",
     "native:package-audit:matrix": "node benchmarks/tools/native-indexer-package-audit.js --require-packaged-helper-matrix --require-packaged-helper-provenance",
     "native:package-manifest": "node benchmarks/tools/native-indexer-package-audit.js --write-packaged-helper-manifest --require-packaged-helper-matrix --require-packaged-helper-provenance",

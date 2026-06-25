@@ -30,6 +30,8 @@ const {
   trustedPublishingWorkflowStatus,
   oidcWorkflowBoundaryStatus,
   manualPublishGuardStatus,
+  nativeHelperPublishRunners,
+  nativeHelperPublishWorkflowStatus,
   workflowPermissionStatus,
 } = require("../../benchmarks/tools/release-readiness.js");
 
@@ -215,6 +217,65 @@ test("release readiness validates the trusted publishing workflow", () => {
   assert.deepEqual(status.missing, []);
   assert.deepEqual(status.forbidden, []);
   assert.deepEqual(status.unpinned_actions, []);
+});
+
+test("release readiness validates the native helper publish artifact chain", () => {
+  const workflow = path.resolve(__dirname, "..", "..", ".github", "workflows", "publish.yml");
+  const status = nativeHelperPublishWorkflowStatus(workflow);
+  assert.equal(status.ok, true, status.message);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.order_errors, []);
+  assert.deepEqual(status.present_triples, supportedTriples);
+  assert.equal(nativeHelperPublishRunners.get("darwin-x64"), "macos-15-intel");
+
+  const fixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-workflow-")), "publish.yml");
+  const text = fs.readFileSync(workflow, "utf8").replace("needs: package-native-helper-matrix", "needs: verify");
+  fs.writeFileSync(fixture, text);
+  const broken = nativeHelperPublishWorkflowStatus(fixture);
+  assert.equal(broken.ok, false);
+  assert.ok(broken.missing.includes("publish job depends on matrix package"));
+
+  const staleRunnerFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-runner-")), "publish.yml");
+  fs.writeFileSync(staleRunnerFixture, fs.readFileSync(workflow, "utf8").replace("runner: macos-15-intel", "runner: macos-13"));
+  const staleRunner = nativeHelperPublishWorkflowStatus(staleRunnerFixture);
+  assert.equal(staleRunner.ok, false);
+  assert.ok(staleRunner.missing.includes("build matrix runner darwin-x64 -> macos-15-intel"));
+
+  const missingBuildInstallFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-install-")), "publish.yml");
+  fs.writeFileSync(missingBuildInstallFixture, fs.readFileSync(workflow, "utf8").replace("      - run: npm ci\n      - name: Stage packaged helper", "      - name: Stage packaged helper"));
+  const missingBuildInstall = nativeHelperPublishWorkflowStatus(missingBuildInstallFixture);
+  assert.equal(missingBuildInstall.ok, false);
+  assert.ok(missingBuildInstall.missing.includes("build job installs dependencies"));
+
+  const stageBeforeInstallFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-stage-order-")), "publish.yml");
+  fs.writeFileSync(stageBeforeInstallFixture, fs.readFileSync(workflow, "utf8").replace([
+    "      - run: npm ci",
+    "      - name: Stage packaged helper",
+    "        run: npm run native:stage",
+  ].join("\n"), [
+    "      - name: Stage packaged helper",
+    "        run: npm run native:stage",
+    "      - run: npm ci",
+  ].join("\n")));
+  const stageBeforeInstall = nativeHelperPublishWorkflowStatus(stageBeforeInstallFixture);
+  assert.equal(stageBeforeInstall.ok, false);
+  assert.ok(stageBeforeInstall.order_errors.includes("stage packaged helper must run after install build dependencies"));
+
+  const publishBeforeVerifyFixture = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "release-native-helper-order-")), "publish.yml");
+  fs.writeFileSync(publishBeforeVerifyFixture, fs.readFileSync(workflow, "utf8").replace([
+    "      - name: Verify packaged helper matrix",
+    "        run: node benchmarks/tools/native-indexer-package-audit.js --require-packaged-helper-matrix --require-packaged-helper-provenance",
+    "      - name: Publish to npm through trusted publishing",
+    "        run: npm publish --access public --ignore-scripts",
+  ].join("\n"), [
+    "      - name: Publish to npm through trusted publishing",
+    "        run: npm publish --access public --ignore-scripts",
+    "      - name: Verify packaged helper matrix",
+    "        run: node benchmarks/tools/native-indexer-package-audit.js --require-packaged-helper-matrix --require-packaged-helper-provenance",
+  ].join("\n")));
+  const publishBeforeVerify = nativeHelperPublishWorkflowStatus(publishBeforeVerifyFixture);
+  assert.equal(publishBeforeVerify.ok, false);
+  assert.ok(publishBeforeVerify.order_errors.includes("publish package must run after verify helper matrix provenance"));
 });
 
 test("release readiness validates minimal permissions for current workflows", () => {

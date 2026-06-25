@@ -5,6 +5,7 @@ coverage/
 tmp/
 target/
 native/indexer-rs/target/
+dist/native/
 *.log
 benchmarks/reports/*.json
 benchmarks/reports/*.md
