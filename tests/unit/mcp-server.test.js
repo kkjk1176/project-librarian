@@ -478,7 +478,7 @@ test("tools/call reports incompatible index schema with health-style rebuild gui
     ]);
     assert.equal(response.result.isError, true);
     const text = toolResultText(response);
-    assert.match(text, /schema version 3 is incompatible with 4/);
+    assert.match(text, /schema version 3 is incompatible with 5/);
     assert.match(text, /status: incompatible_schema/);
     assert.match(text, /rebuild: project-librarian --code-index --code-index-full --acknowledge-small-repo/);
   } finally {
@@ -535,7 +535,7 @@ test("an unknown tool name returns an isError result (not a protocol error)", ()
 function fakeCacheableDatabase({ metaOverrides = {} } = {}) {
   const meta = {
     parser_mode: "default",
-    schema_version: "4",
+    schema_version: "5",
     scopes_json: JSON.stringify(["__missing_mcp_cache_scope__"]),
     updated_at: "2026-06-17T00:00:00.000Z",
     ...metaOverrides,

@@ -15,7 +15,7 @@ function fakeCompatibleDatabase() {
       return {
         all(key) {
           if (/SELECT value FROM meta WHERE key = \?/.test(sql) && key === "schema_version") {
-            return [{ value: "4" }];
+            return [{ value: "5" }];
           }
           throw new Error(`unexpected fake database query: ${sql}`);
         },
@@ -102,21 +102,20 @@ test("code context pack mode reuses one staleness calculation for warning and ou
   assert.equal(database.closeCalls, 1);
 });
 
-test("auto code index engine resolves to native only for eligible full runs", () => {
-  const mixedLarge = { discoveredFileCount: 10000, nativeEligibleFileCount: 9999, nativeIneligibleFileCount: 1 };
-  const eligibleLarge = { discoveredFileCount: 10000, nativeEligibleFileCount: 10000, nativeIneligibleFileCount: 0 };
-  assert.equal(resolveCodeIndexEngine("typescript", eligibleLarge, () => true, false), "typescript");
-  assert.equal(resolveCodeIndexEngine("native-rust", mixedLarge, () => false, false), "native-rust");
-  assert.equal(resolveCodeIndexEngine("auto", mixedLarge, (context) => context.nativeEligibleFileCount >= 10000, false), "typescript");
-  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, (context) => context.nativeEligibleFileCount >= 10000, false), "native-rust");
-  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, () => true, true), "typescript");
-  assert.equal(resolveCodeIndexEngine("auto", eligibleLarge, () => false, false), "typescript");
+test("auto code index engine resolves to native for helper-backed eligible full runs", () => {
+  const mixedSmall = { discoveredFileCount: 42, nativeEligibleFileCount: 41, nativeIneligibleFileCount: 1 };
+  const configOnly = { discoveredFileCount: 42, nativeEligibleFileCount: 0, nativeIneligibleFileCount: 42 };
+  assert.equal(resolveCodeIndexEngine("typescript", mixedSmall, () => true, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("native-rust", mixedSmall, () => false, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, (context) => context.nativeEligibleFileCount >= 1, false), "native-rust");
+  assert.equal(resolveCodeIndexEngine("auto", configOnly, (context) => context.nativeEligibleFileCount >= 1, false), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, () => true, true), "typescript");
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, () => false, false), "typescript");
 
   let observedContext;
-  const smallContext = { discoveredFileCount: 42, nativeEligibleFileCount: 41, nativeIneligibleFileCount: 1 };
-  assert.equal(resolveCodeIndexEngine("auto", smallContext, (context) => {
+  assert.equal(resolveCodeIndexEngine("auto", mixedSmall, (context) => {
     observedContext = context;
     return false;
   }, false), "typescript");
-  assert.deepEqual(observedContext, smallContext);
+  assert.deepEqual(observedContext, mixedSmall);
 });

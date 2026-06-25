@@ -88,6 +88,20 @@ function emitCodeIndexPhaseTimings(timings) {
         return;
     console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
 }
+function configureBulkWriteConnection(database) {
+    database.exec(`
+    PRAGMA synchronous = OFF;
+    PRAGMA temp_store = MEMORY;
+    PRAGMA cache_size = -20000;
+  `);
+}
+function shouldUseNativeIncrementalForAuto(requestedEngine, runtime, staleFileCount) {
+    if (requestedEngine !== "auto" || !args_1.codeIndexIncrementalMode)
+        return false;
+    if (staleFileCount <= 0 || !runtime.nativeCodeIndexAvailable())
+        return false;
+    return true;
+}
 function resolveCodeIndexEngine(requestedEngine, context, shouldUseNativeAuto, incrementalMode = args_1.codeIndexIncrementalMode) {
     if (requestedEngine !== "auto")
         return requestedEngine;
@@ -112,19 +126,18 @@ function runCodeIndexMode(runtime) {
     const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
     const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
     if (engine === "native-rust") {
-        if (args_1.codeIndexIncrementalMode) {
-            runtime.fail("--code-index-engine native-rust does not support --incremental yet; use --code-index-full or --code-index-engine typescript.");
-        }
-        try {
-            measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, requestedEngine, scopes }));
-            phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
-            emitCodeIndexPhaseTimings(phaseTimings);
-            return;
-        }
-        catch (error) {
-            phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
-            emitCodeIndexPhaseTimings(phaseTimings);
-            throw error;
+        if (!args_1.codeIndexIncrementalMode) {
+            try {
+                measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, requestedEngine, scopes }));
+                phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
+                emitCodeIndexPhaseTimings(phaseTimings);
+                return;
+            }
+            catch (error) {
+                phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
+                emitCodeIndexPhaseTimings(phaseTimings);
+                throw error;
+            }
         }
     }
     const existingIndex = fs.existsSync(databasePath.absolutePath);
@@ -152,13 +165,12 @@ function runCodeIndexMode(runtime) {
         if (!incremental)
             runtime.removeDatabaseFiles(databasePath.absolutePath);
     });
-    const database = runtime.openDatabase(databasePath.absolutePath);
+    let database = runtime.openDatabase(databasePath.absolutePath);
     try {
         if (!incremental)
             (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
-        const statements = (0, schema_1.createIndexStatements)(database);
         const currentFingerprints = measurePhase(phaseTimings, "fingerprints_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath)));
-        let reindexedFiles;
+        let reindexedFingerprints;
         let deletedPaths;
         let indexedPaths = new Set();
         let unchangedFiles = 0;
@@ -172,22 +184,55 @@ function runCodeIndexMode(runtime) {
                 }]));
             const currentPaths = new Set(currentFingerprints.map((file) => file.path));
             deletedPaths = indexedRows.map((row) => String(row.path)).filter((filePath) => !currentPaths.has(filePath));
-            reindexedFiles = [];
+            reindexedFingerprints = [];
             for (const file of currentFingerprints) {
                 const existing = indexed.get(file.path);
                 if (existing && existing.mtimeMs === file.mtimeMs && existing.size === file.size) {
                     unchangedFiles += 1;
                     continue;
                 }
-                reindexedFiles.push(measurePhase(phaseTimings, "read_files_ms", () => runtime.readCodeFile(file.path, parserMode, file)));
+                reindexedFingerprints.push(file);
             }
         }
         else {
             deletedPaths = [];
-            reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => currentFingerprints.map((file) => runtime.readCodeFile(file.path, parserMode, file)));
+            reindexedFingerprints = currentFingerprints;
         }
+        const nativeIncrementalRequested = engine === "native-rust"
+            || shouldUseNativeIncrementalForAuto(requestedEngine, runtime, reindexedFingerprints.length + deletedPaths.length);
+        if (nativeIncrementalRequested) {
+            if (!runtime.nativeCodeIndexAvailable()) {
+                runtime.fail("--code-index-engine native-rust --incremental requires PROJECT_LIBRARIAN_NATIVE_INDEXER or a packaged native helper.");
+            }
+            if (!runtime.nativeCodeIndexIncrementalEligible(reindexedFingerprints, parserMode)) {
+                if (engine === "native-rust") {
+                    runtime.fail("--code-index-engine native-rust --incremental only supports native-eligible parser profiles; use --code-index-engine typescript for this incremental update.");
+                }
+            }
+            else {
+                database.close();
+                database = undefined;
+                measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexIncrementalMode({
+                    databasePath,
+                    deletedPaths,
+                    discoveredFiles,
+                    parserMode,
+                    requestedEngine,
+                    reindexedFiles: reindexedFingerprints,
+                    scopes,
+                    unchangedFiles,
+                }));
+                phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
+                emitCodeIndexPhaseTimings(phaseTimings);
+                return;
+            }
+        }
+        const reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => reindexedFingerprints.map((file) => runtime.readCodeFile(file.path, parserMode, file)));
+        const activeDatabase = database;
+        const statements = (0, schema_1.createIndexStatements)(activeDatabase);
         measurePhase(phaseTimings, "sqlite_write_ms", () => {
-            database.exec("BEGIN");
+            configureBulkWriteConnection(activeDatabase);
+            activeDatabase.exec("BEGIN");
             if (!incremental)
                 statements.insertMeta.run("created_at", new Date().toISOString());
             (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
@@ -199,8 +244,8 @@ function runCodeIndexMode(runtime) {
                 runtime.indexCodeFile(file, statements);
             }
             if (!incremental)
-                (0, schema_1.createSecondaryIndexes)(database);
-            database.exec("COMMIT");
+                (0, schema_1.createSecondaryIndexes)(activeDatabase);
+            activeDatabase.exec("COMMIT");
         });
         phaseTimings.total_ms = Number(elapsedMs(totalStarted).toFixed(3));
         console.log("Project wiki code evidence index complete.");
@@ -219,7 +264,7 @@ function runCodeIndexMode(runtime) {
     }
     catch (error) {
         try {
-            database.exec("ROLLBACK");
+            database?.exec("ROLLBACK");
         }
         catch {
             // Ignore rollback failures after setup errors.
@@ -227,7 +272,7 @@ function runCodeIndexMode(runtime) {
         throw error;
     }
     finally {
-        database.close();
+        database?.close();
     }
 }
 function runCodeQueryMode(runtime) {

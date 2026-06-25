@@ -340,7 +340,9 @@ Retained or copied legacy content is acceptable when it fits the new wiki policy
 
 ## Language Support Matrix
 
-The matrix lists languages with implemented symbol/import extraction. Other recognized extensions are inventory-only. Default mode uses `typescript-ast`, `python-light`, `go-light`, config extraction, and inventory rows. `--code-parser tree-sitter` switches supported source files to `tree-sitter-*` profiles.
+The matrix lists languages with implemented symbol/import extraction. Other recognized extensions are inventory-only. Default mode uses `typescript-ast`, `*-light` extraction for the listed non-JS languages, config extraction, and inventory rows. `--code-parser tree-sitter` switches supported source files to `tree-sitter-*` profiles.
+
+Experimental `--code-index-engine native-rust` runs the native helper for `typescript-ast`, `config`, the listed `*-light` profiles, and inventory-only source files. Omitted `--code-index-engine` means `auto`; full-index auto uses the native helper when a helper is available and at least one structurally extracted native profile is present, while config-only or inventory-only repositories stay on TypeScript. Compatible incremental auto uses the Rust direct-writer when a helper is available and the changed files are native-eligible. Helper resolution checks `PROJECT_LIBRARIAN_NATIVE_INDEXER` first, then `dist/native/<platform>-<arch>/project-librarian-indexer` or `.exe`; `npm run native:stage` builds and stages the current platform helper, and `npm run native:package-audit -- --require-packaged-helper` verifies that staged package path.
 
 | Language | Extensions | Default extraction | Tree-sitter extraction | Indexed evidence |
 | --- | --- | --- | --- | --- |
@@ -348,14 +350,14 @@ The matrix lists languages with implemented symbol/import extraction. Other reco
 | JavaScript | `.js`, `.jsx`, `.cjs`, `.mjs` | `typescript-ast` | `tree-sitter-javascript` | functions, classes, methods, variables, imports, exports, `require()` calls, calls, common HTTP routes |
 | Python | `.py` | `python-light` | `tree-sitter-python` | functions, classes, `import`, `from ... import` |
 | Go | `.go` | `go-light` | `tree-sitter-go` | functions, methods, types, consts, vars, single imports, import blocks |
-| Rust | `.rs` | inventory-only | `tree-sitter-rust` | functions, structs, enums, traits, impls, `use` imports |
-| Java | `.java` | inventory-only | `tree-sitter-java` | classes, interfaces, enums, methods, imports |
-| PHP | `.php` | inventory-only | `tree-sitter-php` | functions, classes, interfaces, traits, methods, namespace uses |
-| Kotlin | `.kt`, `.kts` | inventory-only | `tree-sitter-kotlin` | functions, classes, objects, imports |
-| Swift | `.swift` | inventory-only | `tree-sitter-swift` | functions, classes, structs, protocols, enums, imports |
-| C | `.c`, `.h` | inventory-only | `tree-sitter-c` | functions, structs, enums, includes |
-| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | inventory-only | `tree-sitter-cpp` | functions, classes/structs, namespaces, enums, includes/usings |
-| C# | `.cs` | inventory-only | `tree-sitter-csharp` | classes, interfaces, structs, enums, methods, usings |
+| Rust | `.rs` | `rust-light` | `tree-sitter-rust` | functions, structs, enums, traits, impls, `use` imports |
+| Java | `.java` | `java-light` | `tree-sitter-java` | classes, interfaces, enums, methods, imports |
+| PHP | `.php` | `php-light` | `tree-sitter-php` | functions, classes, interfaces, traits, methods, namespace uses |
+| Kotlin | `.kt`, `.kts` | `kotlin-light` | `tree-sitter-kotlin` | functions, classes, objects, imports |
+| Swift | `.swift` | `swift-light` | `tree-sitter-swift` | functions, classes, structs, protocols, enums, imports |
+| C | `.c`, `.h` | `c-light` | `tree-sitter-c` | functions, structs, enums, includes |
+| C++ | `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx` | `cpp-light` | `tree-sitter-cpp` | functions, classes/structs, namespaces, enums, includes/usings |
+| C# | `.cs` | `csharp-light` | `tree-sitter-csharp` | classes, interfaces, structs, enums, methods, usings |
 
 Recognized but inventory-only extensions include `.rb`, `.vue`, and `.css`. Config files (`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`, `Dockerfile`, and `Makefile`) are indexed as configuration or inventory evidence.
 
@@ -404,6 +406,7 @@ Important options:
 | `--no-git-config` | Install hook files without changing `git core.hooksPath`. |
 | `--code-index` | Build the disposable code evidence index. |
 | `--code-index-health` | Inspect code evidence cache compatibility and print rebuild guidance without writing. |
+| `--code-index-engine <engine>` | Override the default `auto` index engine with `typescript` or `native-rust`. |
 | `--code-report` | Print architecture and ownership summaries from the evidence index. |
 | `--code-report-section <section>` | Print one section: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, or `edges`. |
 | `--code-impact <term>` | Show file, symbol, route, import, edge, and owner impact evidence. |
@@ -446,6 +449,8 @@ Trusted publishing and npm provenance prove the package was published through th
 Maintainer benchmark commands live in [benchmarks/README.md](benchmarks/README.md). They are for release evidence and public claim validation, not normal end-user setup.
 
 For code-evidence runtime/storage checks, `npm run perf:code-efficiency` generates 3k/10k/50k fixtures and writes `benchmarks/reports/code-performance-efficiency/current.json` plus `.md`. Command timings include CLI startup and freshness checks; the `query_groups` section reports direct DB timings for representative file/symbol/route/import/edge queries. The report also measures checked-in `mixed-monorepo`, `web-service`, `python-cli`, and `docs-heavy` corpora separately from synthetic scale fixtures. Add repeated `--actual-repo <path>` options with `--compare-native` to include local real repositories in the same TypeScript/Rust timing and row-delta report without modifying the source directories.
+
+For actual-repository native policy checks, use `npm run perf:code-full-rebuild -- --source-root <dir> --helper <helper>` to compare forced TypeScript and Rust full rebuilds on fresh repo copies, and `npm run perf:code-incremental -- --source-root <dir> --helper <helper>` to compare TypeScript incremental updates against the Rust incremental writer after controlled file mutations.
 
 Measured LLM benchmark runs automatically prune stale prior raw run directories and isolated Codex homes older than 1 day, then prune the current run's homes even on claimable-run failure; raw JSONL, stderr, reports, and manifests remain for runs inside the retention window. Old ignored raw output can still be audited with the dry-run-first helper before deleting retained isolated Codex homes:
 

@@ -82,7 +82,7 @@ function searchFiles(database, term, limit = 25) {
         const ftsRows = database.prepare(`
       SELECT files.path, files.language, files.profile, files.lines, files.bytes
       FROM files_fts
-      JOIN files ON files.path = files_fts.path
+      JOIN files ON files.fts_rowid = files_fts.rowid
       WHERE files_fts MATCH ?
       ORDER BY bm25(files_fts, 8.0, 1.0, 1.0, 0.25), files.path
       LIMIT ?

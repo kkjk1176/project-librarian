@@ -11,7 +11,14 @@ const { cachedDiscoveredCodeFileStat, discoverCodeFiles, fileLanguage, ignoredDi
 const { isReadOnlySql } = require("../../dist/code-index-sql.js");
 const { searchFiles, shouldUseFtsSearchForScale } = require("../../dist/code-index/search.js");
 const { treeSitterBackends } = require("../../dist/code-index/extractors/tree-sitter.js");
-const { buildNativeCodeIndexJob, runNativeCodeIndexHelper } = require("../../dist/code-index/native-helper.js");
+const {
+  buildNativeCodeIndexJob,
+  nativeCodeIndexHelperAvailability,
+  nativeCodeIndexHelperBinaryName,
+  packagedNativeCodeIndexHelperPath,
+  requireNativeCodeIndexHelperPath,
+  runNativeCodeIndexHelper,
+} = require("../../dist/code-index/native-helper.js");
 const { ignoredDirs } = require("../../dist/wiki-files.js");
 
 const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.js");
@@ -30,6 +37,10 @@ const inactiveFlags = {
 
 function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function missingNativeIndexerEnv(cwd) {
+  return { PROJECT_LIBRARIAN_NATIVE_INDEXER: path.join(cwd, "missing-native-indexer") };
 }
 
 function symlinkOrSkip(t, target, linkPath) {
@@ -641,7 +652,7 @@ test("code index health reports old schema details without requiring current sch
     const health = JSON.parse(runCli(cwd, ["--code-index-health"]));
     assert.equal(health.status, "incompatible_schema");
     assert.equal(health.found_schema_version, "3");
-    assert.equal(health.expected_schema_version, "4");
+    assert.equal(health.expected_schema_version, "5");
     assert.equal(health.indexed_files, 1);
     assert.match(health.recommended_rebuild_command, /project-librarian --code-index --code-index-full --acknowledge-small-repo/);
   } finally {
@@ -723,7 +734,7 @@ test("code index phase timings are opt-in stderr JSON", () => {
     fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
 
     const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"], {
-      env: { PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1" },
+      env: { ...missingNativeIndexerEnv(cwd), PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS: "1" },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const line = result.stderr.split(/\r?\n/).find((entry) => entry.startsWith("code_index_phase_timings "));
@@ -744,35 +755,147 @@ test("native-rust code index engine fails explicitly without deleting the existi
     fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
     fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
 
-    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
     const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
     assert.equal(fs.existsSync(databasePath), true);
 
     const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "native-rust"], {
-      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: "" },
+      env: missingNativeIndexerEnv(cwd),
     });
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /requires PROJECT_LIBRARIAN_NATIVE_INDEXER/);
+    assert.match(result.stderr, /PROJECT_LIBRARIAN_NATIVE_INDEXER does not exist/);
     assert.equal(fs.existsSync(databasePath), true);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
 });
 
-test("implicit auto code index engine keeps TypeScript below the native auto threshold even when a helper path is set", () => {
+test("implicit auto code index engine keeps TypeScript when the explicit helper is unusable", () => {
   const cwd = makeTmpDir("code-index-auto-small-repo-");
   try {
     fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
     fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
 
-    assert.equal(nativeCodeIndexAutoFileThreshold, 10000);
+    assert.equal(nativeCodeIndexAutoFileThreshold, 1);
     const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"], {
-      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: path.join(cwd, "missing-native-helper") },
+      env: missingNativeIndexerEnv(cwd),
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /engine: typescript/);
     assert.match(result.stdout, /engine_selection: auto/);
     assert.doesNotMatch(result.stdout, /native_strategy:/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("implicit auto full index uses native helper for small structural repos when configured", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-auto-native-small-repo-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export const app = true;\n");
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"], {
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /engine: native-rust/);
+    assert.match(result.stdout, /engine_selection: auto/);
+    assert.match(result.stdout, /native_strategy: sqlite-direct/);
+    assert.match(result.stdout, /native_files: 1/);
+    assert.match(result.stdout, /typescript_files: 0/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("implicit auto incremental mode uses the native incremental writer for native-eligible stale files", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-auto-incremental-policy-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    for (let index = 0; index < 60; index += 1) {
+      fs.writeFileSync(path.join(cwd, "src", `module_${index}.py`), [
+        `def function_${index}():`,
+        `    return ${index}`,
+        "",
+      ].join("\n"));
+    }
+
+    const env = { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath };
+    const baseline = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "native-rust"], { env });
+    assert.equal(baseline.status, 0, baseline.stderr || baseline.stdout);
+    assert.match(baseline.stdout, /engine: native-rust/);
+
+    for (let index = 0; index < 10; index += 1) {
+      fs.appendFileSync(path.join(cwd, "src", `module_${index}.py`), `# small auto delta ${index}\n`);
+    }
+    const smallDelta = runCliResult(cwd, ["--code-index", "--incremental", "--acknowledge-small-repo", "--code-scope", "src"], { env });
+    assert.equal(smallDelta.status, 0, smallDelta.stderr || smallDelta.stdout);
+    assert.match(smallDelta.stdout, /mode: incremental/);
+    assert.match(smallDelta.stdout, /engine: native-rust/);
+    assert.match(smallDelta.stdout, /engine_selection: auto/);
+    assert.match(smallDelta.stdout, /native_strategy: sqlite-direct/);
+    assert.match(smallDelta.stdout, /reindexed_files: 10/);
+
+    for (let index = 0; index < 50; index += 1) {
+      fs.appendFileSync(path.join(cwd, "src", `module_${index}.py`), `# large auto delta ${index}\n`);
+    }
+    const largeDelta = runCliResult(cwd, ["--code-index", "--incremental", "--acknowledge-small-repo", "--code-scope", "src"], { env });
+    assert.equal(largeDelta.status, 0, largeDelta.stderr || largeDelta.stdout);
+    assert.match(largeDelta.stdout, /mode: incremental/);
+    assert.match(largeDelta.stdout, /engine: native-rust/);
+    assert.match(largeDelta.stdout, /engine_selection: auto/);
+    assert.match(largeDelta.stdout, /native_strategy: sqlite-direct/);
+    assert.match(largeDelta.stdout, /reindexed_files: 50/);
+    assert.match(largeDelta.stdout, /unchanged_files: 10/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native-rust incremental writer updates changed files and deletes removed files", (t) => {
+  const helperPath = buildNativeIndexerOrSkip(t);
+  if (!helperPath) return;
+  const cwd = makeTmpDir("code-index-native-incremental-writer-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), [
+      "export function healthHandler() { return 'ok'; }",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "src", "deleted.ts"), [
+      "export function removedHandler() { return 'gone'; }",
+      "",
+    ].join("\n"));
+
+    const env = { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath };
+    const baseline = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "native-rust"], { env });
+    assert.equal(baseline.status, 0, baseline.stderr || baseline.stdout);
+
+    fs.appendFileSync(path.join(cwd, "src", "app.ts"), "export function changedHandler() { return 'changed'; }\n");
+    fs.unlinkSync(path.join(cwd, "src", "deleted.ts"));
+    const incremental = runCliResult(cwd, ["--code-index", "--incremental", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "native-rust"], { env });
+    assert.equal(incremental.status, 0, incremental.stderr || incremental.stdout);
+    assert.match(incremental.stdout, /mode: incremental/);
+    assert.match(incremental.stdout, /engine: native-rust/);
+    assert.match(incremental.stdout, /native_strategy: sqlite-direct/);
+    assert.match(incremental.stdout, /reindexed_files: 1/);
+    assert.match(incremental.stdout, /deleted_files: 1/);
+
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      const snapshot = codeIndexSnapshot(database);
+      assert(snapshot.files.some((row) => row.path === "src/app.ts"));
+      assert(!snapshot.files.some((row) => row.path === "src/deleted.ts"));
+      assert(snapshot.symbols.some((row) => row.name === "changedHandler"));
+      assert(!snapshot.symbols.some((row) => row.name === "removedHandler"));
+    } finally {
+      database.close();
+    }
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -785,7 +908,7 @@ test("native helper wrapper fails on non-zero exits and malformed JSON summaries
       database_path: path.join(cwd, "code.sqlite"),
       files: [],
       parser_mode: "default",
-      schema_version: "4",
+      schema_version: "5",
       scopes: ["src"],
     });
     const nonZeroHelper = path.join(cwd, "non-zero-helper.js");
@@ -810,6 +933,62 @@ test("native helper wrapper fails on non-zero exits and malformed JSON summaries
       () => runNativeCodeIndexHelper(job, { helperPath: malformedHelper }),
       /native code index helper returned invalid JSON/,
     );
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native helper resolution prefers explicit configuration before packaged helper", () => {
+  const cwd = makeTmpDir("code-index-native-helper-resolution-");
+  try {
+    const packageRoot = path.join(cwd, "dist");
+    const packagedHelper = packagedNativeCodeIndexHelperPath({ packageRoot });
+    fs.mkdirSync(path.dirname(packagedHelper), { recursive: true });
+    writeExecutableHelper(packagedHelper, "#!/bin/sh\nexit 0\n");
+
+    const packaged = nativeCodeIndexHelperAvailability({ env: {}, packageRoot });
+    assert.equal(packaged.available, true);
+    assert.equal(packaged.source, "packaged");
+    assert.equal(packaged.helperPath, packagedHelper);
+    assert.equal(requireNativeCodeIndexHelperPath({ env: {}, packageRoot }), packagedHelper);
+
+    const envHelper = path.join(cwd, nativeCodeIndexHelperBinaryName());
+    writeExecutableHelper(envHelper, "#!/bin/sh\nexit 0\n");
+    const environment = nativeCodeIndexHelperAvailability({
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: envHelper },
+      packageRoot,
+    });
+    assert.equal(environment.available, true);
+    assert.equal(environment.source, "environment");
+    assert.equal(environment.helperPath, envHelper);
+
+    const explicitUnsupportedPlatform = nativeCodeIndexHelperAvailability({
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: envHelper },
+      packageRoot,
+      platform: "freebsd",
+      arch: "x64",
+    });
+    assert.equal(explicitUnsupportedPlatform.available, true);
+    assert.equal(explicitUnsupportedPlatform.source, "environment");
+    assert.equal(explicitUnsupportedPlatform.helperPath, envHelper);
+
+    const missingUnsupportedPlatform = nativeCodeIndexHelperAvailability({
+      env: {},
+      packageRoot,
+      platform: "freebsd",
+      arch: "x64",
+    });
+    assert.equal(missingUnsupportedPlatform.available, false);
+    assert.equal(missingUnsupportedPlatform.source, "missing");
+    assert.match(missingUnsupportedPlatform.reason, /does not support this platform/);
+
+    const invalidEnvironment = nativeCodeIndexHelperAvailability({
+      env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: "relative-helper" },
+      packageRoot,
+    });
+    assert.equal(invalidEnvironment.available, false);
+    assert.equal(invalidEnvironment.source, "environment");
+    assert.match(invalidEnvironment.reason, /must be an absolute path/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -840,6 +1019,7 @@ test("native-rust helper prototype builds a bounded JS/TS code index", (t) => {
 
     const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
     try {
+      assert.equal(String(database.prepare("PRAGMA journal_mode").all()[0].journal_mode).toLowerCase(), "wal");
       const snapshot = codeIndexSnapshot(database);
       assert(snapshot.files.some((row) => row.path === "src/app.ts" && row.profile === "typescript-ast"));
       assert(snapshot.files.some((row) => row.path === "src/user.ts" && row.profile === "typescript-ast"));
@@ -976,7 +1156,7 @@ test("native-rust helper matches TypeScript for module and decorator patterns", 
   }
 });
 
-test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScript", (t) => {
+test("native-rust engine indexes structural light languages and configs natively", (t) => {
   const helperPath = buildNativeIndexerOrSkip(t);
   if (!helperPath) return;
   const cwd = makeTmpDir("code-index-native-rust-mixed-");
@@ -984,6 +1164,7 @@ test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScr
     fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
     fs.mkdirSync(path.join(cwd, "scripts"), { recursive: true });
     fs.mkdirSync(path.join(cwd, "cmd"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "native"), { recursive: true });
     fs.writeFileSync(path.join(cwd, "src", "app.ts"), [
       'export function healthHandler() { return "ok"; }',
       "",
@@ -1002,6 +1183,66 @@ test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScr
       "}",
       "",
     ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "lib.rs"), [
+      "use std::fmt;",
+      "pub struct RustWorker;",
+      "impl RustWorker {",
+      "    pub fn run(&self) {}",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "Controller.java"), [
+      "import java.util.List;",
+      "@GetMapping(\"/smoke\")",
+      "public class SmokeController {",
+      "    public void handle() {}",
+      "    @Override public String label() { return \"smoke\"; }",
+      "    builder.append(\"x\", label());",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "Action.php"), [
+      "<?php",
+      "use Illuminate\\Support\\Facades\\Route;",
+      "class SmokeAction {",
+      "    public function __invoke() {}",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "Job.kt"), [
+      "import kotlinx.coroutines.Job",
+      "class SmokeJob {",
+      "    fun run(): Job = Job().also { it.cancel() }",
+      "    @Test fun annotatedRun() {}",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "Event.swift"), [
+      "import Foundation",
+      "struct SmokeEvent {",
+      "    func send() {}",
+      "}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "health.c"), [
+      "#include <stdio.h>",
+      "struct smoke_state { int ok; };",
+      "int smoke_health(void) { return 1; }",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "engine.cpp"), [
+      "#include <vector>",
+      "class SmokeEngine {};",
+      "void smoke_engine_run() {}",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "native", "Service.cs"), [
+      "using System;",
+      "public class SmokeService {",
+      "    public void Start() {}",
+      "}",
+      "",
+    ].join("\n"));
     fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({
       scripts: { test: "node --test" },
       dependencies: { express: "^4.0.0" },
@@ -1011,11 +1252,11 @@ test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScr
       env: { PROJECT_LIBRARIAN_NATIVE_INDEXER: helperPath },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /engine: mixed-native-rust/);
-    assert.match(result.stdout, /files: 4/);
-    assert.match(result.stdout, /native_files: 1/);
-    assert.match(result.stdout, /typescript_files: 3/);
-    assert.match(result.stdout, /typescript_profiles: config, go-light, python-light/);
+    assert.match(result.stdout, /engine: native-rust/);
+    assert.match(result.stdout, /files: 12/);
+    assert.match(result.stdout, /native_files: 12/);
+    assert.match(result.stdout, /typescript_files: 0/);
+    assert.doesNotMatch(result.stdout, /typescript_profiles:/);
 
     const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
     try {
@@ -1023,10 +1264,35 @@ test("native-rust engine partitions JS/TS to Rust and non-JS profiles to TypeScr
       assert(snapshot.files.some((row) => row.path === "src/app.ts" && row.profile === "typescript-ast"));
       assert(snapshot.files.some((row) => row.path === "scripts/tool.py" && row.profile === "python-light"));
       assert(snapshot.files.some((row) => row.path === "cmd/main.go" && row.profile === "go-light"));
+      assert(snapshot.files.some((row) => row.path === "native/lib.rs" && row.profile === "rust-light"));
+      assert(snapshot.files.some((row) => row.path === "native/Controller.java" && row.profile === "java-light"));
+      assert(snapshot.files.some((row) => row.path === "native/Action.php" && row.profile === "php-light"));
+      assert(snapshot.files.some((row) => row.path === "native/Job.kt" && row.profile === "kotlin-light"));
+      assert(snapshot.files.some((row) => row.path === "native/Event.swift" && row.profile === "swift-light"));
+      assert(snapshot.files.some((row) => row.path === "native/health.c" && row.profile === "c-light"));
+      assert(snapshot.files.some((row) => row.path === "native/engine.cpp" && row.profile === "cpp-light"));
+      assert(snapshot.files.some((row) => row.path === "native/Service.cs" && row.profile === "csharp-light"));
       assert(snapshot.files.some((row) => row.path === "package.json" && row.profile === "config"));
       assert(snapshot.symbols.some((row) => row.file_path === "src/app.ts" && row.name === "healthHandler"));
       assert(snapshot.symbols.some((row) => row.file_path === "scripts/tool.py" && row.name === "load_config"));
       assert(snapshot.symbols.some((row) => row.file_path === "cmd/main.go" && row.name === "main"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/lib.rs" && row.name === "RustWorker"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Controller.java" && row.name === "SmokeController"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Controller.java" && row.name === "label"));
+      assert(!snapshot.symbols.some((row) => row.file_path === "native/Controller.java" && row.name === "GetMapping"));
+      assert(!snapshot.symbols.some((row) => row.file_path === "native/Controller.java" && row.name === "append"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Action.php" && row.name === "SmokeAction"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Job.kt" && row.name === "SmokeJob"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Job.kt" && row.name === "annotatedRun"));
+      assert(!snapshot.symbols.some((row) => row.file_path === "native/Job.kt" && row.name === "cancel"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Event.swift" && row.name === "SmokeEvent"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/health.c" && row.name === "smoke_health"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/engine.cpp" && row.name === "SmokeEngine"));
+      assert(snapshot.symbols.some((row) => row.file_path === "native/Service.cs" && row.name === "SmokeService"));
+      assert(snapshot.imports.some((row) => row.from_file === "native/lib.rs" && row.to_ref === "std::fmt"));
+      assert(snapshot.imports.some((row) => row.from_file === "native/Controller.java" && row.to_ref === "java.util.List"));
+      assert(snapshot.imports.some((row) => row.from_file === "native/Action.php" && row.to_ref === "Illuminate\\Support\\Facades\\Route"));
+      assert(snapshot.imports.some((row) => row.from_file === "native/health.c" && row.to_ref === "stdio.h"));
       assert(snapshot.configs.some((row) => row.file_path === "package.json" && row.key === "script:test"));
     } finally {
       database.close();

@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import type { SqliteDatabase, SqliteStatement, SqliteValue } from "../code-index-db";
 import { root } from "../workspace";
 
@@ -23,7 +24,23 @@ export interface IndexStatements {
   insertSymbolFts: SqliteStatement;
 }
 
-export const codeIndexSchemaVersion = "4";
+export const codeIndexSchemaVersion = "5";
+
+function stableFtsRowid(parts: string[]): number {
+  const hash = crypto.createHash("sha256");
+  for (const part of parts) {
+    hash.update(part);
+    hash.update("\0");
+  }
+  const digest = hash.digest();
+  let value = 0;
+  for (let index = 0; index < 6; index += 1) value = value * 256 + digest[index]!;
+  return value + 1;
+}
+
+export function fileFtsRowid(filePath: string): number {
+  return stableFtsRowid(["file", filePath]);
+}
 
 const secondaryIndexSql = `
   CREATE INDEX idx_symbols_file ON symbols(file_path);
@@ -46,6 +63,7 @@ export function setupDatabase(database: SqliteDatabase, options: { secondaryInde
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE files (
       path TEXT PRIMARY KEY,
+      fts_rowid INTEGER NOT NULL UNIQUE,
       language TEXT NOT NULL,
       profile TEXT NOT NULL,
       kind TEXT NOT NULL,
@@ -108,15 +126,15 @@ export function createIndexStatements(database: SqliteDatabase): IndexStatements
     deleteConfig: database.prepare("DELETE FROM configs WHERE file_path = ?"),
     deleteEdge: database.prepare("DELETE FROM edges WHERE file_path = ?"),
     deleteFile: database.prepare("DELETE FROM files WHERE path = ?"),
-    deleteFileFts: database.prepare("DELETE FROM files_fts WHERE path = ?"),
+    deleteFileFts: database.prepare("DELETE FROM files_fts WHERE rowid = (SELECT fts_rowid FROM files WHERE path = ?)"),
     deleteImport: database.prepare("DELETE FROM imports WHERE from_file = ?"),
     deleteRoute: database.prepare("DELETE FROM routes WHERE file_path = ?"),
     deleteSymbol: database.prepare("DELETE FROM symbols WHERE file_path = ?"),
     deleteSymbolFts: database.prepare("DELETE FROM symbols_fts WHERE file_path = ?"),
     insertConfig: database.prepare("INSERT INTO configs (key, value, file_path, line) VALUES (?, ?, ?, ?)"),
     insertEdge: database.prepare("INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
-    insertFile: database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
-    insertFileFts: database.prepare("INSERT INTO files_fts (path, language, profile, content) VALUES (?, ?, ?, ?)"),
+    insertFile: database.prepare("INSERT INTO files (path, fts_rowid, language, profile, kind, bytes, lines, hash, mtime_ms, size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+    insertFileFts: database.prepare("INSERT INTO files_fts (rowid, path, language, profile, content) VALUES (?, ?, ?, ?, ?)"),
     insertImport: database.prepare("INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES (?, ?, ?, ?, ?)"),
     insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),
     insertRoute: database.prepare("INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)"),

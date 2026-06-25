@@ -6,6 +6,7 @@ import type { CodeParserMode } from "./schema";
 import { normalizePath, root } from "../workspace";
 
 export type NativeCodeIndexEngine = "native-rust";
+export type NativeCodeIndexMode = "full" | "incremental";
 export type NativeCodeIndexOutputMode = "row-stream" | "sqlite-bridge" | "sqlite-direct";
 
 export interface NativeCodeIndexFile {
@@ -19,9 +20,10 @@ export interface NativeCodeIndexFile {
 export interface NativeCodeIndexJob {
   abi_version: 1;
   database_path: string;
+  deleted_paths?: string[];
   engine: NativeCodeIndexEngine;
   files: NativeCodeIndexFile[];
-  mode: "full";
+  mode: NativeCodeIndexMode;
   output_mode?: NativeCodeIndexOutputMode;
   parser_mode: CodeParserMode;
   project_root: string;
@@ -47,10 +49,31 @@ export interface NativeCodeIndexSummary {
 }
 
 export interface NativeCodeIndexHelperOptions {
+  arch?: string;
+  env?: NodeJS.ProcessEnv;
   helperPath?: string;
+  packageRoot?: string;
+  platform?: NodeJS.Platform;
+}
+
+export type NativeCodeIndexHelperSource = "option" | "environment" | "packaged" | "missing";
+
+export interface NativeCodeIndexHelperAvailability {
+  available: boolean;
+  helperPath: string;
+  packagedHelperPath: string;
+  platformTriple: string;
+  reason: string;
+  source: NativeCodeIndexHelperSource;
 }
 
 export interface NativeCodeIndexRows {
+  configs: Array<{
+    file_path: string;
+    key: string;
+    line: number;
+    value: string;
+  }>;
   edges: Array<{
     evidence: string;
     file_path: string;
@@ -96,46 +119,168 @@ export interface NativeCodeIndexRows {
   }>;
 }
 
-function configuredHelperPath(options: NativeCodeIndexHelperOptions = {}): string {
-  return (options.helperPath ?? process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim();
+const supportedNativeHelperTriples = new Set([
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-arm64",
+  "linux-x64",
+  "win32-x64",
+]);
+
+export function nativeCodeIndexHelperPlatformTriple(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  return `${platform}-${arch}`;
 }
 
-function requireUsableHelperPath(helperPath: string): string {
-  if (!helperPath) {
-    throw new Error("--code-index-engine native-rust requires PROJECT_LIBRARIAN_NATIVE_INDEXER to point to the native helper; no native helper is packaged yet.");
-  }
+export function nativeCodeIndexHelperBinaryName(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "project-librarian-indexer.exe" : "project-librarian-indexer";
+}
+
+function nativeCodeIndexHelperPackageRoot(options: NativeCodeIndexHelperOptions = {}): string {
+  return path.resolve(options.packageRoot ?? path.join(__dirname, ".."));
+}
+
+export function packagedNativeCodeIndexHelperPath(options: NativeCodeIndexHelperOptions = {}): string {
+  const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
+  return path.join(
+    nativeCodeIndexHelperPackageRoot(options),
+    "native",
+    nativeCodeIndexHelperPlatformTriple(platform, arch),
+    nativeCodeIndexHelperBinaryName(platform),
+  );
+}
+
+function configuredHelperPath(options: NativeCodeIndexHelperOptions = {}): { helperPath: string; source: NativeCodeIndexHelperSource } {
+  const optionPath = (options.helperPath ?? "").trim();
+  if (optionPath) return { helperPath: optionPath, source: "option" };
+  const envPath = ((options.env ?? process.env).PROJECT_LIBRARIAN_NATIVE_INDEXER ?? "").trim();
+  if (envPath) return { helperPath: envPath, source: "environment" };
+  return { helperPath: "", source: "missing" };
+}
+
+function helperPathLabel(source: NativeCodeIndexHelperSource): string {
+  if (source === "option") return "native helper path";
+  if (source === "environment") return "PROJECT_LIBRARIAN_NATIVE_INDEXER";
+  return "packaged native helper";
+}
+
+function requireUsableHelperPath(helperPath: string, source: NativeCodeIndexHelperSource): string {
+  const label = helperPathLabel(source);
   if (!path.isAbsolute(helperPath)) {
-    throw new Error(`PROJECT_LIBRARIAN_NATIVE_INDEXER must be an absolute path: ${helperPath}`);
+    throw new Error(`${label} must be an absolute path: ${helperPath}`);
   }
   const resolved = path.resolve(helperPath);
   if (!fs.existsSync(resolved)) {
-    throw new Error(`PROJECT_LIBRARIAN_NATIVE_INDEXER does not exist: ${resolved}`);
+    throw new Error(`${label} does not exist: ${resolved}`);
   }
   const stat = fs.statSync(resolved);
   if (!stat.isFile()) {
-    throw new Error(`PROJECT_LIBRARIAN_NATIVE_INDEXER must point to an executable file: ${resolved}`);
+    throw new Error(`${label} must point to an executable file: ${resolved}`);
   }
+  fs.accessSync(resolved, fs.constants.X_OK);
   return resolved;
 }
 
 export function requireNativeCodeIndexHelperPath(options: NativeCodeIndexHelperOptions = {}): string {
-  return requireUsableHelperPath(configuredHelperPath(options));
+  const availability = nativeCodeIndexHelperAvailability(options);
+  if (availability.available) return availability.helperPath;
+  throw new Error(availability.reason);
+}
+
+export function nativeCodeIndexHelperAvailability(options: NativeCodeIndexHelperOptions = {}): NativeCodeIndexHelperAvailability {
+  const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
+  const platformTriple = nativeCodeIndexHelperPlatformTriple(platform, arch);
+  const packagedHelperPath = packagedNativeCodeIndexHelperPath({ ...options, arch, platform });
+  const configured = configuredHelperPath(options);
+  if (configured.helperPath) {
+    try {
+      return {
+        available: true,
+        helperPath: requireUsableHelperPath(configured.helperPath, configured.source),
+        packagedHelperPath,
+        platformTriple,
+        reason: "",
+        source: configured.source,
+      };
+    } catch (error: unknown) {
+      return {
+        available: false,
+        helperPath: "",
+        packagedHelperPath,
+        platformTriple,
+        reason: error instanceof Error ? error.message : String(error),
+        source: configured.source,
+      };
+    }
+  }
+  if (!supportedNativeHelperTriples.has(platformTriple)) {
+    return {
+      available: false,
+      helperPath: "",
+      packagedHelperPath,
+      platformTriple,
+      reason: `packaged native code index helper does not support this platform: ${platformTriple}; set PROJECT_LIBRARIAN_NATIVE_INDEXER to a compatible helper path`,
+      source: "missing",
+    };
+  }
+  if (fs.existsSync(packagedHelperPath)) {
+    try {
+      return {
+        available: true,
+        helperPath: requireUsableHelperPath(packagedHelperPath, "packaged"),
+        packagedHelperPath,
+        platformTriple,
+        reason: "",
+        source: "packaged",
+      };
+    } catch (error: unknown) {
+      return {
+        available: false,
+        helperPath: "",
+        packagedHelperPath,
+        platformTriple,
+        reason: error instanceof Error ? error.message : String(error),
+        source: "packaged",
+      };
+    }
+  }
+  return {
+    available: false,
+    helperPath: "",
+    packagedHelperPath,
+    platformTriple,
+    reason: `--code-index-engine native-rust requires PROJECT_LIBRARIAN_NATIVE_INDEXER or a packaged native helper at ${packagedHelperPath}`,
+    source: "missing",
+  };
+}
+
+export function nativeCodeIndexHelperAvailable(options: NativeCodeIndexHelperOptions = {}): boolean {
+  return nativeCodeIndexHelperAvailability(options).available;
 }
 
 function writeJobManifest(job: NativeCodeIndexJob): string {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-native-indexer-"));
   const manifestPath = path.join(tmpDir, "job.json");
-  fs.writeFileSync(manifestPath, `${JSON.stringify(job, null, 2)}\n`);
+  fs.writeFileSync(manifestPath, `${JSON.stringify(job)}\n`);
   return manifestPath;
 }
 
-export function buildNativeCodeIndexJob(input: Omit<NativeCodeIndexJob, "abi_version" | "engine" | "mode" | "project_root">): NativeCodeIndexJob {
+export function buildNativeCodeIndexJob(
+  input: Omit<NativeCodeIndexJob, "abi_version" | "engine" | "mode" | "project_root"> & {
+    mode?: NativeCodeIndexMode;
+  },
+): NativeCodeIndexJob {
+  const { mode = "full", ...rest } = input;
   return {
     abi_version: 1,
     engine: "native-rust",
-    mode: "full",
+    mode,
     project_root: normalizePath(root),
-    ...input,
+    ...rest,
   };
 }
 
@@ -196,7 +341,7 @@ function validateNativeRows(value: unknown): NativeCodeIndexRows {
     throw new Error("native code index helper row stream must be an object");
   }
   const rows = value as Partial<Record<keyof NativeCodeIndexRows, unknown>>;
-  for (const key of ["edges", "files", "imports", "routes", "symbols"] as const) {
+  for (const key of ["configs", "edges", "files", "imports", "routes", "symbols"] as const) {
     if (!Array.isArray(rows[key])) {
       throw new Error(`native code index helper row stream missing array: ${key}`);
     }

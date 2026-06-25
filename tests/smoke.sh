@@ -1355,11 +1355,11 @@ if node "$CLI" --code-index --code-index-engine made-up --code-scope src > bad-c
   exit 1
 fi
 grep -q "invalid --code-index-engine" bad-code-index-engine.log
-if PROJECT_LIBRARIAN_NATIVE_INDEXER= node "$CLI" --code-index --acknowledge-small-repo --code-index-engine native-rust --code-scope src > native-rust-missing-helper.log 2>&1; then
+if PROJECT_LIBRARIAN_NATIVE_INDEXER="$PWD/missing-native-indexer" node "$CLI" --code-index --acknowledge-small-repo --code-index-engine native-rust --code-scope src > native-rust-missing-helper.log 2>&1; then
   echo "expected native-rust engine without helper to fail" >&2
   exit 1
 fi
-grep -q "requires PROJECT_LIBRARIAN_NATIVE_INDEXER" native-rust-missing-helper.log
+grep -q "PROJECT_LIBRARIAN_NATIVE_INDEXER does not exist" native-rust-missing-helper.log
 if node "$CLI" --code-query "with changed as (delete from files returning path) select path from changed" > bad-code-query.log 2>&1; then
   echo "expected writable-looking --code-query to fail" >&2
   exit 1
