@@ -124,7 +124,7 @@ Measured on two SHA-pinned open-source repositories with hand-authored answer ke
 | workspace_graph | 106% more | 2.6% less |
 | ownership_lookup | — | 99% more |
 
-The claim is a scale crossover, and the losses are published next to the win: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace 27.7% fewer cost-weighted tokens, 24.5% fewer scan bytes) and breaks even on the workspace graph, but everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale. In short, the code-evidence index pays off only on genuinely large repositories for expensive-traversal questions — exactly what the CLI's scale-aware gates encode: below ~5k indexable files, `--code-index` asks for explicit acknowledgement and bootstrap skips MCP auto-registration, citing these measurements.
+The claim is a scale crossover, and the losses are published next to the win: on the 11.8k-file repository the tool wins the expensive traversal question (impact_trace 27.7% fewer cost-weighted tokens, 24.5% fewer scan bytes) and breaks even on the workspace graph, but everything loses on the small repository and cheap lookups (CODEOWNERS ownership) lose at every measured scale. In short, the code-evidence index pays off only on genuinely large repositories for expensive-traversal questions — exactly what the CLI's scale-aware gates encode: below ~5k indexable files, `--code-index` halts unless `--acknowledge-small-repo` is passed, and bootstrap skips MCP auto-registration unless an existing `.project-wiki` SQLite index shows the user already opted in.
 
 ### What the benchmark names mean
 
@@ -378,12 +378,14 @@ Important options:
 
 | Option | Purpose |
 | --- | --- |
+| `install --scope user|project --agents <list> --dry-run` | Install reusable skill files globally or into the current repository; `--dry-run` previews copied files for install only. |
+| `update --agents <list>` | Refresh an existing setup and existing project-scoped skill copies; selected surfaces can be `codex`, `claude`, `cursor`, `gemini`, or `all`. |
 | `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*`, create migration inboxes, and generate unit-map/split-plan/coverage review files. |
 | `--lint` | Validate generated setup without editing files. |
 | `--link-check` | Report broken wiki links, duplicate routes, orphan pages, and pages the startup router cannot reach within the depth budget. |
 | `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |
 | `--doctor` | Run lint, link-check, and quality-check together. |
-| `--doctor --fix` | Safely refresh generated index routing before diagnostics. |
+| `--doctor --fix` | Safely refresh generated index routing before diagnostics. `--fix` is only a modifier for `--doctor`. |
 | `--migration-lint` | Validate migration coverage, unit-map, split-plan, and review scaffolding separately from normal lint. |
 | `--migration-quality-check` | Report migration policy/structure signals separately from normal quality-check. |
 | `--migration-doctor` | Run migration-lint and migration-quality-check together. |
@@ -392,21 +394,27 @@ Important options:
 | `--wiki-visualize` | Write a self-contained static wiki graph visualizer to `.project-wiki/wiki-graph.html`. |
 | `--wiki-visualize-out <path>` | With `--wiki-visualize`, write to a custom repository-relative path under `.project-wiki/`. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
-| `--capture-inbox --title <title> --content <content>` | Append a candidate note to the wiki inbox. |
-| `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, and `--verification` as needed. |
+| `--capture-inbox --title <title> --content <content> --category <category>` | Append a candidate note to the wiki inbox; category defaults to `project-candidate`. |
+| `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, and `--last-failure-command` as needed. |
 | `--handoff-show`, `--handoff-status`, `--handoff-clear` | Print, inspect, or remove generated session handoff state. Startup hooks mention the handoff when it exists but do not inject the full file by default. |
 | `--handoff-promote-inbox` | Append selected generated handoff facts to `wiki/inbox/project-candidates.md` as a pending candidate. It does not write canonical, plan, or decision pages. |
 | `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status` | Opt in, opt out, or inspect the capped full handoff injection experiment. Default startup behavior remains pointer-only. |
 | `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |
-| `--issue-create --issue-title <title>` | Create a GitHub issue through `gh` after explicit user approval. |
+| `--issue-create --issue-title <title> --issue-body-file <path>` | Create a GitHub issue through `gh` after explicit user approval; `--issue-body-file` reuses an existing Markdown body. |
 | `--glossary-init` | Create and route the optional glossary page. |
 | `--prune-check` | Report active pages with stale or unresolved lifecycle signals. |
 | `--prune-check --prune-check-strict` | Omit pages selected only because their `updated` date is older than today. |
 | `--review-migration`, `--semantic-migrate` | Sync migration coverage and inbox statuses into migration review files. |
 | `--no-git-config` | Install hook files without changing `git core.hooksPath`. |
 | `--code-index` | Build the disposable code evidence index. |
+| `--code-scope <path>` | With `--code-index`, restrict indexing to one or more project-relative files or directories. |
+| `--code-index-out <path>` | Use a custom SQLite output path under `.project-wiki/`; applies to index and read modes. |
+| `--acknowledge-small-repo` | With `--code-index`, proceed below the ~5k-file scale gate after the cost warning. |
+| `--incremental`, `--code-index-incremental`, `--code-index-full` | With `--code-index`, require an incremental update or force a full rebuild. |
+| `--code-parser <mode>` | With `--code-index`, select `default` or optional `tree-sitter` extraction. |
 | `--code-index-health` | Inspect code evidence cache compatibility and print rebuild guidance without writing. |
 | `--code-index-engine <engine>` | Override the default `auto` index engine with `typescript` or `native-rust`. |
+| `--code-status`, `--code-files` | Inspect cache freshness or list indexed files. |
 | `--code-report` | Print architecture and ownership summaries from the evidence index. |
 | `--code-report-section <section>` | Print one section: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, or `edges`. |
 | `--code-impact <term>` | Show file, symbol, route, import, edge, and owner impact evidence. |
@@ -438,7 +446,7 @@ When editing TypeScript under `src/`, rebuild before committing so `dist/` stays
 
 The supported runtime floor is Node.js 22.13+. Development type definitions should stay aligned with the Node 22 support contract or be backed by a Node 22 compatibility check so TypeScript does not admit APIs unavailable to supported users.
 
-`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, native helper package-matrix, binary-format, and SHA-256 provenance-manifest inspection, dist executable/parity checks, and README benchmark-claim boundary checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
+`npm run release:check` is a local-only maintainer gate: it runs tests, native Node coverage, benchmark parser smoke, the real-corpus offline demo, benchmark release preview, benchmark claim-ledger classification, raw hygiene audit, package dry-run inspection, native helper package-matrix, binary-format, and SHA-256 provenance-manifest inspection, dist executable/parity checks, README benchmark-claim boundary checks, README/README.ko CLI reference coverage, and README/README.ko code-evidence freshness/scale-gate documentation checks. It never publishes, never deletes raw benchmark artifacts, and never launches a measured Codex benchmark.
 
 Treat a green `release:check` as a reproducible release-readiness bundle, not a runtime guarantee: it proves those local gates on the current checkout, including that the package dry run stays inside the expected publish boundary (`agents/`, `dist/`, `LICENSE`, `README.md`, `README.ko.md`, and `SKILL.md`), excludes source files, tests, repo-local wiki/workflow state, raw benchmark output, and local caches, and does not contain a partial, mislabeled, unmanifested, stale-manifest, or checksum-mismatched `dist/native/` helper matrix.
 
