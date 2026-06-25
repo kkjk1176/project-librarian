@@ -553,6 +553,56 @@ function nativeHelperPublishWorkflowStatus(filePath = path.join(repoRoot, ".gith
   };
 }
 
+function tomlBlock(text, heading) {
+  const escapedHeading = escapeRegExp(heading);
+  const match = new RegExp(`^\\[${escapedHeading}\\]\\s*\\n([\\s\\S]*?)(?=^\\[|\\s*$)`, "m").exec(text);
+  return match ? match[1] : "";
+}
+
+function nativeHelperSqliteLinkStatus(options = {}) {
+  const cargoTomlPath = options.cargoTomlPath ?? path.join(repoRoot, "native", "indexer-rs", "Cargo.toml");
+  const sourcePath = options.sourcePath ?? path.join(repoRoot, "native", "indexer-rs", "src", "main.rs");
+  const missing = [];
+  const forbidden = [];
+  if (!fs.existsSync(cargoTomlPath)) missing.push("native/indexer-rs/Cargo.toml");
+  if (!fs.existsSync(sourcePath)) missing.push("native/indexer-rs/src/main.rs");
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      forbidden,
+      missing,
+      message: "native helper SQLite link contract files are missing",
+    };
+  }
+
+  const cargoToml = fs.readFileSync(cargoTomlPath, "utf8");
+  const mainSource = fs.readFileSync(sourcePath, "utf8");
+  const dependencies = tomlBlock(cargoToml, "dependencies");
+  if (!/^\s*libsqlite3-sys\s*=\s*\{[^}\n]*features\s*=\s*\[[^\]\n]*["']bundled["']/m.test(dependencies)) {
+    missing.push("unconditional libsqlite3-sys bundled dependency");
+  }
+  const targetDependencyBlocks = Array.from(cargoToml.matchAll(/^\[target\.[^\n]+\.dependencies\]\s*\n([\s\S]*?)(?=^\[|\s*$)/gm), (match) => match[0]);
+  if (targetDependencyBlocks.some((block) => /^\s*libsqlite3-sys\s*=/m.test(block))) {
+    forbidden.push("target-scoped libsqlite3-sys dependency");
+  }
+  if (!/^\s*extern crate libsqlite3_sys as _;\s*$/m.test(mainSource)) {
+    missing.push("libsqlite3_sys extern crate link anchor");
+  }
+  if (/^\s*#\[cfg[^\n]*\]\s*\n\s*extern crate libsqlite3_sys as _;\s*$/m.test(mainSource)) {
+    forbidden.push("cfg-gated libsqlite3_sys extern crate");
+  }
+
+  const ok = missing.length === 0 && forbidden.length === 0;
+  return {
+    ok,
+    forbidden,
+    missing,
+    message: ok
+      ? "native helper SQLite FFI uses bundled/static link metadata across supported packaged targets"
+      : "native helper SQLite link contract must not rely on host-provided sqlite3 libraries",
+  };
+}
+
 function formatBytes(bytes) {
   const units = ["B", "KiB", "MiB", "GiB"];
   let value = bytes;
@@ -888,6 +938,13 @@ function main() {
     fail("release readiness failed: native helper publish workflow");
   }
 
+  const nativeHelperSqliteLink = nativeHelperSqliteLinkStatus();
+  console.log(`${nativeHelperSqliteLink.ok ? "PASS" : "FAIL"} native helper SQLite link contract: ${nativeHelperSqliteLink.message}`);
+  if (!nativeHelperSqliteLink.ok) {
+    console.error(JSON.stringify(nativeHelperSqliteLink, null, 2));
+    fail("release readiness failed: native helper SQLite link contract");
+  }
+
   const workflowPermissions = [
     ".github/workflows/benchmark.yml",
     ".github/workflows/branch-policy.yml",
@@ -932,6 +989,7 @@ function main() {
     release_provenance: provenanceStatus,
     trusted_publishing: trustedPublishingStatus,
     native_helper_publish_workflow: nativeHelperPublishWorkflow,
+    native_helper_sqlite_link: nativeHelperSqliteLink,
     workflow_permissions: workflowPermissions,
     workflow_action_pinning: workflowActionPinning,
   }, null, 2));
@@ -964,5 +1022,6 @@ module.exports = {
   nativeHelperPublishRunners,
   nativeHelperPublishRustTargets,
   nativeHelperPublishWorkflowStatus,
+  nativeHelperSqliteLinkStatus,
   workflowPermissionStatus,
 };
