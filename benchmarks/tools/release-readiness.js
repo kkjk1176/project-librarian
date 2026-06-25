@@ -18,6 +18,10 @@ const {
 const repoRoot = path.resolve(__dirname, "..", "..");
 const nativeHelperPublishRunners = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.runner]));
 const nativeHelperPublishRustTargets = new Map(nativeHelperMatrixTargets.map((target) => [target.triple, target.rustTarget]));
+const node24ArtifactActions = new Map([
+  ["actions/download-artifact", { ref: "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c", version: "v8.0.1" }],
+  ["actions/upload-artifact", { ref: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", version: "v7.0.1" }],
+]);
 
 const requiredPackFiles = [
   "LICENSE",
@@ -83,6 +87,19 @@ function requirePatternOrder(body, steps) {
     previousLabel = label;
   }
   return orderErrors;
+}
+
+function workflowActionReferences(text) {
+  const references = [];
+  const usesPattern = /^\s*(?:-\s+)?uses:\s*["']?([^@\s"']+)@([^"'\s#]+)["']?/gm;
+  let match;
+  while ((match = usesPattern.exec(text)) !== null) {
+    const action = match[1];
+    const ref = match[2];
+    if (action.startsWith("./") || action.startsWith("../") || action.startsWith("docker://")) continue;
+    references.push({ action, ref });
+  }
+  return references;
 }
 
 function fail(message) {
@@ -328,18 +345,8 @@ function githubActionReferencePinningStatus(filePath) {
     };
   }
   const text = fs.readFileSync(filePath, "utf8");
-  const inspectedActions = [];
-  const unpinnedActions = [];
-  const usesPattern = /^\s*-\s+uses:\s*["']?([^@\s"']+)@([^"'\s#]+)["']?/gm;
-  let match;
-  while ((match = usesPattern.exec(text)) !== null) {
-    const action = match[1];
-    const ref = match[2];
-    if (action.startsWith("./") || action.startsWith("../") || action.startsWith("docker://")) continue;
-    const item = { action, ref };
-    inspectedActions.push(item);
-    if (!/^[a-f0-9]{40}$/i.test(ref)) unpinnedActions.push(item);
-  }
+  const inspectedActions = workflowActionReferences(text);
+  const unpinnedActions = inspectedActions.filter((item) => !/^[a-f0-9]{40}$/i.test(item.ref));
   const ok = unpinnedActions.length === 0;
   return {
     ok,
@@ -348,6 +355,42 @@ function githubActionReferencePinningStatus(filePath) {
     message: ok
       ? `all ${inspectedActions.length} remote GitHub action reference(s) are full-SHA pinned`
       : "remote GitHub action references must be pinned to full-length commit SHAs",
+  };
+}
+
+function node24ArtifactActionStatus(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      ok: false,
+      inspected_actions: [],
+      mismatches: [],
+      missing_actions: Array.from(node24ArtifactActions.keys()),
+      message: `${path.relative(repoRoot, filePath)} is missing`,
+    };
+  }
+  const text = fs.readFileSync(filePath, "utf8");
+  const inspectedActions = [];
+  const mismatches = [];
+  const seenActions = new Set();
+  for (const { action, ref } of workflowActionReferences(text)) {
+    if (!node24ArtifactActions.has(action)) continue;
+    const expected = node24ArtifactActions.get(action);
+    const item = { action, expected_ref: expected.ref, expected_version: expected.version, ref };
+    inspectedActions.push(item);
+    seenActions.add(action);
+    if (ref !== expected.ref) mismatches.push(item);
+  }
+  const requiredActions = Array.from(node24ArtifactActions.keys());
+  const missingActions = requiredActions.filter((action) => !seenActions.has(action));
+  const ok = mismatches.length === 0 && missingActions.length === 0;
+  return {
+    ok,
+    inspected_actions: inspectedActions,
+    mismatches,
+    missing_actions: missingActions,
+    message: ok
+      ? `artifact actions are pinned to the expected Node 24-compatible SHA(s)`
+      : "artifact actions must use the audited Node 24-compatible pinned SHA(s)",
   };
 }
 
@@ -948,6 +991,13 @@ function main() {
     fail("release readiness failed: native helper SQLite link contract");
   }
 
+  const artifactActions = node24ArtifactActionStatus(path.join(repoRoot, ".github", "workflows", "publish.yml"));
+  console.log(`${artifactActions.ok ? "PASS" : "FAIL"} publish artifact action runtime: ${artifactActions.message}`);
+  if (!artifactActions.ok) {
+    console.error(JSON.stringify(artifactActions, null, 2));
+    fail("release readiness failed: publish artifact action runtime");
+  }
+
   const workflowPermissions = [
     ".github/workflows/benchmark.yml",
     ".github/workflows/branch-policy.yml",
@@ -993,6 +1043,7 @@ function main() {
     trusted_publishing: trustedPublishingStatus,
     native_helper_publish_workflow: nativeHelperPublishWorkflow,
     native_helper_sqlite_link: nativeHelperSqliteLink,
+    publish_artifact_action_runtime: artifactActions,
     workflow_permissions: workflowPermissions,
     workflow_action_pinning: workflowActionPinning,
   }, null, 2));
@@ -1012,6 +1063,7 @@ module.exports = {
   nativeHelperPackageProvenanceStatus,
   nativeHelperPackageMatrixStatus,
   normalizePackPath,
+  node24ArtifactActionStatus,
   packFileRecords,
   packFilePaths,
   parsePackJson,
