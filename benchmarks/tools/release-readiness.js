@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { discoverPrunableCodexHomes } = require("../lib/llm-raw-retention");
-const { helperBinaryName, supportedTriples } = require("./native-indexer-package-audit");
+const { helperBinaryName, packagedHelperBinaryStatus, supportedTriples } = require("./native-indexer-package-audit");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -166,7 +166,7 @@ function isPackagedNativeHelperExecutable(record, triple) {
   return typeof record.mode !== "number" || (record.mode & 0o111) !== 0;
 }
 
-function nativeHelperPackageMatrixStatus(files) {
+function nativeHelperPackageMatrixStatus(files, options = {}) {
   const expected = supportedTriples.map((triple) => {
     const platform = String(triple).split("-")[0];
     return {
@@ -188,20 +188,42 @@ function nativeHelperPackageMatrixStatus(files) {
       return record && !isPackagedNativeHelperExecutable(record, file.triple);
     })
     .map((file) => file.path);
+  const binaryMismatches = options.verifyBinaryFormat
+    ? expected
+      .filter((file) => nativeFileByPath.has(file.path))
+      .map((file) => packagedHelperBinaryStatus(path.join(options.repoRoot ?? repoRoot, file.path), file.triple))
+      .filter((status) => !status.ok)
+      .map((status) => ({
+        actual_architectures: status.actual_architectures,
+        actual_format: status.actual_format,
+        expected_architecture: status.expected_architecture,
+        expected_format: status.expected_format,
+        path: path.relative(options.repoRoot ?? repoRoot, status.path).split(path.sep).join("/"),
+        triple: status.triple,
+      }))
+    : [];
   const unexpected = nativeFiles.map((file) => file.path).filter((file) => !expectedSet.has(file));
-  const matrixComplete = nativeFiles.length > 0 && missing.length === 0 && nonExecutable.length === 0 && unexpected.length === 0;
+  const matrixComplete = nativeFiles.length > 0
+    && binaryMismatches.length === 0
+    && missing.length === 0
+    && nonExecutable.length === 0
+    && unexpected.length === 0;
+  const status = matrixComplete
+    ? "packaged-helper-matrix-ready"
+    : binaryMismatches.length > 0
+      ? "packaged-helper-binary-mismatch"
+      : nativeFiles.length > 0
+        ? "partial-packaged-helper-matrix"
+        : "no-packaged-helper";
   return {
     ok: nativeFiles.length === 0 || matrixComplete,
+    binary_mismatches: binaryMismatches,
     expected_files: expectedPaths,
     missing_files: missing,
     non_executable_files: nonExecutable,
     packaged_files: nativeFiles.map((file) => file.path),
     present_files: present,
-    status: matrixComplete
-      ? "packaged-helper-matrix-ready"
-      : nativeFiles.length > 0
-        ? "partial-packaged-helper-matrix"
-        : "no-packaged-helper",
+    status,
     unexpected_files: unexpected,
   };
 }
@@ -614,7 +636,10 @@ function main() {
     fail("release readiness failed: package contents");
   }
 
-  const nativeMatrix = nativeHelperPackageMatrixStatus(fileRecords);
+  const nativeMatrix = nativeHelperPackageMatrixStatus(fileRecords, {
+    repoRoot,
+    verifyBinaryFormat: true,
+  });
   console.log(`${nativeMatrix.ok ? "PASS" : "FAIL"} native helper package matrix: ${nativeMatrix.status}`);
   if (!nativeMatrix.ok) {
     console.error(JSON.stringify(nativeMatrix, null, 2));

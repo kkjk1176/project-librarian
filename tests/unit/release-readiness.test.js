@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { sampleBinaryForTriple } = require("./native-binary-fixtures.js");
 
 const {
   benchmarkClaimStatus,
@@ -105,6 +106,33 @@ test("release readiness rejects partial native helper package matrices", () => {
   ]);
   assert.equal(unexpected.ok, false);
   assert.deepEqual(unexpected.unexpected_files, ["dist/native/linux-x64/README.txt"]);
+});
+
+test("release readiness can validate packaged native helper binary formats", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "release-native-binary-"));
+  try {
+    const expectedFiles = nativeHelperPackageMatrixStatus([]).expected_files;
+    const records = expectedFiles.map((file) => ({
+      mode: file.includes("win32-") ? 0o644 : 0o755,
+      path: file,
+    }));
+    for (const file of expectedFiles) {
+      const triple = file.split("/")[2];
+      const helperPath = path.join(cwd, file);
+      fs.mkdirSync(path.dirname(helperPath), { recursive: true });
+      fs.writeFileSync(helperPath, sampleBinaryForTriple(triple === "linux-x64" ? "linux-arm64" : triple));
+    }
+
+    const status = nativeHelperPackageMatrixStatus(records, {
+      repoRoot: cwd,
+      verifyBinaryFormat: true,
+    });
+    assert.equal(status.ok, false);
+    assert.equal(status.status, "packaged-helper-binary-mismatch");
+    assert.deepEqual(status.binary_mismatches.map((item) => item.triple), ["linux-x64"]);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("release readiness uses an isolated npm cache for pack inspection", () => {
