@@ -9,13 +9,13 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 
 `install-skill`은 `install`의 호환성 별칭으로 계속 지원됩니다.
 
-`update`는 기존 프로젝트 갱신을 명시하는 명령입니다. `--migrate`와 `--adopt-existing`를 거부합니다. 기존 문서나 위키 내용을 `wiki_legacy*`로 보존하고 검토해야 한다면 top-level `--migrate`를 사용합니다. 선택된 에이전트 표면에 프로젝트 범위 Project Librarian 스킬 설치가 이미 있으면 `update`는 현재 패키지의 재사용 가능한 스킬 파일을 해당 프로젝트 스킬 디렉터리에 복사한 뒤 관리 설정을 갱신합니다.
+`update`는 기존 프로젝트 갱신을 명시하는 명령입니다. `--migrate`와 `--adopt-existing`를 거부합니다. 기존 문서나 위키 내용을 `wiki_legacy*`로 보존하고 검토해야 한다면 top-level `--migrate`를 사용합니다. 선택된 에이전트 표면에 프로젝트 범위 Project Librarian 스킬 설치가 이미 있으면 `update`는 현재 패키지의 재사용 가능한 스킬 파일과 로컬 실행기에 필요한 필수 런타임 의존성을 해당 프로젝트 스킬 디렉터리에 복사한 뒤 관리 설정을 갱신합니다.
 
 ### 주요 옵션
 
 | 옵션 | 목적 |
 | --- | --- |
-| `install --scope user|project --agents <list> --dry-run` | 재사용 가능한 스킬 파일을 전역 또는 현재 저장소에 설치합니다. `--dry-run`은 install에서 복사될 파일을 미리 보여줍니다. |
+| `install --scope user|project --agents <list> --dry-run` | 재사용 가능한 스킬 파일과 로컬 실행기에 필요한 필수 런타임 의존성을 전역 또는 현재 저장소에 설치합니다. `--dry-run`은 install에서 복사될 파일을 미리 보여줍니다. |
 | `update --agents <list>` | 기존 설정과 기존 프로젝트 범위 스킬 복사본을 갱신합니다. 표면은 `codex`, `claude`, `cursor`, `gemini`, `all` 중 하나입니다. |
 | `--migrate`, `--adopt-existing` | 기존 위키를 `wiki_legacy*`로 보존하고 migration inbox, unit-map, split-plan, coverage 검토 파일을 만듭니다. |
 | `--lint` | 파일을 수정하지 않고 생성된 설정을 검증합니다. |
@@ -48,6 +48,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--code-index-out <path>` | `.project-wiki/` 아래 사용자 지정 SQLite 출력 경로를 사용합니다. index와 read mode에 모두 적용됩니다. |
 | `--acknowledge-small-repo` | `--code-index`와 함께 사용해 약 5k 파일 미만 규모 경고 후에도 진행합니다. |
 | `--incremental`, `--code-index-incremental`, `--code-index-full` | `--code-index`와 함께 사용해 증분 갱신을 요구하거나 전체 재생성을 강제합니다. |
+| `--code-index-migrate` | `--code-index`와 함께 사용해 기존 인덱스의 스키마 버전이 현재 패키지와 다를 때 교체를 명시적으로 승인합니다. |
 | `--code-parser <mode>` | `--code-index`와 함께 사용해 `default` 또는 선택적 `tree-sitter` 추출을 선택합니다. |
 | `--code-index-health` | 파일을 쓰지 않고 코드 근거 캐시 호환성과 재빌드 안내를 출력합니다. |
 | `--code-index-engine <engine>` | 기본 `auto` 인덱스 엔진을 `typescript` 또는 `native-rust`로 override합니다. |

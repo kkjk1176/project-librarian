@@ -107,6 +107,7 @@ test("parseArgs handles code evidence alias groups from the flag schema", () => 
     "--code-evidence-index-engine=auto",
     "--code-evidence-index-full",
     "--code-evidence-index-incremental",
+    "--code-evidence-index-migrate",
     "--code-evidence-parser=tree-sitter",
     "--code-evidence-query",
     "select * from files",
@@ -122,6 +123,7 @@ test("parseArgs handles code evidence alias groups from the flag schema", () => 
   assert.equal(parsed.codeIndexEngine, "auto");
   assert.equal(parsed.codeIndexFullMode, true);
   assert.equal(parsed.codeIndexIncrementalMode, true);
+  assert.equal(parsed.codeIndexMigrateMode, true);
   assert.equal(parsed.codeParserMode, true);
   assert.equal(parsed.codeParser, "tree-sitter");
   assert.equal(parsed.codeQueryMode, true);

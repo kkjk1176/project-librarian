@@ -19,6 +19,7 @@ export interface ParsedArgs {
   codeIndexEngineMode: boolean;
   codeIndexHealthMode: boolean;
   codeIndexIncrementalMode: boolean;
+  codeIndexMigrateMode: boolean;
   codeIndexMode: boolean;
   codeIndexOutput: string;
   codeIndexScopes: string[];
@@ -109,6 +110,7 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--code-index-full", value: "none", aliases: ["--code-evidence-index-full"] },
   { name: "--code-index-health", value: "none" },
   { name: "--code-index-incremental", value: "none", aliases: ["--incremental", "--code-incremental", "--code-evidence-index-incremental"] },
+  { name: "--code-index-migrate", value: "none", aliases: ["--code-evidence-index-migrate"] },
   { name: "--code-index-out", value: "value", aliases: ["--code-evidence-out"] },
   { name: "--code-parser", value: "value", aliases: ["--code-evidence-parser"] },
   { name: "--code-query", value: "value", aliases: ["--code-evidence-query"] },
@@ -278,6 +280,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     codeIndexFullMode: hasAnyFlag("--code-index-full"),
     codeIndexHealthMode: args.has("--code-index-health"),
     codeIndexIncrementalMode: hasAnyFlag("--code-index-incremental"),
+    codeIndexMigrateMode: hasAnyFlag("--code-index-migrate"),
     codeIndexMode: hasAnyFlag("--code-index"),
     codeIndexOutput: argValueFromAny("--code-index-out") || ".project-wiki/code-evidence.sqlite",
     codeIndexScopes: argValuesFromAny("--code-scope"),
@@ -402,6 +405,7 @@ export const codeIndexMode = parsedArgs.codeIndexMode;
 export const codeIndexEngine = parsedArgs.codeIndexEngine;
 export const codeIndexEngineMode = parsedArgs.codeIndexEngineMode;
 export const codeIndexIncrementalMode = parsedArgs.codeIndexIncrementalMode;
+export const codeIndexMigrateMode = parsedArgs.codeIndexMigrateMode;
 export const codeIndexFullMode = parsedArgs.codeIndexFullMode;
 export const codeIndexHealthMode = parsedArgs.codeIndexHealthMode;
 export const codeReportMode = parsedArgs.codeReportMode;

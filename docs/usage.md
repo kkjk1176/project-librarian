@@ -16,7 +16,7 @@ Install into the current repository instead:
 npx project-librarian@latest install --scope project --agents all
 ```
 
-`install` copies reusable skill files only. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`. `install-skill` remains supported as a compatibility alias.
+`install` copies reusable skill files and required local-runner runtime dependencies. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`. `install-skill` remains supported as a compatibility alias.
 
 | Situation | Command |
 | --- | --- |
@@ -32,7 +32,7 @@ npx project-librarian@latest install --scope project --agents all
 
 The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces only when no project-scoped Project Librarian skill install is present. If the repository already has project-scoped skills such as `.codex/skills/project-librarian/` and `.claude/skills/project-librarian/`, the first setup uses that installed agent set by default. Existing non-migration updates preserve the agent surfaces already present in the repository, so a repo that has only Codex and Claude files will not gain Cursor or Gemini files on a plain update. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
 
-`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
+`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package, including the runtime dependencies needed by the project-local runner. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
 
 ## Runner Paths
 
@@ -85,6 +85,7 @@ Code evidence:
 | Build multiple scopes | "Build Project Librarian code evidence for `src` and `packages/api`." | `--code-index --code-scope src --code-scope packages/api` |
 | Require incremental update | "Update the Project Librarian code evidence index incrementally." | `--code-index --incremental` |
 | Force a full rebuild | "Fully rebuild the Project Librarian code evidence index." | `--code-index --code-index-full` |
+| Approve a schema migration | "Migrate the Project Librarian code evidence index schema." | `--code-index --code-index-migrate` |
 | Use optional Tree-sitter backend | "Build Project Librarian code evidence with the Tree-sitter parser." | `--code-index --code-parser tree-sitter` |
 | Inspect cache compatibility | "Inspect Project Librarian code evidence cache health." | `--code-index-health` |
 | Show cache status | "Show Project Librarian code evidence status." | `--code-status` |
@@ -96,7 +97,7 @@ Code evidence:
 | Search indexed symbols | "Search Project Librarian code evidence for symbol `Auth`." | `--code-search-symbol Auth` |
 | Run conservative read-only SQL | "Run a read-only Project Librarian code evidence query for file paths." | `--code-query "select path from files order by path"` |
 
-Only one code evidence mode can run at a time. `--incremental`, `--code-index-full`, and `--code-parser` are valid only with `--code-index`.
+Only one code evidence mode can run at a time. `--incremental`, `--code-index-full`, `--code-index-migrate`, and `--code-parser` are valid only with `--code-index`. `--code-index-migrate` is explicit approval to replace an existing disposable index when its schema version differs from the current package.
 
 ## What Gets Installed
 

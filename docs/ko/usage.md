@@ -16,7 +16,7 @@ npx project-librarian@latest install --scope user --agents all
 npx project-librarian@latest install --scope project --agents all
 ```
 
-`install`은 재사용 가능한 스킬 파일만 복사합니다. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다. `install-skill`은 호환성 별칭으로 계속 지원됩니다.
+`install`은 재사용 가능한 스킬 파일과 로컬 실행기에 필요한 필수 런타임 의존성을 복사합니다. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, `.claude/settings.json`은 만들거나 갱신하지 않습니다. `install-skill`은 호환성 별칭으로 계속 지원됩니다.
 
 | 상황 | 명령 |
 | --- | --- |
@@ -34,7 +34,7 @@ npx project-librarian@latest install --scope project --agents all
 
 마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
 
-`project-librarian update`는 선택된 표면에 이미 프로젝트 범위 Project Librarian 스킬 설치가 있으면 현재 실행 중인 패키지의 재사용 가능한 스킬 파일을 그 프로젝트 스킬 디렉터리로 동기화합니다. 기본적으로 새 프로젝트 범위 스킬 설치를 만들지는 않고, 사용자 범위 스킬 설치도 갱신하지 않습니다. 사용자 범위 스킬은 `install --scope user`로 명시적으로 갱신합니다.
+`project-librarian update`는 선택된 표면에 이미 프로젝트 범위 Project Librarian 스킬 설치가 있으면 현재 실행 중인 패키지의 재사용 가능한 스킬 파일과 프로젝트 로컬 실행기에 필요한 런타임 의존성을 그 프로젝트 스킬 디렉터리로 동기화합니다. 기본적으로 새 프로젝트 범위 스킬 설치를 만들지는 않고, 사용자 범위 스킬 설치도 갱신하지 않습니다. 사용자 범위 스킬은 `install --scope user`로 명시적으로 갱신합니다.
 
 ## 실행 경로
 
@@ -87,6 +87,7 @@ npx project-librarian@latest install --scope project --agents all
 | 여러 범위 빌드 | "`src`와 `packages/api`에 대해 Project Librarian 코드 근거를 만들어줘." | `--code-index --code-scope src --code-scope packages/api` |
 | 증분 갱신 요구 | "Project Librarian 코드 근거 인덱스를 증분 갱신해줘." | `--code-index --incremental` |
 | 전체 재생성 강제 | "Project Librarian 코드 근거 인덱스를 전체 재생성해줘." | `--code-index --code-index-full` |
+| 스키마 마이그레이션 승인 | "Project Librarian 코드 근거 인덱스 스키마를 마이그레이션해줘." | `--code-index --code-index-migrate` |
 | 선택적 Tree-sitter 백엔드 사용 | "Tree-sitter 파서로 Project Librarian 코드 근거를 만들어줘." | `--code-index --code-parser tree-sitter` |
 | 캐시 호환성 진단 | "Project Librarian 코드 근거 캐시 상태와 호환성을 진단해줘." | `--code-index-health` |
 | 캐시 상태 확인 | "Project Librarian 코드 근거 상태를 보여줘." | `--code-status` |
@@ -98,7 +99,7 @@ npx project-librarian@latest install --scope project --agents all
 | 심볼 검색 | "`Auth` 심볼을 Project Librarian 코드 근거에서 찾아줘." | `--code-search-symbol Auth` |
 | 보수적 읽기 전용 SQL | "파일 경로를 위한 읽기 전용 Project Librarian 코드 근거 쿼리를 실행해줘." | `--code-query "select path from files order by path"` |
 
-한 번에 하나의 코드 근거 모드만 실행할 수 있습니다. `--incremental`, `--code-index-full`, `--code-parser`는 `--code-index`와 함께 사용할 때만 유효합니다.
+한 번에 하나의 코드 근거 모드만 실행할 수 있습니다. `--incremental`, `--code-index-full`, `--code-index-migrate`, `--code-parser`는 `--code-index`와 함께 사용할 때만 유효합니다. `--code-index-migrate`는 기존 폐기형 인덱스의 스키마 버전이 현재 패키지와 다를 때 교체를 승인한다는 명시적 표시입니다.
 
 ## 설치되는 파일
 

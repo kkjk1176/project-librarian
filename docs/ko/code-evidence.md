@@ -78,6 +78,12 @@ codex mcp add project-librarian -- node .codex/skills/project-librarian/dist/ini
 
 `.rb`, `.vue`, `.css`는 인식하지만 inventory-only입니다. `.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`, `Dockerfile`, `Makefile`은 설정 또는 inventory 근거로 인덱싱됩니다.
 
+## 스키마 마이그레이션
+
+코드 근거 인덱스는 폐기 가능한 캐시지만, Project Librarian은 스키마 버전 변경을 명시적 마이그레이션 경계로 취급합니다. 기존 `.project-wiki/code-evidence.sqlite`의 스키마 버전이 현재 패키지와 다르면 `--code-index`는 데이터베이스를 교체하기 전에 멈추고 마이그레이션 필요 메시지와 승인 명령을 출력합니다.
+
+현재 인덱스 상태는 `project-librarian --code-index-health`로 확인합니다. 호환되지 않는 스키마의 인덱스 교체를 승인하려면 새 인덱스에 적용할 scope/parser 옵션과 함께 `--code-index --code-index-migrate`를 다시 실행합니다. `--incremental`은 스키마 버전을 마이그레이션할 수 없습니다.
+
 ## 네이티브 헬퍼 정책
 
 실험적 `--code-index-engine native-rust`는 `typescript-ast`, `config`, 표의 `*-light` 프로파일, inventory-only 소스 파일을 네이티브 헬퍼로 처리합니다. `--code-index-engine`을 생략하면 `auto`입니다. full-index auto는 헬퍼를 사용할 수 있고 구조적으로 추출되는 네이티브 프로파일이 하나 이상 있을 때 네이티브 헬퍼를 사용하며, config-only 또는 inventory-only 저장소는 TypeScript 경로에 남깁니다. 호환되는 incremental auto는 헬퍼를 사용할 수 있고 변경 파일이 native-eligible이면 Rust direct-writer를 사용합니다.

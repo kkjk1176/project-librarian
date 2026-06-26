@@ -175,6 +175,13 @@ Require a compatible existing cache for changed-file-only updates with `--increm
 $PROJECT_LIBRARIAN --code-index --incremental --code-scope src
 ```
 
+If the cache schema version differs from the current runner, inspect it and require explicit replacement approval before rebuilding:
+
+```bash
+$PROJECT_LIBRARIAN --code-index-health
+$PROJECT_LIBRARIAN --code-index --code-index-migrate --code-scope src
+```
+
 Run read-only SQL over the cache with `--code-query`:
 
 ```bash

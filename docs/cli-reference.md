@@ -9,13 +9,13 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 
 `install-skill` remains a compatibility alias for `install`.
 
-`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files into those project skill directories before refreshing the managed setup.
+`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files and required local-runner runtime dependencies into those project skill directories before refreshing the managed setup.
 
 ### Important Options
 
 | Option | Purpose |
 | --- | --- |
-| `install --scope user|project --agents <list> --dry-run` | Install reusable skill files globally or into the current repository; `--dry-run` previews copied files for install only. |
+| `install --scope user|project --agents <list> --dry-run` | Install reusable skill files and required local-runner runtime dependencies globally or into the current repository; `--dry-run` previews copied files for install only. |
 | `update --agents <list>` | Refresh an existing setup and existing project-scoped skill copies; selected surfaces can be `codex`, `claude`, `cursor`, `gemini`, or `all`. |
 | `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*`, create migration inboxes, and generate unit-map/split-plan/coverage review files. |
 | `--lint` | Validate generated setup without editing files. |
@@ -48,6 +48,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--code-index-out <path>` | Use a custom SQLite output path under `.project-wiki/`; applies to index and read modes. |
 | `--acknowledge-small-repo` | With `--code-index`, proceed below the ~5k-file scale gate after the cost warning. |
 | `--incremental`, `--code-index-incremental`, `--code-index-full` | With `--code-index`, require an incremental update or force a full rebuild. |
+| `--code-index-migrate` | With `--code-index`, explicitly approve replacing an existing index whose schema version differs from the current package. |
 | `--code-parser <mode>` | With `--code-index`, select `default` or optional `tree-sitter` extraction. |
 | `--code-index-health` | Inspect code evidence cache compatibility and print rebuild guidance without writing. |
 | `--code-index-engine <engine>` | Override the default `auto` index engine with `typescript` or `native-rust`. |

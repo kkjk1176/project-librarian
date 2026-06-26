@@ -78,6 +78,12 @@ The matrix lists languages with implemented symbol/import extraction. Other reco
 
 Recognized but inventory-only extensions include `.rb`, `.vue`, and `.css`. Config files (`.json`, `.yaml`, `.yml`, `.toml`, `.env.example`, `package.json`, `tsconfig.json`, `Dockerfile`, and `Makefile`) are indexed as configuration or inventory evidence.
 
+## Schema Migration
+
+The code evidence index is disposable, but Project Librarian still treats schema-version changes as an explicit migration boundary. If an existing `.project-wiki/code-evidence.sqlite` has a different schema version, `--code-index` stops before replacing the database and prints a migration-required message with the approval command.
+
+Run `project-librarian --code-index-health` to inspect the current index. To approve replacing an incompatible-schema index, rerun the build with `--code-index --code-index-migrate` plus the same scope/parser options you want for the new index. `--incremental` cannot migrate schema versions.
+
 ## Native Helper Policy
 
 Experimental `--code-index-engine native-rust` runs the native helper for `typescript-ast`, `config`, the listed `*-light` profiles, and inventory-only source files. Omitted `--code-index-engine` means `auto`; full-index auto uses the native helper when a helper is available and at least one structurally extracted native profile is present, while config-only or inventory-only repositories stay on TypeScript. Compatible incremental auto uses the Rust direct-writer when a helper is available and the changed files are native-eligible.

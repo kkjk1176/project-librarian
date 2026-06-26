@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "../args";
+import { acknowledgeSmallRepoMode, codeContextPackTarget, codeFilesMode, codeImpactMode, codeImpactTarget, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMigrateMode, codeIndexMode, codeIndexOutput, codeQuerySql, codeReportMode, codeReportSection, codeSearchSymbol, codeStatusMode } from "../args";
 import type { SqliteDatabase } from "../code-index-db";
 import { discoverCodeFiles, smallRepoCodeIndexGate } from "../code-index-file-policy";
 import { isReadOnlySql } from "../code-index-sql";
@@ -98,6 +98,48 @@ function requireCompatibleDatabase(database: SqliteDatabase, runtime: CodeIndexM
   }
 }
 
+function schemaMigrationRequired(reason: string): boolean {
+  return reason.startsWith("existing schema version ") && !reason.includes("(missing)");
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function schemaMigrationApprovalCommand(options: { parserMode: CodeParserMode; requestedEngine: CodeIndexEngine; scopes: string[] }): string {
+  const parts = ["project-librarian", "--code-index", "--code-index-migrate"];
+  for (const scope of options.scopes) {
+    if (scope !== ".") parts.push("--code-scope", scope);
+  }
+  if (codeIndexOutput !== ".project-wiki/code-evidence.sqlite") parts.push("--code-index-out", codeIndexOutput);
+  if (acknowledgeSmallRepoMode) parts.push("--acknowledge-small-repo");
+  if (options.requestedEngine !== "auto") parts.push("--code-index-engine", options.requestedEngine);
+  if (options.parserMode !== "default") parts.push("--code-parser", options.parserMode);
+  return parts.map(shellQuote).join(" ");
+}
+
+function schemaMigrationRequiredMessage(runtime: CodeIndexModeRuntime, reason: string, options: { parserMode: CodeParserMode; requestedEngine: CodeIndexEngine; scopes: string[] }): string {
+  const databasePath = runtime.codeEvidenceDatabasePath();
+  return [
+    `code evidence index schema migration required: ${reason}`,
+    "The existing disposable code evidence index must be replaced before this version can write it.",
+    `approve: ${schemaMigrationApprovalCommand(options)}`,
+    "inspect: project-librarian --code-index-health",
+    `database: ${databasePath.relativePath}`,
+  ].join("\n");
+}
+
+function unreadableIndexMessage(runtime: CodeIndexModeRuntime): string {
+  const health = runtime.codeIndexHealth();
+  return [
+    health.message,
+    "inspect: project-librarian --code-index-health",
+    `rebuild: ${health.recommended_rebuild_command}`,
+    `database: ${health.database_path}`,
+  ].join("\n");
+}
+
 function elapsedMs(started: bigint): number {
   return Number(process.hrtime.bigint() - started) / 1_000_000;
 }
@@ -160,6 +202,30 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
   if (!scaleGate.proceed) runtime.fail(scaleGate.warning);
   const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
   const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
+  const existingIndex = fs.existsSync(databasePath.absolutePath);
+  if (codeIndexIncrementalMode && !existingIndex) {
+    runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
+  }
+  let compatibility = { compatible: false, reason: "compatibility was not checked" };
+  let checkedCompatibility = false;
+  if (existingIndex) {
+    try {
+      measurePhase(phaseTimings, "compatibility_ms", () => {
+        const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
+        try {
+          compatibility = incrementalCompatibility(existingDatabase, scopes, parserMode);
+          checkedCompatibility = true;
+        } finally {
+          existingDatabase.close();
+        }
+      });
+    } catch {
+      if (!codeIndexFullMode && !codeIndexMigrateMode) runtime.fail(unreadableIndexMessage(runtime));
+    }
+    if (!compatibility.compatible && schemaMigrationRequired(compatibility.reason) && !codeIndexMigrateMode) {
+      runtime.fail(schemaMigrationRequiredMessage(runtime, compatibility.reason, { parserMode, requestedEngine, scopes }));
+    }
+  }
   if (engine === "native-rust") {
     if (!codeIndexIncrementalMode) {
       try {
@@ -174,22 +240,9 @@ export function runCodeIndexMode(runtime: CodeIndexModeRuntime): void {
       }
     }
   }
-  const existingIndex = fs.existsSync(databasePath.absolutePath);
-  if (codeIndexIncrementalMode && !existingIndex) {
-    runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
-  }
   let incremental = false;
-  if (existingIndex && !codeIndexFullMode) {
-    let compatibility = { compatible: false, reason: "compatibility was not checked" };
-    measurePhase(phaseTimings, "compatibility_ms", () => {
-      const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
-      try {
-        compatibility = incrementalCompatibility(existingDatabase, scopes, parserMode);
-      } finally {
-        existingDatabase.close();
-      }
-    });
-    incremental = !codeIndexFullMode && compatibility.compatible;
+  if (existingIndex && checkedCompatibility && !codeIndexFullMode && !codeIndexMigrateMode) {
+    incremental = compatibility.compatible;
     if (codeIndexIncrementalMode && !compatibility.compatible) runtime.fail(`--incremental cannot update ${databasePath.relativePath}: ${compatibility.reason}`);
   }
   measurePhase(phaseTimings, "prepare_output_ms", () => {

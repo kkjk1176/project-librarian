@@ -31,7 +31,7 @@ npx project-librarian@latest install --scope user --agents all
 npx project-librarian@latest install --scope project --agents all
 ```
 
-`install`은 재사용 가능한 실행 파일과 스킬 파일만 복사합니다. `AGENTS.md`, 에이전트 훅, `wiki/`, git 훅 파일, 진단, 선택적 코드 근거 지원을 만들거나 갱신하는 것은 에이전트가 실행하는 생명주기 명령입니다. `install-skill`은 호환성 별칭으로 계속 지원됩니다.
+`install`은 재사용 가능한 실행 파일, 스킬 파일, 로컬 실행기에 필요한 필수 런타임 의존성을 복사합니다. `AGENTS.md`, 에이전트 훅, `wiki/`, git 훅 파일, 진단, 선택적 코드 근거 지원을 만들거나 갱신하는 것은 에이전트가 실행하는 생명주기 명령입니다. `install-skill`은 호환성 별칭으로 계속 지원됩니다.
 
 ## 업데이트
 

@@ -32,6 +32,13 @@ function runCommandResult(cwd, args = []) {
   });
 }
 
+function runLocalSkillCommandResult(cwd, args = []) {
+  return childProcess.spawnSync(process.execPath, [path.join(cwd, ".codex", "skills", "project-librarian", "dist", "init-project-wiki.js"), ...args], {
+    cwd,
+    encoding: "utf8",
+  });
+}
+
 function runCliFailure(cwd, args = []) {
   try {
     runCli(cwd, args);
@@ -134,8 +141,29 @@ test("explicit update syncs existing project-scoped skill installs from the runn
     const output = runCommand(root, ["update", "--no-git-config"]);
 
     assert.equal(read(root, ".codex/skills/project-librarian/SKILL.md"), fs.readFileSync(path.resolve(__dirname, "..", "..", "SKILL.md"), "utf8"));
+    assert.equal(exists(root, ".codex/skills/project-librarian/node_modules/typescript/package.json"), true);
     assert.match(output, /\.codex\/skills\/project-librarian\/SKILL\.md/);
+    assert.match(output, /\.codex\/skills\/project-librarian\/node_modules\/typescript/);
     assert.equal(exists(root, ".claude/skills/project-librarian/SKILL.md"), false, "update should not create new project-scoped skill installs by default");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project-scoped local runner can build a code index without parent package dependencies", () => {
+  const root = makeTmpDir("surface-local-runner-code-index-");
+  try {
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "app.ts"), "export const app = true;\n");
+    runCommand(root, ["install", "--scope", "project", "--agents", "codex"]);
+    assert.equal(exists(root, ".codex/skills/project-librarian/node_modules/typescript/package.json"), true);
+
+    const result = runLocalSkillCommandResult(root, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /Project wiki code evidence index complete\./);
+    assert.match(result.stdout, /engine: typescript/);
+    assert.equal(exists(root, ".project-wiki/code-evidence.sqlite"), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

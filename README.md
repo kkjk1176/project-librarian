@@ -31,7 +31,7 @@ The installed skill resolves the local runner and executes the right command fro
 npx project-librarian@latest install --scope project --agents all
 ```
 
-`install` copies reusable runner and skill files only. The agent-run lifecycle command creates or updates `AGENTS.md`, agent hooks, `wiki/`, git hook files, diagnostics, and optional code-evidence support. `install-skill` remains a compatibility alias.
+`install` copies reusable runner and skill files plus required local-runner runtime dependencies. The agent-run lifecycle command creates or updates `AGENTS.md`, agent hooks, `wiki/`, git hook files, diagnostics, and optional code-evidence support. `install-skill` remains a compatibility alias.
 
 ## Update
 
