@@ -14,8 +14,8 @@ const {
   copyActualRepoFiltered,
 } = require(path.join(repoRoot, "benchmarks", "lib", "actual-repo-materialization.js"));
 
-function hasFlag(name) {
-  return process.argv.includes(name);
+function hasFlag(name, argv = process.argv) {
+  return argv.includes(name);
 }
 
 function optionValue(name, fallback, argv = process.argv) {
@@ -131,10 +131,18 @@ function actualRepoMaterializationMode(argv = process.argv) {
   return normalizeActualRepoMaterializationMode(optionValue("--actual-repo-materialization", "auto", argv));
 }
 
+function compareActualRepoMaterialization(argv = process.argv) {
+  return hasFlag("--compare-actual-repo-materialization", argv);
+}
+
 function actualRepoDefinitions(argv = process.argv) {
   const usedNames = new Map();
   const materializationMode = actualRepoMaterializationMode(argv);
-  return optionValues("--actual-repo", argv).map((source, index) => {
+  const compareMaterialization = compareActualRepoMaterialization(argv);
+  if (compareMaterialization && materializationMode !== "auto") {
+    throw new Error("--compare-actual-repo-materialization compares auto against filtered-copy and cannot be combined with --actual-repo-materialization");
+  }
+  const repos = optionValues("--actual-repo", argv).map((source, index) => {
     const resolved = path.resolve(source);
     const baseName = path.basename(resolved) || `actual-repo-${index + 1}`;
     const baseReportName = sanitizeReportName(baseName);
@@ -155,6 +163,31 @@ function actualRepoDefinitions(argv = process.argv) {
       },
     };
   });
+  if (!compareMaterialization) return repos;
+  for (const repo of repos) {
+    if (!fs.existsSync(path.join(repo.source, ".git"))) {
+      throw new Error(`--compare-actual-repo-materialization requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--compare-actual-repo-materialization requires git to be available");
+    }
+  }
+  return repos.flatMap((repo) => [
+    {
+      ...repo,
+      name: `${repo.name}-auto`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "auto",
+      materialization_mode: "auto",
+    },
+    {
+      ...repo,
+      name: `${repo.name}-filtered-copy`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "filtered-copy",
+      materialization_mode: "filtered-copy",
+    },
+  ]);
 }
 
 function mkdirp(dir) {
@@ -339,6 +372,8 @@ function databaseStats(dbPath) {
   try {
     const pageCount = scalar(db, "PRAGMA page_count");
     const pageSize = scalar(db, "PRAGMA page_size");
+    const indexedFileBytes = scalar(db, "SELECT coalesce(sum(bytes), 0) FROM files");
+    const indexedFileLines = scalar(db, "SELECT coalesce(sum(lines), 0) FROM files");
     const counts = Object.fromEntries(db.prepare(`
       SELECT 'files' AS table_name, count(*) AS rows FROM files
       UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -348,6 +383,8 @@ function databaseStats(dbPath) {
     `).all().map((row) => [String(row.table_name), Number(row.rows)]));
     return {
       file_bytes: fs.statSync(dbPath).size,
+      indexed_file_bytes: indexedFileBytes,
+      indexed_file_lines: indexedFileLines,
       page_count: pageCount,
       page_size: pageSize,
       page_bytes: pageCount * pageSize,
@@ -356,6 +393,67 @@ function databaseStats(dbPath) {
   } finally {
     db.close();
   }
+}
+
+function percentDelta(candidate, baseline) {
+  if (typeof candidate !== "number" || typeof baseline !== "number" || !Number.isFinite(candidate) || !Number.isFinite(baseline) || baseline === 0) {
+    return null;
+  }
+  return ((candidate - baseline) / baseline) * 100;
+}
+
+function numericDelta(candidate, baseline) {
+  return typeof candidate === "number" && typeof baseline === "number" ? candidate - baseline : null;
+}
+
+function rowDeltas(candidateRows = {}, baselineRows = {}) {
+  const tableNames = [...new Set([...Object.keys(baselineRows), ...Object.keys(candidateRows)])].sort();
+  return Object.fromEntries(tableNames.map((table) => [table, (candidateRows[table] ?? 0) - (baselineRows[table] ?? 0)]));
+}
+
+function metricDelta(candidate, baseline, field) {
+  return {
+    baseline,
+    candidate,
+    delta: numericDelta(candidate, baseline),
+    delta_percent: percentDelta(candidate, baseline),
+    field,
+  };
+}
+
+function actualRepoMaterializationComparisons(actualRepos) {
+  const groups = new Map();
+  for (const repo of actualRepos) {
+    if (!repo.materialization_comparison_group || !repo.materialization_comparison_role) continue;
+    const group = groups.get(repo.materialization_comparison_group) ?? {};
+    group[repo.materialization_comparison_role] = repo;
+    groups.set(repo.materialization_comparison_group, group);
+  }
+  return [...groups.entries()].map(([name, group]) => {
+    const baseline = group.auto;
+    const candidate = group["filtered-copy"];
+    if (!baseline || !candidate) {
+      throw new Error(`missing paired actual-repo materialization results for ${name}`);
+    }
+    return {
+      name,
+      source: baseline.source,
+      baseline_repo: baseline.name,
+      candidate_repo: candidate.name,
+      baseline_mode: baseline.materialization?.mode,
+      baseline_requested_mode: baseline.materialization?.requested_mode,
+      candidate_mode: candidate.materialization?.mode,
+      candidate_requested_mode: candidate.materialization?.requested_mode,
+      metrics: {
+        indexed_files: metricDelta(candidate.current_db?.rows?.files, baseline.current_db?.rows?.files, "current_db.rows.files"),
+        indexed_file_bytes: metricDelta(candidate.current_db?.indexed_file_bytes, baseline.current_db?.indexed_file_bytes, "current_db.indexed_file_bytes"),
+        indexed_file_lines: metricDelta(candidate.current_db?.indexed_file_lines, baseline.current_db?.indexed_file_lines, "current_db.indexed_file_lines"),
+        db_file_bytes: metricDelta(candidate.current_db?.file_bytes, baseline.current_db?.file_bytes, "current_db.file_bytes"),
+        index_time_ms: metricDelta(candidate.index_time_ms, baseline.index_time_ms, "index_time_ms"),
+      },
+      row_deltas: rowDeltas(candidate.current_db?.rows, baseline.current_db?.rows),
+    };
+  });
 }
 
 function queryPlans(dbPath, term, searchMode = "current") {
@@ -1123,6 +1221,16 @@ function formatSignedPercent(value) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
+function formatSignedNumber(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return `${value >= 0 ? "+" : ""}${value}`;
+}
+
+function formatMetricComparison(metric, unit = "") {
+  const suffix = unit ? ` ${unit}` : "";
+  return `${metric.baseline}${suffix} -> ${metric.candidate}${suffix} (${formatSignedNumber(metric.delta)}${suffix}, ${formatSignedPercent(metric.delta_percent)})`;
+}
+
 function formatNativeIndexLabel(nativeIndex) {
   return nativeIndex.strategy ? `${nativeIndex.strategy} (${nativeIndex.engine})` : nativeIndex.engine;
 }
@@ -1282,6 +1390,28 @@ function markdownReport(result) {
       }
     }
   }
+  if (result.actual_repo_materialization_comparisons?.length > 0) {
+    lines.push("");
+    lines.push("## Actual Repository Materialization Comparisons");
+    lines.push("");
+    lines.push("Paired comparisons run the same Git source once through default auto materialization and once through explicit filtered-copy materialization.");
+    for (const comparison of result.actual_repo_materialization_comparisons) {
+      lines.push("");
+      lines.push(`### ${comparison.name}`);
+      lines.push(`- Source: ${comparison.source}`);
+      lines.push(`- Baseline: ${comparison.baseline_repo} (${comparison.baseline_mode}, requested ${comparison.baseline_requested_mode})`);
+      lines.push(`- Candidate: ${comparison.candidate_repo} (${comparison.candidate_mode}, requested ${comparison.candidate_requested_mode})`);
+      lines.push(`- Indexed files: ${formatMetricComparison(comparison.metrics.indexed_files)}`);
+      lines.push(`- Indexed file bytes: ${formatMetricComparison(comparison.metrics.indexed_file_bytes, "bytes")}`);
+      lines.push(`- Indexed file lines: ${formatMetricComparison(comparison.metrics.indexed_file_lines, "lines")}`);
+      lines.push(`- DB size: ${formatMetricComparison(comparison.metrics.db_file_bytes, "bytes")}`);
+      lines.push(`- Index time: ${formatMetricComparison(comparison.metrics.index_time_ms, "ms")}`);
+      const rowDeltas = Object.entries(comparison.row_deltas)
+        .map(([table, delta]) => `${table} ${formatSignedNumber(delta)}`)
+        .join(", ");
+      lines.push(`- Row deltas candidate vs baseline: ${rowDeltas}`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -1320,6 +1450,7 @@ function main() {
     scales: [],
     sample_corpora: [],
     actual_repos: [],
+    actual_repo_materialization_comparisons: [],
     build_commands: {},
     decisions: {},
   };
@@ -1407,6 +1538,8 @@ function main() {
       result.actual_repos.push({
         name: repo.name,
         corpus_kind: repo.corpus_kind,
+        materialization_comparison_group: repo.materialization_comparison_group,
+        materialization_comparison_role: repo.materialization_comparison_role,
         source: repo.source,
         materialization: actualRepoMaterialization(repo),
         index_time_ms: indexRun.elapsedMs,
@@ -1418,6 +1551,7 @@ function main() {
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, repo.terms),
       });
     }
+    result.actual_repo_materialization_comparisons = actualRepoMaterializationComparisons(result.actual_repos);
     result.build_commands = measureBuildCommands();
     const largest = result.scales[result.scales.length - 1];
     const ftsDelta = largest.contentless_fts_size_delta_percent;
@@ -1444,8 +1578,10 @@ if (require.main === module) {
 module.exports = {
   actualRepoExcludedPathParts,
   actualRepoMaterialization,
+  actualRepoMaterializationComparisons,
   actualRepoMaterializationMode,
   bestVariantDecision,
+  compareActualRepoMaterialization,
   compareSearchParity,
   actualRepoDefinitions,
   markdownReport,
