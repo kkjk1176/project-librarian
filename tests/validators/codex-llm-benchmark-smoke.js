@@ -780,6 +780,11 @@ function validateReport(reportPath) {
   assert(markdown.includes("Cost-Weighted Delta"));
   // The merged-total section must label itself secondary and defer to cost-weighted.
   assert(markdown.includes("Secondary only: merged total tokens counts cached resends at full weight"));
+  assert(markdown.includes("## Model Provenance And Claimability"));
+  assert(markdown.includes("| Scenario | Track | Corpus | Condition | Model Source | Observed Models | Claimable Runs | Release Evidence |"));
+  assert(markdown.includes("model_source=jsonl"));
+  assert(markdown.includes("Requested-only model metadata is diagnostic-only"));
+  assert(markdown.includes("| Model Source | Observed Models | Model |"));
   // The recomputed discount used by the renderer matches the report's recorded one.
   assert.equal(resolveCacheDiscount(report), report.cache_discount);
 }

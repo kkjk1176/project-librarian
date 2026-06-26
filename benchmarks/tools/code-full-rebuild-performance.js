@@ -33,6 +33,7 @@ const {
   defaultNativeStrategy,
   parseNativeStrategies,
 } = require("../lib/native-indexer-strategies.js");
+const { renderFullRebuildMarkdownReport } = require("../lib/code-benchmark-markdown.js");
 
 function usage() {
   console.error(`Usage: node benchmarks/tools/code-full-rebuild-performance.js --source-root <dir> [options]
@@ -41,6 +42,7 @@ Options:
   --repos <a,b,c>        Source-root child directories to benchmark. Defaults to every directory.
   --runs <n>             Repetitions per repo/engine. Default: 3.
   --out <file>           JSON output path. Default: stdout only.
+  --markdown <file>      Markdown summary output path. Default: disabled.
   --helper <file>        Native helper path. Default: PROJECT_LIBRARIAN_NATIVE_INDEXER.
   --native-strategies <list>
                          Native helper strategies to measure. Default: sqlite-direct.
@@ -54,6 +56,7 @@ function parseArgs(argv) {
   const args = {
     cli: path.resolve("dist/init-project-wiki.js"),
     helper: process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER || "",
+    markdown: "",
     nativeStrategies: [defaultNativeStrategy],
     out: "",
     repos: [],
@@ -71,6 +74,7 @@ function parseArgs(argv) {
     else if (key === "--repos") args.repos = value.split(",").map((item) => item.trim()).filter(Boolean);
     else if (key === "--runs") args.runs = Number(value);
     else if (key === "--out") args.out = path.resolve(value);
+    else if (key === "--markdown") args.markdown = path.resolve(value);
     else if (key === "--helper") args.helper = path.resolve(value);
     else if (key === "--native-strategies") args.nativeStrategies = parseNativeStrategies(value);
     else if (key === "--tmp-root") args.tmpRoot = path.resolve(value);
@@ -254,6 +258,10 @@ function main() {
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     fs.writeFileSync(args.out, json);
   }
+  if (args.markdown) {
+    fs.mkdirSync(path.dirname(args.markdown), { recursive: true });
+    fs.writeFileSync(args.markdown, renderFullRebuildMarkdownReport(report));
+  }
   process.stdout.write(json);
 }
 
@@ -265,5 +273,6 @@ module.exports = {
   parseArgs,
   parseKeyValueLines,
   parseTimings,
+  renderFullRebuildMarkdownReport,
   runBenchmark,
 };

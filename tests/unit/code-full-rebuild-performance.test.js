@@ -7,6 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { parseArgs, parseTimings } = require("../../benchmarks/tools/code-full-rebuild-performance.js");
+const { renderFullRebuildMarkdownReport } = require("../../benchmarks/lib/code-benchmark-markdown.js");
 const {
   maxAbsRowDeltas,
   pairedRowDeltas,
@@ -94,4 +95,46 @@ test("full rebuild benchmark requires sqlite-direct in native strategy requests"
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
+});
+
+test("full rebuild markdown exposes strategy matrix and row-delta evidence", () => {
+  const markdown = renderFullRebuildMarkdownReport({
+    generated_at: "2026-06-26T00:00:00.000Z",
+    native_strategies: ["sqlite-direct", "row-stream"],
+    results: [
+      {
+        repo: "sample",
+        files: 2,
+        ts_full: { median_ms: 100, timings: { discover_files_ms: 1, read_files_ms: 2, sqlite_write_ms: 3, total_ms: 6 } },
+        rust_full: { median_ms: 80, timings: { discover_files_ms: 1, native_helper_ms: 2, total_ms: 3 } },
+        rust_full_delta_pct_vs_ts_full: -20,
+        max_abs_row_delta_ts_vs_rust_full: { files: 0, symbols: 0 },
+        row_delta_runs_ts_vs_rust_full: [{ run_index: 0, row_delta: { files: 0, symbols: 0 } }],
+        native_strategy_matrix: [
+          {
+            strategy: "sqlite-direct",
+            rust_full: { median_ms: 80, timings: { native_helper_ms: 2, total_ms: 3 } },
+            rust_full_delta_pct_vs_ts_full: -20,
+            max_abs_row_delta_ts_vs_rust_full: { files: 0, symbols: 0 },
+            row_delta_runs_ts_vs_rust_full: [{ run_index: 0, row_delta: { files: 0, symbols: 0 } }],
+          },
+          {
+            strategy: "row-stream",
+            rust_full: { median_ms: 70, timings: { native_helper_ms: 1, total_ms: 2 } },
+            rust_full_delta_pct_vs_ts_full: -30,
+            max_abs_row_delta_ts_vs_rust_full: { files: 0, symbols: 0 },
+            row_delta_runs_ts_vs_rust_full: [{ run_index: 0, row_delta: { files: 0, symbols: 0 } }],
+          },
+        ],
+      },
+    ],
+    runs: 1,
+    sourceRoot: "/tmp/samples",
+  });
+
+  assert.match(markdown, /Top-level release comparison: sqlite-direct/);
+  assert.match(markdown, /Native Strategy Matrix/);
+  assert.match(markdown, /row-stream/);
+  assert.match(markdown, /TypeScript phases: discover 1\.0 ms/);
+  assert.match(markdown, /sqlite-direct per-run row deltas: run 0: files \+0, symbols \+0/);
 });

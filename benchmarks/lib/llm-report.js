@@ -479,11 +479,16 @@ function scenarioMetricsRows(scenarios, cacheDiscount) {
   return scenarios.map((scenario) => {
     const median = scenario.median;
     const status = scenario.claimable_run_count > 0 ? "claimable" : "unclaimable";
+    const observedModels = Array.isArray(scenario.models) && scenario.models.length > 0
+      ? scenario.models.join(", ")
+      : "none";
+    const runCount = Array.isArray(scenario.runs) ? scenario.runs.length : 0;
     return tableRow([
       scenario.scale,
       scenario.task_family,
       scenario.condition,
       status,
+      `${scenario.claimable_run_count ?? 0}/${runCount}`,
       median ? formatNumber(costWeightedTokens(median, cacheDiscount), 0) : "n/a",
       median ? formatNumber(median.uncached_input_tokens, 0) : "n/a",
       median ? formatNumber(median.cached_input_tokens, 0) : "n/a",
@@ -491,8 +496,30 @@ function scenarioMetricsRows(scenarios, cacheDiscount) {
       median ? formatNumber(median.output_tokens, 0) : "n/a",
       median ? `${formatNumber(median.wall_ms / 1000, 2)}s` : "n/a",
       median ? formatNumber(median.command_invocation_count, 0) : "n/a",
+      scenario.model_source || "n/a",
+      observedModels,
       scenario.model || "n/a",
       median ? formatNumber(median.total_tokens, 0) : "n/a",
+    ]);
+  });
+}
+
+function modelProvenanceRows(scenarios) {
+  return scenarios.map((scenario) => {
+    const observedModels = Array.isArray(scenario.models) && scenario.models.length > 0
+      ? scenario.models.join(", ")
+      : "none";
+    const runCount = Array.isArray(scenario.runs) ? scenario.runs.length : 0;
+    const releaseEvidence = scenario.model_source === "jsonl" ? "eligible" : "diagnostic-only";
+    return tableRow([
+      scenario.prompt_id || `${scenario.scale}/${scenario.task_family}/${scenario.condition}`,
+      benchmarkTrackOf(scenario),
+      corpusOf(scenario),
+      scenario.condition,
+      scenario.model_source || "n/a",
+      observedModels,
+      `${scenario.claimable_run_count ?? 0}/${runCount}`,
+      releaseEvidence,
     ]);
   });
 }
@@ -574,8 +601,8 @@ function renderTrackCorpusSubsection(report, track, corpus, cacheDiscount) {
     "",
     `#### ${heading} Scenario Metrics`,
     "",
-    "| Scale | Task | Condition | Status | Cost-Weighted Tokens | Uncached Input | Cached Input | Tool Output Bytes | Output Tokens | Wall Time | Command Invocations | Model | Total Tokens (secondary) |",
-    "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |",
+    "| Scale | Task | Condition | Status | Claimable Runs | Cost-Weighted Tokens | Uncached Input | Cached Input | Tool Output Bytes | Output Tokens | Wall Time | Command Invocations | Model Source | Observed Models | Model | Total Tokens (secondary) |",
+    "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | ---: |",
     ...scenarioMetricsRows(scenarios, cacheDiscount),
     "",
     `#### ${heading} With vs Without Delta (headline: cost-weighted)`,
@@ -651,6 +678,14 @@ function renderLlmMarkdownReport(report) {
     "",
     `Overall claim gate: ${overallGate} (passes only if every track passes).`,
     perTrackSummary ? `Per-track claim gates: ${perTrackSummary}.` : "",
+    "",
+    "## Model Provenance And Claimability",
+    "",
+    "Release-claimable model evidence requires `model_source=jsonl` and exactly one observed JSONL model. Requested-only model metadata is diagnostic-only even when the requested model is present.",
+    "",
+    "| Scenario | Track | Corpus | Condition | Model Source | Observed Models | Claimable Runs | Release Evidence |",
+    "| --- | --- | --- | --- | --- | --- | ---: | --- |",
+    ...modelProvenanceRows(report.scenarios ?? []),
     "",
   ];
   for (const track of present) {

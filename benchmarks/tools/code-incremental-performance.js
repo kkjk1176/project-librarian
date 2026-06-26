@@ -33,6 +33,7 @@ const {
   defaultNativeStrategy,
   parseNativeStrategies,
 } = require("../lib/native-indexer-strategies.js");
+const { renderIncrementalMarkdownReport } = require("../lib/code-benchmark-markdown.js");
 
 function usage() {
   console.error(`Usage: node benchmarks/tools/code-incremental-performance.js --source-root <dir> [options]
@@ -42,6 +43,7 @@ Options:
   --changes <n,n>        Changed-file counts. Default: 1,5,10,50,100,500.
   --runs <n>             Repetitions per repo/count/engine. Default: 3.
   --out <file>           JSON output path. Default: stdout only.
+  --markdown <file>      Markdown summary output path. Default: disabled.
   --helper <file>        Native helper path. Default: PROJECT_LIBRARIAN_NATIVE_INDEXER.
   --native-strategies <list>
                          Native helper strategies to measure. Default: sqlite-direct.
@@ -57,6 +59,7 @@ function parseArgs(argv) {
     changes: [1, 5, 10, 50, 100, 500],
     cli: path.resolve("dist/init-project-wiki.js"),
     helper: process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER || "",
+    markdown: "",
     nativeStrategies: [defaultNativeStrategy],
     out: "",
     repos: [],
@@ -76,6 +79,7 @@ function parseArgs(argv) {
     else if (key === "--changes") args.changes = value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0);
     else if (key === "--runs") args.runs = Number(value);
     else if (key === "--out") args.out = path.resolve(value);
+    else if (key === "--markdown") args.markdown = path.resolve(value);
     else if (key === "--helper") args.helper = path.resolve(value);
     else if (key === "--native-strategies") args.nativeStrategies = parseNativeStrategies(value);
     else if (key === "--rust-mode") args.rustMode = value;
@@ -324,6 +328,10 @@ function main() {
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     fs.writeFileSync(args.out, json);
   }
+  if (args.markdown) {
+    fs.mkdirSync(path.dirname(args.markdown), { recursive: true });
+    fs.writeFileSync(args.markdown, renderIncrementalMarkdownReport(report));
+  }
   process.stdout.write(json);
 }
 
@@ -335,5 +343,6 @@ module.exports = {
   parseArgs,
   parseKeyValueLines,
   parseTimings,
+  renderIncrementalMarkdownReport,
   runBenchmark,
 };
