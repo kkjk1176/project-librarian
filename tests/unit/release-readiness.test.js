@@ -61,6 +61,18 @@ test("release readiness package inspection requires shipped surface and rejects 
     "README.md",
     "README.ko.md",
     "SKILL.md",
+    "docs/README.md",
+    "docs/benchmarks.md",
+    "docs/cli-reference.md",
+    "docs/code-evidence.md",
+    "docs/ko/README.md",
+    "docs/ko/benchmarks.md",
+    "docs/ko/cli-reference.md",
+    "docs/ko/code-evidence.md",
+    "docs/ko/maintainer.md",
+    "docs/ko/usage.md",
+    "docs/maintainer.md",
+    "docs/usage.md",
     "dist/init-project-wiki.js",
     "dist/session-handoff.js",
     "package.json",
@@ -72,6 +84,18 @@ test("release readiness package inspection requires shipped surface and rejects 
     "README.md",
     "README.ko.md",
     "SKILL.md",
+    "docs/README.md",
+    "docs/benchmarks.md",
+    "docs/cli-reference.md",
+    "docs/code-evidence.md",
+    "docs/ko/README.md",
+    "docs/ko/benchmarks.md",
+    "docs/ko/cli-reference.md",
+    "docs/ko/code-evidence.md",
+    "docs/ko/maintainer.md",
+    "docs/ko/usage.md",
+    "docs/maintainer.md",
+    "docs/usage.md",
     "dist/init-project-wiki.js",
     "dist/session-handoff.js",
     "package.json",
@@ -226,8 +250,9 @@ test("release readiness requires README to gate code-evidence claims on freshnes
 test("release readiness requires README CLI reference coverage", () => {
   const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
   const readmeKo = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.ko.md"), "utf8");
-  assert.equal(readmeCliReferenceStatus(readme).ok, true, readmeCliReferenceStatus(readme).message);
-  assert.equal(readmeCliReferenceStatus(readmeKo).ok, true, readmeCliReferenceStatus(readmeKo).message);
+  const cliReference = fs.readFileSync(path.resolve(__dirname, "..", "..", "docs", "cli-reference.md"), "utf8");
+  assert.equal(readmeCliReferenceStatus(`${readme}\n${cliReference}`).ok, true, readmeCliReferenceStatus(`${readme}\n${cliReference}`).message);
+  assert.equal(readmeCliReferenceStatus(`${readmeKo}\n${cliReference}`).ok, true, readmeCliReferenceStatus(`${readmeKo}\n${cliReference}`).message);
 
   const missingOptions = readmeCliReferenceStatus(`## CLI Reference
 
