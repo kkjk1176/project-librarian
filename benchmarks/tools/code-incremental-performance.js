@@ -28,6 +28,11 @@ const {
   parseCodeIndexPhaseTimingsOrThrow,
 } = require("../lib/code-benchmark-claim-evidence.js");
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
+const {
+  assertIncrementalNativeStrategies,
+  defaultNativeStrategy,
+  parseNativeStrategies,
+} = require("../lib/native-indexer-strategies.js");
 
 function usage() {
   console.error(`Usage: node benchmarks/tools/code-incremental-performance.js --source-root <dir> [options]
@@ -38,6 +43,8 @@ Options:
   --runs <n>             Repetitions per repo/count/engine. Default: 3.
   --out <file>           JSON output path. Default: stdout only.
   --helper <file>        Native helper path. Default: PROJECT_LIBRARIAN_NATIVE_INDEXER.
+  --native-strategies <list>
+                         Native helper strategies to measure. Default: sqlite-direct.
   --rust-mode <mode>     Rust comparison mode: incremental or full. Default: incremental.
   --tmp-root <dir>       Workspace root. Default: system temp dir.
   --cli <file>           Project Librarian CLI. Default: dist/init-project-wiki.js.
@@ -50,6 +57,7 @@ function parseArgs(argv) {
     changes: [1, 5, 10, 50, 100, 500],
     cli: path.resolve("dist/init-project-wiki.js"),
     helper: process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER || "",
+    nativeStrategies: [defaultNativeStrategy],
     out: "",
     repos: [],
     runs: 3,
@@ -69,6 +77,7 @@ function parseArgs(argv) {
     else if (key === "--runs") args.runs = Number(value);
     else if (key === "--out") args.out = path.resolve(value);
     else if (key === "--helper") args.helper = path.resolve(value);
+    else if (key === "--native-strategies") args.nativeStrategies = parseNativeStrategies(value);
     else if (key === "--rust-mode") args.rustMode = value;
     else if (key === "--tmp-root") args.tmpRoot = path.resolve(value);
     else if (key === "--cli") args.cli = path.resolve(value);
@@ -82,6 +91,7 @@ function parseArgs(argv) {
   if (!Number.isInteger(args.runs) || args.runs < 1) throw new Error("--runs must be a positive integer");
   if (args.changes.length === 0) throw new Error("--changes must include at least one positive integer");
   if (!["incremental", "full"].includes(args.rustMode)) throw new Error("--rust-mode must be incremental or full");
+  assertIncrementalNativeStrategies(args.nativeStrategies, args.rustMode);
   if (args.repos.length === 0) {
     args.repos = fs.readdirSync(args.sourceRoot)
       .filter((entry) => fs.statSync(path.join(args.sourceRoot, entry)).isDirectory())
@@ -189,6 +199,7 @@ function prepareMutatedRepo(args, sourceRepo, workName, changedCount, salt) {
   copyRepo(sourceRepo, repoDir);
   runCli(repoDir, args.cli, ["--code-index", "--acknowledge-small-repo", "--code-index-full", "--code-index-engine", "native-rust"], {
     PROJECT_LIBRARIAN_NATIVE_INDEXER: args.helper,
+    PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: defaultNativeStrategy,
   });
   const files = indexedFiles(repoDir);
   mutateFiles(repoDir, files, Math.min(changedCount, files.length), salt);
@@ -200,16 +211,18 @@ function countBenchmarkableFiles(args, sourceRepo, repoName) {
   copyRepo(sourceRepo, repoDir);
   runCli(repoDir, args.cli, ["--code-index", "--acknowledge-small-repo", "--code-index-full", "--code-index-engine", "native-rust"], {
     PROJECT_LIBRARIAN_NATIVE_INDEXER: args.helper,
+    PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: defaultNativeStrategy,
   });
   const count = indexedFiles(repoDir).length;
   removePath(repoDir);
   return count;
 }
 
-function measureEngine(args, sourceRepo, repoName, changedCount, runIndex, engine) {
+function measureEngine(args, sourceRepo, repoName, changedCount, runIndex, engine, nativeStrategy = defaultNativeStrategy) {
   let repoDir = "";
   try {
-    const prepared = prepareMutatedRepo(args, sourceRepo, `${repoName}-${engine}-${changedCount}-${runIndex}`, changedCount, `${engine}-${runIndex}`);
+    const strategySuffix = engine === "ts-incremental" ? "" : `-${nativeStrategy}`;
+    const prepared = prepareMutatedRepo(args, sourceRepo, `${repoName}-${engine}${strategySuffix}-${changedCount}-${runIndex}`, changedCount, `${engine}-${nativeStrategy}-${runIndex}`);
     repoDir = prepared.repoDir;
     const effectiveChangedCount = Math.min(changedCount, prepared.files.length);
     const cliArgs = engine === "ts-incremental"
@@ -219,11 +232,13 @@ function measureEngine(args, sourceRepo, repoName, changedCount, runIndex, engin
         : ["--code-index", "--acknowledge-small-repo", "--code-index-full", "--code-index-engine", "native-rust"];
     const measured = runCli(repoDir, args.cli, cliArgs, {
       PROJECT_LIBRARIAN_NATIVE_INDEXER: args.helper,
+      ...(engine === "ts-incremental" ? {} : { PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: nativeStrategy }),
     });
     return {
       ...measured,
       counts: rowCounts(repoDir),
       effective_changed_count: effectiveChangedCount,
+      ...(engine === "ts-incremental" ? {} : { native_strategy: measured.parsed.native_strategy ?? nativeStrategy }),
       run_index: runIndex,
     };
   } finally {
@@ -241,35 +256,57 @@ function runBenchmark(args) {
     const effectiveChangeCounts = [...new Set(args.changes.map((count) => Math.min(count, benchmarkableFileCount)).filter((count) => count > 0))];
     for (const changedCount of effectiveChangeCounts) {
       const tsSamples = [];
-      const rustSamples = [];
+      const rustSamplesByStrategy = new Map(args.nativeStrategies.map((strategy) => [strategy, []]));
       const rustEngine = args.rustMode === "incremental" ? "rust-incremental" : "rust-full";
       for (let runIndex = 0; runIndex < args.runs; runIndex += 1) {
         tsSamples.push(measureEngine(args, sourceRepo, repoName, changedCount, runIndex, "ts-incremental"));
-        rustSamples.push(measureEngine(args, sourceRepo, repoName, changedCount, runIndex, rustEngine));
+        for (const nativeStrategy of args.nativeStrategies) {
+          rustSamplesByStrategy.get(nativeStrategy).push(measureEngine(args, sourceRepo, repoName, changedCount, runIndex, rustEngine, nativeStrategy));
+        }
       }
       const ts = medianRun(tsSamples);
-      const rust = medianRun(rustSamples);
-      const effectiveChangedCount = Math.min(ts.parsed.reindexed_files ?? changedCount, rust.parsed.reindexed_files ?? changedCount);
-      const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
       const rustKey = args.rustMode === "incremental" ? "rust_incremental" : "rust_full";
-      const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
+      const tsMedian = tsSamples.find((sample) => sample.elapsed_ms === ts.median_ms) ?? tsSamples[0];
+      const nativeStrategyMatrix = args.nativeStrategies.map((nativeStrategy) => {
+        const rustSamples = rustSamplesByStrategy.get(nativeStrategy);
+        const rust = medianRun(rustSamples);
+        const rustMedian = rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms) ?? rustSamples[0];
+        const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
+        const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
+        return {
+          strategy: nativeStrategy,
+          [rustKey]: rust,
+          [`${rustKey}_delta_pct_vs_ts_incremental`]: Number(delta.toFixed(1)),
+          [`row_delta_ts_vs_${rustKey}`]: diffCounts(tsMedian.counts, rustMedian.counts),
+          [`row_delta_runs_ts_vs_${rustKey}`]: rowDeltaRuns,
+          [`max_abs_row_delta_ts_vs_${rustKey}`]: maxAbsRowDeltas(rowDeltaRuns),
+        };
+      });
+      const defaultNativeEntry = nativeStrategyMatrix.find((entry) => entry.strategy === defaultNativeStrategy);
+      const rust = defaultNativeEntry[rustKey];
+      const effectiveChangedCount = Math.min(ts.parsed.reindexed_files ?? changedCount, rust.parsed.reindexed_files ?? changedCount);
       results.push({
         repo: repoName,
         baseline_files: rust.parsed.files,
         changed_count: effectiveChangedCount,
+        native_strategy_matrix: nativeStrategyMatrix,
         ts_incremental: ts,
         [rustKey]: rust,
-        [`${rustKey}_delta_pct_vs_ts_incremental`]: Number(delta.toFixed(1)),
-        [`row_delta_ts_vs_${rustKey}`]: diffCounts(tsSamples.find((sample) => sample.elapsed_ms === ts.median_ms)?.counts ?? tsSamples[0].counts, rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms)?.counts ?? rustSamples[0].counts),
-        [`row_delta_runs_ts_vs_${rustKey}`]: rowDeltaRuns,
-        [`max_abs_row_delta_ts_vs_${rustKey}`]: maxAbsRowDeltas(rowDeltaRuns),
+        [`${rustKey}_delta_pct_vs_ts_incremental`]: defaultNativeEntry[`${rustKey}_delta_pct_vs_ts_incremental`],
+        [`row_delta_ts_vs_${rustKey}`]: defaultNativeEntry[`row_delta_ts_vs_${rustKey}`],
+        [`row_delta_runs_ts_vs_${rustKey}`]: defaultNativeEntry[`row_delta_runs_ts_vs_${rustKey}`],
+        [`max_abs_row_delta_ts_vs_${rustKey}`]: defaultNativeEntry[`max_abs_row_delta_ts_vs_${rustKey}`],
       });
-      console.error(`${repoName} changed=${effectiveChangedCount} ts=${ts.median_ms.toFixed(1)}ms ${rustKey}=${rust.median_ms.toFixed(1)}ms delta=${delta.toFixed(1)}%`);
+      const strategySummary = nativeStrategyMatrix
+        .map((entry) => `${entry.strategy}=${entry[rustKey].median_ms.toFixed(1)}ms/${entry[`${rustKey}_delta_pct_vs_ts_incremental`].toFixed(1)}%`)
+        .join(" ");
+      console.error(`${repoName} changed=${effectiveChangedCount} ts=${ts.median_ms.toFixed(1)}ms ${strategySummary}`);
     }
   }
   return {
     changeCounts: args.changes,
     generated_at: new Date().toISOString(),
+    native_strategies: args.nativeStrategies,
     repos: args.repos,
     results,
     rust_mode: args.rustMode,

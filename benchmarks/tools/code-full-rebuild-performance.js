@@ -29,6 +29,10 @@ const {
   parseCodeIndexPhaseTimingsOrThrow,
 } = require("../lib/code-benchmark-claim-evidence.js");
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
+const {
+  defaultNativeStrategy,
+  parseNativeStrategies,
+} = require("../lib/native-indexer-strategies.js");
 
 function usage() {
   console.error(`Usage: node benchmarks/tools/code-full-rebuild-performance.js --source-root <dir> [options]
@@ -38,6 +42,8 @@ Options:
   --runs <n>             Repetitions per repo/engine. Default: 3.
   --out <file>           JSON output path. Default: stdout only.
   --helper <file>        Native helper path. Default: PROJECT_LIBRARIAN_NATIVE_INDEXER.
+  --native-strategies <list>
+                         Native helper strategies to measure. Default: sqlite-direct.
   --tmp-root <dir>       Workspace root. Default: system temp dir.
   --cli <file>           Project Librarian CLI. Default: dist/init-project-wiki.js.
 `);
@@ -48,6 +54,7 @@ function parseArgs(argv) {
   const args = {
     cli: path.resolve("dist/init-project-wiki.js"),
     helper: process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER || "",
+    nativeStrategies: [defaultNativeStrategy],
     out: "",
     repos: [],
     runs: 3,
@@ -65,6 +72,7 @@ function parseArgs(argv) {
     else if (key === "--runs") args.runs = Number(value);
     else if (key === "--out") args.out = path.resolve(value);
     else if (key === "--helper") args.helper = path.resolve(value);
+    else if (key === "--native-strategies") args.nativeStrategies = parseNativeStrategies(value);
     else if (key === "--tmp-root") args.tmpRoot = path.resolve(value);
     else if (key === "--cli") args.cli = path.resolve(value);
     else usage();
@@ -148,8 +156,9 @@ function rowCounts(repoDir) {
   }
 }
 
-function measureEngine(args, sourceRepo, repoName, runIndex, engine) {
-  const repoDir = path.join(args.tmpRoot, `${repoName}-${engine}-${runIndex}`);
+function measureEngine(args, sourceRepo, repoName, runIndex, engine, nativeStrategy = defaultNativeStrategy) {
+  const strategySuffix = engine === "native-rust" ? `-${nativeStrategy}` : "";
+  const repoDir = path.join(args.tmpRoot, `${repoName}-${engine}${strategySuffix}-${runIndex}`);
   try {
     copyRepo(sourceRepo, repoDir);
     const cliArgs = [
@@ -160,11 +169,15 @@ function measureEngine(args, sourceRepo, repoName, runIndex, engine) {
       engine === "typescript" ? "typescript" : "native-rust",
     ];
     const measured = runCli(repoDir, args.cli, cliArgs, engine === "native-rust"
-      ? { PROJECT_LIBRARIAN_NATIVE_INDEXER: args.helper }
+      ? {
+        PROJECT_LIBRARIAN_NATIVE_INDEXER: args.helper,
+        PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: nativeStrategy,
+      }
       : {});
     return {
       ...measured,
       counts: rowCounts(repoDir),
+      ...(engine === "native-rust" ? { native_strategy: measured.parsed.native_strategy ?? nativeStrategy } : {}),
       run_index: runIndex,
     };
   } finally {
@@ -179,33 +192,52 @@ function runBenchmark(args) {
     const sourceRepo = path.join(args.sourceRoot, repoName);
     if (!fs.existsSync(sourceRepo)) throw new Error(`repo does not exist under source root: ${repoName}`);
     const tsSamples = [];
-    const rustSamples = [];
+    const rustSamplesByStrategy = new Map(args.nativeStrategies.map((strategy) => [strategy, []]));
     for (let runIndex = 0; runIndex < args.runs; runIndex += 1) {
       tsSamples.push(measureEngine(args, sourceRepo, repoName, runIndex, "typescript"));
-      rustSamples.push(measureEngine(args, sourceRepo, repoName, runIndex, "native-rust"));
+      for (const nativeStrategy of args.nativeStrategies) {
+        rustSamplesByStrategy.get(nativeStrategy).push(measureEngine(args, sourceRepo, repoName, runIndex, "native-rust", nativeStrategy));
+      }
     }
     const ts = medianRun(tsSamples);
-    const rust = medianRun(rustSamples);
-    const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
     const tsMedian = tsSamples.find((sample) => sample.elapsed_ms === ts.median_ms) ?? tsSamples[0];
-    const rustMedian = rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms) ?? rustSamples[0];
-    const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
+    const nativeStrategyMatrix = args.nativeStrategies.map((nativeStrategy) => {
+      const rustSamples = rustSamplesByStrategy.get(nativeStrategy);
+      const rust = medianRun(rustSamples);
+      const rustMedian = rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms) ?? rustSamples[0];
+      const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
+      const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
+      return {
+        strategy: nativeStrategy,
+        rust_full: rust,
+        rust_full_delta_pct_vs_ts_full: Number(delta.toFixed(1)),
+        row_delta_ts_vs_rust_full: diffCounts(tsMedian.counts, rustMedian.counts),
+        row_delta_runs_ts_vs_rust_full: rowDeltaRuns,
+        max_abs_row_delta_ts_vs_rust_full: maxAbsRowDeltas(rowDeltaRuns),
+      };
+    });
+    const defaultNativeEntry = nativeStrategyMatrix.find((entry) => entry.strategy === defaultNativeStrategy);
     results.push({
       repo: repoName,
-      files: rust.parsed.files ?? ts.parsed.files ?? rust.counts?.files ?? ts.counts?.files ?? null,
-      native_files: rust.parsed.native_files ?? null,
-      typescript_files: rust.parsed.typescript_files ?? null,
+      files: defaultNativeEntry.rust_full.parsed.files ?? ts.parsed.files ?? defaultNativeEntry.rust_full.counts?.files ?? ts.counts?.files ?? null,
+      native_files: defaultNativeEntry.rust_full.parsed.native_files ?? null,
+      typescript_files: defaultNativeEntry.rust_full.parsed.typescript_files ?? null,
+      native_strategy_matrix: nativeStrategyMatrix,
       ts_full: ts,
-      rust_full: rust,
-      rust_full_delta_pct_vs_ts_full: Number(delta.toFixed(1)),
-      row_delta_ts_vs_rust_full: diffCounts(tsMedian.counts, rustMedian.counts),
-      row_delta_runs_ts_vs_rust_full: rowDeltaRuns,
-      max_abs_row_delta_ts_vs_rust_full: maxAbsRowDeltas(rowDeltaRuns),
+      rust_full: defaultNativeEntry.rust_full,
+      rust_full_delta_pct_vs_ts_full: defaultNativeEntry.rust_full_delta_pct_vs_ts_full,
+      row_delta_ts_vs_rust_full: defaultNativeEntry.row_delta_ts_vs_rust_full,
+      row_delta_runs_ts_vs_rust_full: defaultNativeEntry.row_delta_runs_ts_vs_rust_full,
+      max_abs_row_delta_ts_vs_rust_full: defaultNativeEntry.max_abs_row_delta_ts_vs_rust_full,
     });
-    console.error(`${repoName} ts=${ts.median_ms.toFixed(1)}ms rust=${rust.median_ms.toFixed(1)}ms delta=${delta.toFixed(1)}%`);
+    const strategySummary = nativeStrategyMatrix
+      .map((entry) => `${entry.strategy}=${entry.rust_full.median_ms.toFixed(1)}ms/${entry.rust_full_delta_pct_vs_ts_full.toFixed(1)}%`)
+      .join(" ");
+    console.error(`${repoName} ts=${ts.median_ms.toFixed(1)}ms ${strategySummary}`);
   }
   return {
     generated_at: new Date().toISOString(),
+    native_strategies: args.nativeStrategies,
     repos: args.repos,
     results,
     runs: args.runs,
