@@ -1,6 +1,6 @@
 {
   "name": "project-librarian",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Create and maintain compact project context for humans and LLM coding agents.",
   "license": "MIT",
   "type": "commonjs",
@@ -24,6 +24,8 @@
   "homepage": "https://github.com/kkjk1176/project-librarian#readme",
   "files": [
     "agents/",
+    "CONTRIBUTING.md",
+    "docs/",
     "dist/",
     "LICENSE",
     "README.md",

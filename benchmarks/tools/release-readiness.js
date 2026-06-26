@@ -28,6 +28,18 @@ const requiredPackFiles = [
   "README.md",
   "README.ko.md",
   "SKILL.md",
+  "docs/README.md",
+  "docs/benchmarks.md",
+  "docs/cli-reference.md",
+  "docs/code-evidence.md",
+  "docs/ko/README.md",
+  "docs/ko/benchmarks.md",
+  "docs/ko/cli-reference.md",
+  "docs/ko/code-evidence.md",
+  "docs/ko/maintainer.md",
+  "docs/ko/usage.md",
+  "docs/maintainer.md",
+  "docs/usage.md",
   "dist/init-project-wiki.js",
   "dist/session-handoff.js",
   "package.json",
@@ -129,6 +141,7 @@ Runs local-only release checks:
   - npm pack --dry-run --json package inspection
   - native helper package matrix and provenance manifest inspection when dist/native files are shipped
   - dist executable/parity and README benchmark-claim labeling checks
+  - README/docs CLI reference and code-evidence trust-contract checks
   - trusted publishing workflow safety checks
   - native helper publish workflow artifact-chain checks
   - release provenance/attestation status
@@ -859,7 +872,7 @@ const requiredReadmeCliReferenceOptions = [
 ];
 
 function readmeCliReferenceSection(readmeText) {
-  return readmeText.match(/(?:^|\n)## (?:CLI Reference|CLI 참조)\n([\s\S]*?)(?=\n## |\s*$)/)?.[1] ?? "";
+  return readmeText.match(/(?:^|\n)#{1,2} (?:CLI Reference|CLI 참조)\n([\s\S]*?)(?=\n#{1,2} |\s*$)/)?.[1] ?? "";
 }
 
 function readmeCliReferenceStatus(readmeText) {
@@ -1061,6 +1074,7 @@ function main() {
 
   const readmeText = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
   const readmeKoText = fs.readFileSync(path.join(repoRoot, "README.ko.md"), "utf8");
+  const cliReferenceText = fs.readFileSync(path.join(repoRoot, "docs", "cli-reference.md"), "utf8");
   const readmeStatus = benchmarkClaimStatus(readmeText);
   console.log(`${readmeStatus.ok ? "PASS" : "FAIL"} README benchmark boundary: ${readmeStatus.message}`);
   if (!readmeStatus.ok) fail("release readiness failed: README benchmark boundary");
@@ -1073,13 +1087,13 @@ function main() {
   console.log(`${codeEvidenceFreshnessKoStatus.ok ? "PASS" : "FAIL"} README.ko code-evidence freshness: ${codeEvidenceFreshnessKoStatus.message}`);
   if (!codeEvidenceFreshnessKoStatus.ok) fail("release readiness failed: README.ko code-evidence freshness");
 
-  const readmeCliStatus = readmeCliReferenceStatus(readmeText);
-  console.log(`${readmeCliStatus.ok ? "PASS" : "FAIL"} README CLI reference: ${readmeCliStatus.message}`);
-  if (!readmeCliStatus.ok) fail("release readiness failed: README CLI reference");
+  const readmeCliStatus = readmeCliReferenceStatus(`${readmeText}\n${cliReferenceText}`);
+  console.log(`${readmeCliStatus.ok ? "PASS" : "FAIL"} README/docs CLI reference: ${readmeCliStatus.message}`);
+  if (!readmeCliStatus.ok) fail("release readiness failed: README/docs CLI reference");
 
-  const readmeKoCliStatus = readmeCliReferenceStatus(readmeKoText);
-  console.log(`${readmeKoCliStatus.ok ? "PASS" : "FAIL"} README.ko CLI reference: ${readmeKoCliStatus.message}`);
-  if (!readmeKoCliStatus.ok) fail("release readiness failed: README.ko CLI reference");
+  const readmeKoCliStatus = readmeCliReferenceStatus(`${readmeKoText}\n${cliReferenceText}`);
+  console.log(`${readmeKoCliStatus.ok ? "PASS" : "FAIL"} README.ko/docs CLI reference: ${readmeKoCliStatus.message}`);
+  if (!readmeKoCliStatus.ok) fail("release readiness failed: README.ko/docs CLI reference");
 
   const scaleGateStatus = codeEvidenceScaleGateDocStatus(readmeText);
   console.log(`${scaleGateStatus.ok ? "PASS" : "FAIL"} README code-evidence scale gate: ${scaleGateStatus.message}`);
