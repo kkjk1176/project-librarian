@@ -20,6 +20,7 @@ process.emitWarning = ((warning, ...options) => {
   previousEmitWarning.call(process, warning, ...options);
 });
 const { DatabaseSync } = require("node:sqlite");
+const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
 
 function usage() {
   console.error(`Usage: node benchmarks/tools/code-incremental-performance.js --source-root <dir> [options]
@@ -87,18 +88,7 @@ function removePath(target) {
 }
 
 function copyRepo(source, target) {
-  removePath(target);
-  fs.cpSync(source, target, {
-    dereference: false,
-    errorOnExist: false,
-    filter: (sourcePath) => {
-      const base = path.basename(sourcePath);
-      return base !== ".git" && base !== "node_modules" && base !== ".project-wiki";
-    },
-    force: true,
-    recursive: true,
-    verbatimSymlinks: true,
-  });
+  copyActualRepoFiltered(source, target);
 }
 
 function parseKeyValueLines(stdout) {

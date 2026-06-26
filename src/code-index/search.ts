@@ -139,11 +139,7 @@ export function searchSymbols(database: SqliteDatabase, term: string, limit = 50
     const ftsRows = database.prepare(`
       SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature
       FROM symbols_fts
-      JOIN symbols
-        ON symbols.name = symbols_fts.name
-       AND symbols.kind = symbols_fts.kind
-       AND symbols.file_path = symbols_fts.file_path
-       AND symbols.signature = symbols_fts.signature
+      JOIN symbols ON symbols.id = symbols_fts.rowid
       WHERE symbols_fts MATCH ?
       ORDER BY bm25(symbols_fts, 8.0, 1.0, 4.0, 2.0), symbols.file_path, symbols.line
       LIMIT ?

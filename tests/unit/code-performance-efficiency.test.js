@@ -7,6 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  actualRepoExcludedPathParts,
   actualRepoDefinitions,
   bestVariantDecision,
   markdownReport,
@@ -16,6 +17,7 @@ const {
   parseCodeIndexPhaseTimings,
   sampleCorpusDefinitions,
 } = require("../../benchmarks/tools/code-performance-efficiency.js");
+const { isActualRepoExcludedPath } = require("../../benchmarks/lib/actual-repo-materialization.js");
 
 function listFiles(root) {
   const entries = fs.readdirSync(root, { withFileTypes: true });
@@ -48,19 +50,50 @@ test("actual repo materialization copies into a temporary workspace without depe
     fs.mkdirSync(path.join(source, "src"), { recursive: true });
     fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
     fs.mkdirSync(path.join(source, ".project-wiki"), { recursive: true });
+    fs.mkdirSync(path.join(source, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(source, "build"), { recursive: true });
+    fs.mkdirSync(path.join(source, ".next"), { recursive: true });
+    fs.mkdirSync(path.join(source, "coverage"), { recursive: true });
+    fs.mkdirSync(path.join(source, "vendor"), { recursive: true });
     fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
     fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
     fs.writeFileSync(path.join(source, ".project-wiki", "code-evidence.sqlite"), "");
+    fs.writeFileSync(path.join(source, "dist", "bundle.js"), "generated\n");
+    fs.writeFileSync(path.join(source, "build", "artifact.js"), "generated\n");
+    fs.writeFileSync(path.join(source, ".next", "cache.js"), "generated\n");
+    fs.writeFileSync(path.join(source, "coverage", "coverage.json"), "{}\n");
+    fs.writeFileSync(path.join(source, "vendor", "vendored.js"), "generated\n");
 
     const cwd = materializeActualRepo({ name: "sample", source }, tmpRoot);
     assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
     assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
     assert.equal(fs.existsSync(path.join(cwd, ".project-wiki")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "build")), false);
+    assert.equal(fs.existsSync(path.join(cwd, ".next")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "coverage")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "vendor")), false);
     assert.equal(fs.existsSync(path.join(source, "src", "index.ts")), true);
   } finally {
     fs.rmSync(source, { recursive: true, force: true });
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+});
+
+test("actual repo exclusion helper covers generated and cache directories", () => {
+  assert.deepEqual(actualRepoExcludedPathParts, [".git", ".next", ".project-wiki", "build", "coverage", "dist", "node_modules", "temp", "tmp", "vendor"]);
+  for (const relative of [
+    "dist/bundle.js",
+    "packages/app/build/index.js",
+    ".next/cache/data.json",
+    "coverage/lcov.info",
+    "vendor/copied.js",
+    "tmp/scratch.js",
+    "temp/scratch.js",
+  ]) {
+    assert.equal(isActualRepoExcludedPath(relative), true, relative);
+  }
+  assert.equal(isActualRepoExcludedPath("src/index.ts"), false);
 });
 
 test("code performance harness includes diverse checked-in sample corpora", () => {
@@ -250,6 +283,7 @@ test("markdown report renders FTS variants and parity status", () => {
       {
         name: "example-app",
         source: "/tmp/example-app",
+        materialization: { mode: "filtered-copy", excluded_path_parts: actualRepoExcludedPathParts },
         index_time_ms: 70,
         phase_timings: { discover_files_ms: 4, total_ms: 70 },
         native_index: {
@@ -279,5 +313,6 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /## Actual Repositories/);
   assert.match(report, /### example-app/);
   assert.match(report, /Source: \/tmp\/example-app/);
+  assert.match(report, /Materialization: filtered-copy; excluded path parts: \.git, \.next, \.project-wiki, build, coverage, dist, node_modules, temp, tmp, vendor/);
   assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 40\.0 ms \(-42\.9% vs TypeScript\)/);
 });

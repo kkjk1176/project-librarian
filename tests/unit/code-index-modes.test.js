@@ -15,7 +15,7 @@ function fakeCompatibleDatabase() {
       return {
         all(key) {
           if (/SELECT value FROM meta WHERE key = \?/.test(sql) && key === "schema_version") {
-            return [{ value: "5" }];
+            return [{ value: "6" }];
           }
           throw new Error(`unexpected fake database query: ${sql}`);
         },

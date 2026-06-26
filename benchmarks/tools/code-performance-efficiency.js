@@ -9,6 +9,10 @@ const { DatabaseSync } = require("node:sqlite");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const cliPath = path.join(repoRoot, "dist", "init-project-wiki.js");
+const {
+  actualRepoExcludedPathParts,
+  copyActualRepoFiltered,
+} = require(path.join(repoRoot, "benchmarks", "lib", "actual-repo-materialization.js"));
 
 function hasFlag(name) {
   return process.argv.includes(name);
@@ -340,10 +344,8 @@ function queryPlans(dbPath, term, searchMode = "current") {
   const ftsQuery = ftsPrefixQuery(term);
   const fileFtsJoin = searchMode === "rowid_fts"
     ? "files.rowid = files_fts.rowid"
-    : "files.path = files_fts.path";
-  const symbolFtsJoin = searchMode === "rowid_fts"
-    ? "symbols.id = symbols_fts.rowid"
-    : "symbols.name = symbols_fts.name AND symbols.kind = symbols_fts.kind AND symbols.file_path = symbols_fts.file_path AND symbols.signature = symbols_fts.signature";
+    : "files.fts_rowid = files_fts.rowid";
+  const symbolFtsJoin = "symbols.id = symbols_fts.rowid";
   try {
     const plans = {
       file_prefix_like: db.prepare("EXPLAIN QUERY PLAN SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT 25").all(prefix),
@@ -1032,15 +1034,22 @@ function materializeActualRepo(repo, tmpRoot) {
     run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
     return cwd;
   }
-  fs.cpSync(source, cwd, {
-    recursive: true,
-    filter: (entry) => {
-      const relative = path.relative(source, entry);
-      if (!relative) return true;
-      return !relative.split(path.sep).some((part) => [".git", ".project-wiki", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"].includes(part));
-    },
-  });
+  copyActualRepoFiltered(source, cwd);
   return cwd;
+}
+
+function actualRepoMaterialization(repo) {
+  const source = path.resolve(repo.source);
+  if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
+    return {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+    };
+  }
+  return {
+    excluded_path_parts: [...actualRepoExcludedPathParts],
+    mode: "filtered-copy",
+  };
 }
 
 function measureBuildCommands() {
@@ -1195,6 +1204,12 @@ function markdownReport(result) {
       lines.push("");
       lines.push(`### ${repo.name}`);
       lines.push(`- Source: ${repo.source}`);
+      if (repo.materialization) {
+        const excluded = repo.materialization.excluded_path_parts?.length
+          ? `; excluded path parts: ${repo.materialization.excluded_path_parts.join(", ")}`
+          : "";
+        lines.push(`- Materialization: ${repo.materialization.mode}${excluded}`);
+      }
       lines.push(`- Indexed files: ${repo.current_db.rows.files}`);
       lines.push(`- Index time: ${repo.index_time_ms.toFixed(1)} ms`);
       if (repo.phase_timings) {
@@ -1336,6 +1351,7 @@ function main() {
         name: repo.name,
         corpus_kind: repo.corpus_kind,
         source: repo.source,
+        materialization: actualRepoMaterialization(repo),
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
         native_index: nativeComparison.fastest,
@@ -1369,6 +1385,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  actualRepoExcludedPathParts,
   bestVariantDecision,
   compareSearchParity,
   actualRepoDefinitions,

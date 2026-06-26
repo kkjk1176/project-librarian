@@ -24,7 +24,7 @@ export interface IndexStatements {
   insertSymbolFts: SqliteStatement;
 }
 
-export const codeIndexSchemaVersion = "5";
+export const codeIndexSchemaVersion = "6";
 
 function stableFtsRowid(parts: string[]): number {
   const hash = crypto.createHash("sha256");
@@ -139,7 +139,7 @@ export function createIndexStatements(database: SqliteDatabase): IndexStatements
     insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),
     insertRoute: database.prepare("INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)"),
     insertSymbol: database.prepare("INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)"),
-    insertSymbolFts: database.prepare("INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)"),
+    insertSymbolFts: database.prepare("INSERT INTO symbols_fts (rowid, name, kind, file_path, signature) VALUES (last_insert_rowid(), ?, ?, ?, ?)"),
   };
 }
 
