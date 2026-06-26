@@ -167,6 +167,12 @@ For diagnostic reruns after a failed full release benchmark, use `--only-failed-
 npm run benchmark:release:diagnose -- --allow-codex-run --only-failed-from benchmarks/reports/llm/current.json
 ```
 
+For release-quality reruns where a prior measured report already contains claimable scenarios, use `--reuse-claimable-from <report.json>` with the full release command. This is not parallel execution: the runner reuses only measured runs whose report schema, manifest fingerprints, selected matrix, source commit, auth mode, model, run count, warmup count, scenario order, cache discount, control profile, fixture validation, execution order, raw JSONL, correctness, and claimability match the new run. Reused runs are rehydrated from raw JSONL and still pass through the normal report validator; incompatible reports fail before measurement. Warmups are still executed for the new run, but compatible measured runs are skipped and recorded under `configuration.reuse_claimable`.
+
+```sh
+npm run benchmark:release -- --allow-codex-run --reuse-claimable-from benchmarks/reports/llm/current.json
+```
+
 Use `--sanitized-pack` for measured runs that may leave the local machine. The runner copies only the benchmark harness (`benchmarks/codex-llm-metrics.js`, `benchmarks/lib/`, `dist/`, `package.json`, `benchmarks/real-keys/` when present, and the installed `typescript` runtime dependency) into a fresh temporary pack, then re-executes from that pack. Synthetic fixtures are built under the pack's `scratch/` directory, so Codex scenario cwd paths stay inside the minimized pack rather than the live source checkout. Raw JSONL, stderr, retention manifests, and measured reports still write under `benchmarks/reports/llm/` so report validators can re-read them after the pack run; isolated `codex-home*` directories are pruned unless `--keep-codex-homes` is present. The pack writes `SANITIZED_BENCHMARK_PACK.json` listing copied entries and excluded workspace roots. The re-exec path streams child output directly, so progress lines are visible while the minimized pack is running. This does not remove the need for human approval: a measured run still sends the listed prompts and any files Codex reads from each scenario cwd to the external service.
 
 Validate the JSONL parser and report-shape checks against checked-in sample artifacts:

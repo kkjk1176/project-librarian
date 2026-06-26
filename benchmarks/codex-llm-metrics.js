@@ -622,7 +622,7 @@ function absolutizeAgainstOriginalRoot(value, originalRoot) {
 function normalizeArgsForSanitizedPack(args, { originalRoot, packRoot }) {
   const normalized = [];
   const pathValueFlags = new Set(["--out", "--corpus-dir", "--keys-dir", "--raw-report-root"]);
-  const pathListValueFlags = new Set(["--only-failed-from"]);
+  const pathListValueFlags = new Set(["--only-failed-from", "--reuse-claimable-from"]);
   const optionalPathValueFlags = new Set(["--markdown", "--payload-preview", "--preview-payload"]);
   let sawOut = false;
   let dryRun = args.includes("--dry-run");
@@ -719,6 +719,10 @@ function scenarioCodexExecCount(scenario, runs, warmupRuns) {
   return (runs + warmupRuns) * sessionCount;
 }
 
+function scenarioSessionCount(scenario) {
+  return Array.isArray(scenario.sessions) && scenario.sessions.length > 0 ? scenario.sessions.length : 1;
+}
+
 function orderedScenariosForIteration(selectedScenarios, iterationIndex) {
   return iterationIndex % 2 === 0 ? selectedScenarios : [...selectedScenarios].reverse();
 }
@@ -808,8 +812,10 @@ function compactProgressFields(fields) {
     .join(" ");
 }
 
-function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot, sanitizedPack }) {
-  const total = selectedScenarios.reduce((sum, scenario) => sum + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
+function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot, sanitizedPack, codexExecTotal = null, reuseSummary = null }) {
+  const total = Number.isInteger(codexExecTotal)
+    ? codexExecTotal
+    : selectedScenarios.reduce((sum, scenario) => sum + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
   const startedAt = Date.now();
   let startedCount = 0;
   let completedCount = 0;
@@ -823,6 +829,8 @@ function createBenchmarkProgress({ selectedScenarios, runs, warmupRuns, rawRoot,
     codex_exec_total: total,
     measured_runs: runs,
     warmup_runs: warmupRuns,
+    reused_runs: reuseSummary?.reused_run_count || 0,
+    saved_codex_exec: reuseSummary?.saved_codex_exec_count || 0,
     raw_root: rawRoot,
     sanitized_pack: sanitizedPack && sanitizedPack.pack_root,
   });
@@ -951,6 +959,254 @@ function diagnosticSelectionConfig(diagnosticSelection) {
   };
 }
 
+function selectedManifestFingerprint(selectedScenarios) {
+  return sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
+    scale: scenario.scale,
+    condition: scenario.condition,
+    task_family: scenario.task_family,
+    prompt: scenario.prompt,
+    fixture_fingerprint: scenario.fixture_fingerprint,
+    requested_model: scenario.requested_model,
+  }))));
+}
+
+function selectedScenarioMatrixFingerprint(selectedScenarios) {
+  return sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
+    scale: scenario.scale,
+    condition: scenario.condition,
+    task_family: scenario.task_family,
+    fixture_fingerprint: scenario.fixture_fingerprint,
+    requested_model: scenario.requested_model,
+  }))));
+}
+
+function jsonEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function measuredRunKey(promptId, runIndex) {
+  return `${promptId}\0${runIndex}`;
+}
+
+function cleanFixtureValidationForScenario(scenario, run) {
+  const validation = run.fixture_validation;
+  if (!validation || validation.status !== "clean") return false;
+  if ((scenario.corpus || "synthetic") === "real") {
+    return validation.pinned_sha_matched === true
+      && validation.git_clean === true
+      && Array.isArray(validation.new_untracked_runtime_state_paths)
+      && validation.new_untracked_runtime_state_paths.length === 0;
+  }
+  return validation.fingerprint_matched === true
+    && Array.isArray(validation.runtime_state_paths)
+    && validation.runtime_state_paths.length === 0;
+}
+
+function scenarioMatchesForReuse(reportScenario, currentScenario) {
+  return reportScenario
+    && currentScenario
+    && reportScenario.prompt_id === currentScenario.prompt_id
+    && reportScenario.scale === currentScenario.scale
+    && reportScenario.condition === currentScenario.condition
+    && reportScenario.task_family === currentScenario.task_family
+    && (reportScenario.benchmark_track || "wiki") === (currentScenario.benchmark_track || "wiki")
+    && (reportScenario.corpus || "synthetic") === (currentScenario.corpus || "synthetic")
+    && jsonEqual(reportScenario.fixture_fingerprint, currentScenario.fixture_fingerprint)
+    && reportScenario.requested_model === currentScenario.requested_model;
+}
+
+function rehydrateReusableRun({ reportPath, reportScenario, currentScenario, run, expectedOrder }) {
+  if (!run || !expectedOrder) return null;
+  if (!jsonEqual(run.execution_order, expectedOrder)) return null;
+  if (run.execution?.status !== "completed") return null;
+  if (!cleanFixtureValidationForScenario(currentScenario, run)) return null;
+  if (run.requested_model !== currentScenario.requested_model) return null;
+  if (!run.raw_jsonl_path || !fs.existsSync(run.raw_jsonl_path)) return null;
+
+  const metrics = summarizeJsonlSafely(
+    fs.readFileSync(run.raw_jsonl_path, "utf8"),
+    { wall_ms: run.metrics ? run.metrics.wall_ms : 0 },
+  );
+  const correctness = evaluateCorrectness({
+    taskFamily: currentScenario.task_family,
+    condition: currentScenario.condition,
+    finalText: metrics.final_text,
+    fileChangeCount: metrics.file_change_event_count,
+    readOnly: true,
+    expectation: currentScenario.expectation || null,
+    controlProfile: currentScenario.control_profile || "organic",
+    benchmarkTrack: currentScenario.benchmark_track,
+  });
+  const candidate = {
+    ...run,
+    requested_model: currentScenario.requested_model,
+    execution_order: expectedOrder,
+    metrics,
+    correctness,
+    reused_from_report: reportPath,
+  };
+
+  if (Array.isArray(run.session_metrics)) {
+    if (!Array.isArray(reportScenario.session_metrics)) return null;
+    const sessionMetrics = [];
+    for (const session of run.session_metrics) {
+      if (!session.raw_jsonl_path || !fs.existsSync(session.raw_jsonl_path)) return null;
+      if (session.execution?.status !== "completed") return null;
+      sessionMetrics.push({
+        ...session,
+        metrics: summarizeJsonlSafely(
+          fs.readFileSync(session.raw_jsonl_path, "utf8"),
+          { wall_ms: session.metrics ? session.metrics.wall_ms : 0 },
+        ),
+      });
+    }
+    const measuredSession = sessionMetrics.find((session) => session.session_index === run.measured_session_index);
+    if (!measuredSession || measuredSession.raw_jsonl_path !== candidate.raw_jsonl_path) return null;
+    candidate.session_metrics = sessionMetrics;
+    candidate.metrics = measuredSession.metrics;
+  }
+
+  candidate.measurement = measurementStatus(candidate);
+  if (candidate.correctness.status !== "passed") return null;
+  if (candidate.measurement.status !== "claimable") return null;
+  return candidate;
+}
+
+function compatibilityIssuesForReuseReport(report, {
+  reportPath,
+  manifest,
+  selectedScenarios,
+  authMode,
+  runs,
+  warmupRuns,
+  fullMatrix,
+  minRunsForClaim,
+  controlProfile,
+  cacheDiscount,
+  scenarioOrder,
+  requestedModel,
+  selectedScales,
+  selectedTasks,
+  sourceRoot,
+  requireClean,
+}) {
+  const issues = [];
+  const configuration = report.configuration || {};
+  if (report.benchmark_kind !== "codex-actual-llm") issues.push("benchmark_kind is not codex-actual-llm");
+  if (report.schema_version !== 8) issues.push(`schema_version ${report.schema_version} is not 8`);
+  if (report.auth_mode !== authMode) issues.push(`auth_mode ${report.auth_mode || "n/a"} differs from ${authMode}`);
+  if (report.corpus !== (manifest.corpus || "synthetic")) issues.push(`corpus ${report.corpus || "n/a"} differs from ${manifest.corpus || "synthetic"}`);
+  if (configuration.full_manifest_fingerprint !== manifest.manifest_fingerprint) issues.push("full_manifest_fingerprint differs");
+  if (configuration.manifest_fingerprint !== selectedManifestFingerprint(selectedScenarios)) issues.push("selected manifest_fingerprint differs");
+  if (configuration.scenario_matrix_fingerprint !== selectedScenarioMatrixFingerprint(selectedScenarios)) issues.push("scenario_matrix_fingerprint differs");
+  if (configuration.runs !== runs) issues.push(`runs ${configuration.runs} differs from ${runs}`);
+  if (configuration.warmup_runs !== warmupRuns) issues.push(`warmup_runs ${configuration.warmup_runs} differs from ${warmupRuns}`);
+  if (Boolean(configuration.full_matrix) !== Boolean(fullMatrix)) issues.push("full_matrix differs");
+  if (configuration.min_runs_for_claim !== minRunsForClaim) issues.push(`min_runs_for_claim ${configuration.min_runs_for_claim} differs from ${minRunsForClaim}`);
+  if (configuration.control_profile !== controlProfile) issues.push(`control_profile ${configuration.control_profile || "n/a"} differs from ${controlProfile}`);
+  if (configuration.cache_discount !== cacheDiscount) issues.push(`cache_discount ${configuration.cache_discount} differs from ${cacheDiscount}`);
+  if (configuration.scenario_order !== scenarioOrder) issues.push(`scenario_order ${configuration.scenario_order || "n/a"} differs from ${scenarioOrder}`);
+  if (configuration.requested_model !== requestedModel) issues.push(`requested_model ${configuration.requested_model || "n/a"} differs from ${requestedModel || "n/a"}`);
+  if (!jsonEqual(configuration.selected_scales, selectedScales)) issues.push("selected_scales differ");
+  if (!jsonEqual(configuration.selected_tasks, selectedTasks)) issues.push("selected_tasks differ");
+  if (configuration.selected_scenarios !== selectedScenarios.length) issues.push(`selected_scenarios ${configuration.selected_scenarios} differs from ${selectedScenarios.length}`);
+  const currentSource = sourceControlFingerprint(sourceRoot);
+  if (currentSource.available && report.source_control?.available !== true) {
+    issues.push("source report has no source-control fingerprint");
+  }
+  if (currentSource.available && report.source_control?.available && report.source_control.commit !== currentSource.commit) {
+    issues.push(`source commit ${report.source_control.short_commit || report.source_control.commit} differs from current ${currentSource.short_commit || currentSource.commit}`);
+  }
+  if (requireClean && report.source_control?.dirty) issues.push("source report was generated from a dirty checkout");
+  if (!Array.isArray(report.scenarios)) issues.push("report has no scenarios array");
+  return issues.map((issue) => `${reportPath}: ${issue}`);
+}
+
+function buildClaimableReuse({ reportPaths, manifest, selectedScenarios, scenarioRunPlan, authMode, runs, warmupRuns, fullMatrix, minRunsForClaim, controlProfile, cacheDiscount, scenarioOrder, requestedModel, selectedScales, selectedTasks, sourceRoot, requireClean }) {
+  const sourceReports = [...new Set(reportPaths || [])];
+  const runsByKey = new Map();
+  const expectedOrders = new Map();
+  for (const entry of scenarioRunPlan) {
+    if (entry.phase !== "measured") continue;
+    expectedOrders.set(measuredRunKey(entry.scenario.prompt_id, entry.run_index), runExecutionOrder(entry, scenarioOrder));
+  }
+  const currentByPrompt = new Map(selectedScenarios.map((scenario) => [scenario.prompt_id, scenario]));
+  const summary = {
+    enabled: sourceReports.length > 0,
+    source_reports: sourceReports,
+    reusable_run_count: 0,
+    reused_run_count: 0,
+    saved_codex_exec_count: 0,
+    ignored_run_count: 0,
+  };
+  if (sourceReports.length === 0) return { runsByKey, summary };
+
+  for (const reportPath of sourceReports) {
+    if (!fs.existsSync(reportPath)) fail(`--reuse-claimable-from report file not found: ${reportPath}`);
+    const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    const issues = compatibilityIssuesForReuseReport(report, {
+      reportPath,
+      manifest,
+      selectedScenarios,
+      authMode,
+      runs,
+      warmupRuns,
+      fullMatrix,
+      minRunsForClaim,
+      controlProfile,
+      cacheDiscount,
+      scenarioOrder,
+      requestedModel,
+      selectedScales,
+      selectedTasks,
+      sourceRoot,
+      requireClean,
+    });
+    if (issues.length > 0) {
+      fail(`--reuse-claimable-from incompatible report:\n${issues.map((issue) => `  - ${issue}`).join("\n")}`);
+    }
+    for (const reportScenario of report.scenarios) {
+      const currentScenario = currentByPrompt.get(reportScenario.prompt_id);
+      if (!scenarioMatchesForReuse(reportScenario, currentScenario)) continue;
+      for (const run of reportScenario.runs || []) {
+        const key = measuredRunKey(reportScenario.prompt_id, run.run_index);
+        if (!expectedOrders.has(key) || runsByKey.has(key)) {
+          summary.ignored_run_count += 1;
+          continue;
+        }
+        const reusable = rehydrateReusableRun({
+          reportPath,
+          reportScenario,
+          currentScenario,
+          run,
+          expectedOrder: expectedOrders.get(key),
+        });
+        if (!reusable) {
+          summary.ignored_run_count += 1;
+          continue;
+        }
+        runsByKey.set(key, reusable);
+        summary.reusable_run_count += 1;
+        summary.saved_codex_exec_count += scenarioSessionCount(currentScenario);
+      }
+    }
+  }
+  summary.reused_run_count = runsByKey.size;
+  return { runsByKey, summary };
+}
+
+function remainingCodexExecCountForPlan({ scenarioRunPlan, claimableReuse }) {
+  const reusableRuns = claimableReuse?.runsByKey || new Map();
+  let count = 0;
+  for (const entry of scenarioRunPlan) {
+    if (entry.phase === "measured" && reusableRuns.has(measuredRunKey(entry.scenario.prompt_id, entry.run_index))) {
+      continue;
+    }
+    count += scenarioSessionCount(entry.scenario);
+  }
+  return count;
+}
+
 function renderClaimGateFailureDiagnostics(report) {
   const lines = [];
   const configuration = report.configuration || {};
@@ -1042,10 +1298,10 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection }) {
-  const codexExecCount = selectedScenarios.reduce((total, scenario) => total + scenarioCodexExecCount(scenario, runs, warmupRuns), 0);
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection, claimableReuse = null }) {
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
+  const codexExecCount = remainingCodexExecCountForPlan({ scenarioRunPlan, claimableReuse });
   return {
     schema_version: 1,
     benchmark_kind: "codex-actual-llm-payload-preview",
@@ -1086,15 +1342,9 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       total_manifest_scenarios: manifest.scenarios.length,
       expected_codex_exec_count: codexExecCount,
       diagnostic_selection: diagnosticSelectionConfig(diagnosticSelection),
+      reuse_claimable: claimableReuse ? claimableReuse.summary : { enabled: false, source_reports: [], reusable_run_count: 0, reused_run_count: 0, saved_codex_exec_count: 0, ignored_run_count: 0 },
       dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((scenario) => scenario.prompt_id) : [],
-      manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
-        scale: scenario.scale,
-        condition: scenario.condition,
-        task_family: scenario.task_family,
-        prompt: scenario.prompt,
-        fixture_fingerprint: scenario.fixture_fingerprint,
-        requested_model: scenario.requested_model,
-      })))),
+      manifest_fingerprint: selectedManifestFingerprint(selectedScenarios),
     },
     scenario_run_plan: summarizeScenarioRunPlan({ scenarioOrder, plan: scenarioRunPlan }),
     scenarios: selectedScenarios.map((scenario) => scenarioPayloadPreview(scenario, runs, warmupRuns)),
@@ -1113,7 +1363,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
+function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, claimableReuse = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
   const resolvedRawReportRoot = rawReportRoot
     ? path.resolve(rawReportRoot)
@@ -1143,12 +1393,15 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
     fail(selectedScenariosOverride ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
   }
   const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
+  const codexExecTotal = remainingCodexExecCountForPlan({ scenarioRunPlan, claimableReuse });
   const progress = createBenchmarkProgress({
     selectedScenarios,
     runs,
     warmupRuns,
     rawRoot,
     sanitizedPack,
+    codexExecTotal,
+    reuseSummary: claimableReuse?.summary,
   });
 
   // Hermetic measurement (A5), always on for measured runs (not flag-gated): copy
@@ -1241,7 +1494,9 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
 
   try {
     for (const entry of scenarioRunPlan) {
-      const run = runScenarioOnce(entry.scenario, entry.run_index);
+      const reuseKey = measuredRunKey(entry.scenario.prompt_id, entry.run_index);
+      const reusableRun = entry.phase === "measured" ? claimableReuse?.runsByKey.get(reuseKey) : null;
+      const run = reusableRun || runScenarioOnce(entry.scenario, entry.run_index);
       run.execution_order = runExecutionOrder(entry, scenarioOrder);
       if (requireClaimable) requireCompletedExecutionForClaimableRun(entry.scenario, run);
       if (entry.phase === "measured") {
@@ -1402,25 +1657,13 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
       diagnostic_selection: diagnosticSelectionConfig(diagnosticSelection),
+      reuse_claimable: claimableReuse ? claimableReuse.summary : { enabled: false, source_reports: [], reusable_run_count: 0, reused_run_count: 0, saved_codex_exec_count: 0, ignored_run_count: 0 },
       // For real-corpus runs with an explicit --max-scenarios cap, records which
       // prompt_ids were dropped so the partial run is transparent in the report.
       dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((s) => s.prompt_id) : undefined,
       full_manifest_fingerprint: manifest.manifest_fingerprint,
-      manifest_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
-        scale: scenario.scale,
-        condition: scenario.condition,
-        task_family: scenario.task_family,
-        prompt: scenario.prompt,
-        fixture_fingerprint: scenario.fixture_fingerprint,
-        requested_model: scenario.requested_model,
-      })))),
-      scenario_matrix_fingerprint: sha256(JSON.stringify(selectedScenarios.map((scenario) => ({
-        scale: scenario.scale,
-        condition: scenario.condition,
-        task_family: scenario.task_family,
-        fixture_fingerprint: scenario.fixture_fingerprint,
-        requested_model: scenario.requested_model,
-      })))),
+      manifest_fingerprint: selectedManifestFingerprint(selectedScenarios),
+      scenario_matrix_fingerprint: selectedScenarioMatrixFingerprint(selectedScenarios),
     },
     benchmark_tracks: presentTracks,
     summary: summarizeScenarios(scenarios),
@@ -1673,6 +1916,7 @@ function main() {
   const rawReportRoot = rawReportRootArg ? path.resolve(root, rawReportRootArg) : "";
   const onlyPromptIds = freeCommaListArg("--only-prompt-id");
   const onlyFailedFrom = freeCommaListArg("--only-failed-from").map((reportPath) => path.resolve(root, reportPath));
+  const reuseClaimableFrom = freeCommaListArg("--reuse-claimable-from").map((reportPath) => path.resolve(root, reportPath));
   const authMode = argValue("--auth-mode", "chatgpt_codex");
   if (!["chatgpt_codex", "api-key"].includes(authMode)) fail(`invalid --auth-mode value: ${authMode}`);
   const controlProfile = argValue("--control-profile", "organic");
@@ -1706,6 +1950,9 @@ function main() {
   }
   if ((onlyPromptIds.length > 0 || onlyFailedFrom.length > 0) && dryRun && !payloadPreviewPath) {
     fail("diagnostic prompt filters require --payload-preview or a measured run; --dry-run writes the full manifest");
+  }
+  if (reuseClaimableFrom.length > 0 && dryRun && !payloadPreviewPath) {
+    fail("--reuse-claimable-from requires a measured run or --payload-preview; --dry-run writes the full manifest");
   }
   const corpus = argValue("--corpus", "synthetic");
   if (!["synthetic", "real"].includes(corpus)) fail(`invalid --corpus value: ${corpus} (expected synthetic or real)`);
@@ -1794,6 +2041,26 @@ function main() {
   const selectedScenarios = diagnosticSelection
     ? diagnosticSelection.selected_scenarios
     : selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
+  const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
+  const claimableReuse = buildClaimableReuse({
+    reportPaths: reuseClaimableFrom,
+    manifest,
+    selectedScenarios,
+    scenarioRunPlan,
+    authMode,
+    runs,
+    warmupRuns,
+    fullMatrix,
+    minRunsForClaim,
+    controlProfile: manifest.control_profile,
+    cacheDiscount,
+    scenarioOrder,
+    requestedModel,
+    selectedScales,
+    selectedTasks,
+    sourceRoot,
+    requireClean,
+  });
   if (payloadPreviewPath) {
     if (selectedScenarios.length === 0) {
       fail(diagnosticSelection ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
@@ -1822,6 +2089,7 @@ function main() {
       autoPruneRawRunsOlderThanDays,
       droppedScenarios,
       diagnosticSelection,
+      claimableReuse,
     });
     writeJson(payloadPreviewPath, preview);
     console.log(JSON.stringify({
@@ -1832,12 +2100,14 @@ function main() {
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
       scenario_count: selectedScenarios.length,
       expected_codex_exec_count: preview.configuration.expected_codex_exec_count,
+      reused_run_count: preview.configuration.reuse_claimable.reused_run_count,
+      saved_codex_exec_count: preview.configuration.reuse_claimable.saved_codex_exec_count,
     }, null, 2));
     return;
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
+    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, claimableReuse, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));
@@ -1860,6 +2130,8 @@ function main() {
       allowlisted_env_key_count: report.hermetic.allowlisted_env_key_count,
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
       scenario_count: report.scenarios.length,
+      reused_run_count: report.configuration.reuse_claimable.reused_run_count,
+      saved_codex_exec_count: report.configuration.reuse_claimable.saved_codex_exec_count,
       claim_gate: report.claim_gate.status,
     }, null, 2));
     return;

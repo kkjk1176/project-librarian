@@ -182,7 +182,7 @@ function runMetrics(args, options = {}) {
   });
 }
 
-function writeFakeCodex(binDir, { exitCode = 0 } = {}) {
+function writeFakeCodex(binDir, { exitCode = 0, responseText = "fake codex benchmark response" } = {}) {
   fs.mkdirSync(binDir, { recursive: true });
   const codexPath = path.join(binDir, "codex");
   fs.writeFileSync(codexPath, `#!/usr/bin/env node
@@ -200,7 +200,7 @@ if (exitCode !== 0) {
 }
 
 console.log(JSON.stringify({ type: "session.started", model: "gpt-test", cwd: process.cwd() }));
-console.log(JSON.stringify({ type: "assistant.message", message: { content: "fake codex benchmark response" } }));
+console.log(JSON.stringify({ type: "assistant.message", message: { content: ${JSON.stringify(responseText)} } }));
 console.log(JSON.stringify({
   type: "turn.completed",
   usage: {
@@ -522,6 +522,207 @@ test("--scenario-order scenario-major preserves legacy scenario-grouped measured
     "decision_lookup-small-without_project_librarian:1",
     "decision_lookup-small-without_project_librarian:2",
   ]);
+});
+
+test("--reuse-claimable-from reuses compatible raw JSONL without spawning measured Codex runs", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-claimable-test-"));
+  const priorReportPath = path.join(tmp, "prior.json");
+  const resumedReportPath = path.join(tmp, "resumed.json");
+  const correctText = [
+    "The latest benchmark evidence policy decision is 2026-06-10.",
+    "It is a benchmark metrics decision.",
+    "Sources: wiki/decisions/log.md and docs/notes/decision-log.md.",
+  ].join(" ");
+
+  const baseArgs = [
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "2",
+    "--warmup-runs", "0",
+    "--min-runs-for-claim", "2",
+    "--require-claimable",
+    "--model", "gpt-test",
+  ];
+
+  const first = runMetrics([
+    ...baseArgs,
+    "--out", priorReportPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: correctText }) });
+  assert.equal(first.status, 0, first.stderr);
+
+  const resumed = runMetrics([
+    ...baseArgs,
+    "--reuse-claimable-from", priorReportPath,
+    "--out", resumedReportPath,
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  assert.match(resumed.stderr, /\[benchmark:progress\] plan .*codex_exec_total=0 .*reused_runs=4 .*saved_codex_exec=4/);
+  assert(!/\[benchmark:progress\] start /.test(resumed.stderr), "fully reused measured run should not spawn Codex scenarios");
+
+  const stdout = JSON.parse(resumed.stdout);
+  assert.equal(stdout.reused_run_count, 4);
+  assert.equal(stdout.saved_codex_exec_count, 4);
+
+  const report = JSON.parse(fs.readFileSync(resumedReportPath, "utf8"));
+  assert.equal(report.claim_gate.status, "passed");
+  assert.equal(report.configuration.reuse_claimable.enabled, true);
+  assert.equal(report.configuration.reuse_claimable.reused_run_count, 4);
+  assert.equal(report.configuration.reuse_claimable.saved_codex_exec_count, 4);
+  assert(report.scenarios.every((scenario) => scenario.claimable_run_count === 2));
+  for (const scenario of report.scenarios) {
+    for (const run of scenario.runs) {
+      assert.equal(run.reused_from_report, priorReportPath);
+      assert.equal(run.measurement.status, "claimable");
+      assert.equal(run.correctness.status, "passed");
+      assert(fs.existsSync(run.raw_jsonl_path), "reused run must point at retained raw JSONL");
+    }
+  }
+});
+
+test("--reuse-claimable-from rehydrates multi-session runs from retained session raw JSONL", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-multi-session-test-"));
+  const priorReportPath = path.join(tmp, "prior.json");
+  const resumedReportPath = path.join(tmp, "resumed.json");
+  const correctText = [
+    "The latest benchmark release decision is 2026-06-10.",
+    "The benchmark claim check can publish only with evidence.",
+    "Sources: wiki/canonical/release-policy.md, wiki/decisions/log.md, docs/runbooks/release.md, docs/notes/decision-log.md.",
+  ].join(" ");
+
+  const baseArgs = [
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "multi_session",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--min-runs-for-claim", "1",
+    "--require-claimable",
+    "--model", "gpt-test",
+  ];
+
+  const first = runMetrics([
+    ...baseArgs,
+    "--out", priorReportPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: correctText }) });
+  assert.equal(first.status, 0, first.stderr);
+
+  const resumed = runMetrics([
+    ...baseArgs,
+    "--reuse-claimable-from", priorReportPath,
+    "--out", resumedReportPath,
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  assert.match(resumed.stderr, /\[benchmark:progress\] plan .*codex_exec_total=0 .*reused_runs=2 .*saved_codex_exec=4/);
+  assert(!/\[benchmark:progress\] start /.test(resumed.stderr), "fully reused multi-session run should not spawn Codex scenarios");
+
+  const stdout = JSON.parse(resumed.stdout);
+  assert.equal(stdout.reused_run_count, 2);
+  assert.equal(stdout.saved_codex_exec_count, 4);
+
+  const report = JSON.parse(fs.readFileSync(resumedReportPath, "utf8"));
+  assert.equal(report.claim_gate.status, "passed");
+  assert.equal(report.configuration.reuse_claimable.reused_run_count, 2);
+  assert.equal(report.configuration.reuse_claimable.saved_codex_exec_count, 4);
+  assert(report.scenarios.every((scenario) => scenario.session_count === 2));
+  for (const scenario of report.scenarios) {
+    assert.equal(scenario.claimable_run_count, 1);
+    const [run] = scenario.runs;
+    assert.equal(run.reused_from_report, priorReportPath);
+    assert.equal(run.measurement.status, "claimable");
+    assert.equal(run.correctness.status, "passed");
+    assert(Array.isArray(run.session_metrics) && run.session_metrics.length === 2);
+    const measured = run.session_metrics.find((session) => session.role === "measured");
+    assert.equal(run.measured_session_index, measured.session_index);
+    assert.equal(run.raw_jsonl_path, measured.raw_jsonl_path);
+    assert.deepEqual(run.metrics, measured.metrics);
+    for (const session of run.session_metrics) {
+      assert(fs.existsSync(session.raw_jsonl_path), "reused multi-session run must retain each session raw JSONL");
+      assert.equal(session.execution.status, "completed");
+    }
+  }
+});
+
+test("--reuse-claimable-from rejects incompatible release evidence before reusing runs", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-incompatible-test-"));
+  const priorReportPath = path.join(tmp, "prior.json");
+  const resumedReportPath = path.join(tmp, "resumed.json");
+  const correctText = "2026-06-10 benchmark metrics decision. Sources: wiki/decisions/log.md docs/notes/decision-log.md.";
+
+  const first = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--out", priorReportPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: correctText }) });
+  assert.equal(first.status, 0, first.stderr);
+
+  const resumed = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "2",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+    "--reuse-claimable-from", priorReportPath,
+    "--out", resumedReportPath,
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.notEqual(resumed.status, 0);
+  assert.match(resumed.stderr, /--reuse-claimable-from incompatible report:/);
+  assert.match(resumed.stderr, /runs 1 differs from 2/);
+  assert(!fs.existsSync(resumedReportPath), "incompatible reuse must not write a measured report");
+});
+
+test("--reuse-claimable-from rejects source reports without source-control provenance", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-source-control-test-"));
+  const priorReportPath = path.join(tmp, "prior.json");
+  const resumedReportPath = path.join(tmp, "resumed.json");
+  const correctText = "2026-06-10 benchmark metrics decision. Sources: wiki/decisions/log.md docs/notes/decision-log.md.";
+  const baseArgs = [
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--model", "gpt-test",
+  ];
+
+  const first = runMetrics([
+    ...baseArgs,
+    "--out", priorReportPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: correctText }) });
+  assert.equal(first.status, 0, first.stderr);
+  const prior = JSON.parse(fs.readFileSync(priorReportPath, "utf8"));
+  delete prior.source_control;
+  fs.writeFileSync(priorReportPath, `${JSON.stringify(prior, null, 2)}\n`);
+
+  const resumed = runMetrics([
+    ...baseArgs,
+    "--reuse-claimable-from", priorReportPath,
+    "--out", resumedReportPath,
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.notEqual(resumed.status, 0);
+  assert.match(resumed.stderr, /--reuse-claimable-from incompatible report:/);
+  assert.match(resumed.stderr, /source report has no source-control fingerprint/);
+  assert(!fs.existsSync(resumedReportPath), "source-unprovenanced reuse must not write a measured report");
 });
 
 test("diagnostic prompt filter measures a single scenario without a complete pair", () => {
