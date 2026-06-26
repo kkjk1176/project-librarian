@@ -12,6 +12,7 @@ const cliPath = path.join(repoRoot, "dist", "init-project-wiki.js");
 const {
   actualRepoExcludedPathParts,
   copyActualRepoFiltered,
+  copyActualRepoGitTrackedFiltered,
 } = require(path.join(repoRoot, "benchmarks", "lib", "actual-repo-materialization.js"));
 
 function hasFlag(name, argv = process.argv) {
@@ -62,7 +63,7 @@ const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code
 const { SMALL_REPO_FILE_THRESHOLD } = require(path.join(repoRoot, "dist", "code-index-file-policy.js"));
 const defaultScales = hasFlag("--full") ? [3000, 10000, 50000] : [3000, 10000];
 const runsPerCommand = hasFlag("--quick") ? 1 : 3;
-const actualRepoMaterializationModes = new Set(["auto", "filtered-copy", "git-clone-no-hardlinks"]);
+const actualRepoMaterializationModes = new Set(["auto", "filtered-copy", "git-clone-no-hardlinks", "git-tracked-filtered-copy"]);
 
 function sampleCorpusDefinitions() {
   return [
@@ -124,7 +125,7 @@ function sanitizeReportName(value) {
 
 function normalizeActualRepoMaterializationMode(value) {
   if (actualRepoMaterializationModes.has(value)) return value;
-  throw new Error(`invalid --actual-repo-materialization: ${value}; expected auto, filtered-copy, or git-clone-no-hardlinks`);
+  throw new Error(`invalid --actual-repo-materialization: ${value}; expected auto, filtered-copy, git-clone-no-hardlinks, or git-tracked-filtered-copy`);
 }
 
 function actualRepoMaterializationMode(argv = process.argv) {
@@ -186,6 +187,13 @@ function actualRepoDefinitions(argv = process.argv) {
       materialization_comparison_group: repo.name,
       materialization_comparison_role: "filtered-copy",
       materialization_mode: "filtered-copy",
+    },
+    {
+      ...repo,
+      name: `${repo.name}-git-tracked-filtered-copy`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "git-tracked-filtered-copy",
+      materialization_mode: "git-tracked-filtered-copy",
     },
   ]);
 }
@@ -421,6 +429,23 @@ function metricDelta(candidate, baseline, field) {
   };
 }
 
+function actualRepoMaterializationComparisonCandidate(candidate, baseline) {
+  return {
+    repo: candidate.name,
+    mode: candidate.materialization?.mode,
+    requested_mode: candidate.materialization?.requested_mode,
+    source_file_set: candidate.materialization?.source_file_set,
+    metrics: {
+      indexed_files: metricDelta(candidate.current_db?.rows?.files, baseline.current_db?.rows?.files, "current_db.rows.files"),
+      indexed_file_bytes: metricDelta(candidate.current_db?.indexed_file_bytes, baseline.current_db?.indexed_file_bytes, "current_db.indexed_file_bytes"),
+      indexed_file_lines: metricDelta(candidate.current_db?.indexed_file_lines, baseline.current_db?.indexed_file_lines, "current_db.indexed_file_lines"),
+      db_file_bytes: metricDelta(candidate.current_db?.file_bytes, baseline.current_db?.file_bytes, "current_db.file_bytes"),
+      index_time_ms: metricDelta(candidate.index_time_ms, baseline.index_time_ms, "index_time_ms"),
+    },
+    row_deltas: rowDeltas(candidate.current_db?.rows, baseline.current_db?.rows),
+  };
+}
+
 function actualRepoMaterializationComparisons(actualRepos) {
   const groups = new Map();
   for (const repo of actualRepos) {
@@ -431,27 +456,19 @@ function actualRepoMaterializationComparisons(actualRepos) {
   }
   return [...groups.entries()].map(([name, group]) => {
     const baseline = group.auto;
-    const candidate = group["filtered-copy"];
-    if (!baseline || !candidate) {
+    const candidates = ["filtered-copy", "git-tracked-filtered-copy"]
+      .map((role) => group[role])
+      .filter(Boolean);
+    if (!baseline || candidates.length === 0) {
       throw new Error(`missing paired actual-repo materialization results for ${name}`);
     }
     return {
       name,
       source: baseline.source,
       baseline_repo: baseline.name,
-      candidate_repo: candidate.name,
       baseline_mode: baseline.materialization?.mode,
       baseline_requested_mode: baseline.materialization?.requested_mode,
-      candidate_mode: candidate.materialization?.mode,
-      candidate_requested_mode: candidate.materialization?.requested_mode,
-      metrics: {
-        indexed_files: metricDelta(candidate.current_db?.rows?.files, baseline.current_db?.rows?.files, "current_db.rows.files"),
-        indexed_file_bytes: metricDelta(candidate.current_db?.indexed_file_bytes, baseline.current_db?.indexed_file_bytes, "current_db.indexed_file_bytes"),
-        indexed_file_lines: metricDelta(candidate.current_db?.indexed_file_lines, baseline.current_db?.indexed_file_lines, "current_db.indexed_file_lines"),
-        db_file_bytes: metricDelta(candidate.current_db?.file_bytes, baseline.current_db?.file_bytes, "current_db.file_bytes"),
-        index_time_ms: metricDelta(candidate.index_time_ms, baseline.index_time_ms, "index_time_ms"),
-      },
-      row_deltas: rowDeltas(candidate.current_db?.rows, baseline.current_db?.rows),
+      candidates: candidates.map((candidate) => actualRepoMaterializationComparisonCandidate(candidate, baseline)),
     };
   });
 }
@@ -1144,6 +1161,10 @@ function materializeSampleCorpus(sample, tmpRoot) {
   return cwd;
 }
 
+function gitTrackedPaths(source) {
+  return run("git", ["-C", source, "ls-files", "-z"]).stdout.split("\0").filter(Boolean);
+}
+
 function materializeActualRepo(repo, tmpRoot) {
   const source = path.resolve(repo.source);
   const stat = fs.existsSync(source) ? fs.statSync(source) : null;
@@ -1153,6 +1174,16 @@ function materializeActualRepo(repo, tmpRoot) {
   const isGitWorktree = fs.existsSync(path.join(source, ".git"));
   if (requestedMode === "filtered-copy") {
     copyActualRepoFiltered(source, cwd);
+    return cwd;
+  }
+  if (requestedMode === "git-tracked-filtered-copy") {
+    if (!isGitWorktree) {
+      throw new Error(`--actual-repo-materialization git-tracked-filtered-copy requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--actual-repo-materialization git-tracked-filtered-copy requires git to be available");
+    }
+    copyActualRepoGitTrackedFiltered(source, cwd, gitTrackedPaths(source));
     return cwd;
   }
   if (requestedMode === "git-clone-no-hardlinks") {
@@ -1188,6 +1219,14 @@ function actualRepoMaterialization(repo) {
       excluded_path_parts: [...actualRepoExcludedPathParts],
       mode: "filtered-copy",
       requested_mode: requestedMode,
+    };
+  }
+  if (requestedMode === "git-tracked-filtered-copy") {
+    return {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "git-tracked-filtered-copy",
+      requested_mode: requestedMode,
+      source_file_set: "git-ls-files",
     };
   }
   if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
@@ -1400,16 +1439,19 @@ function markdownReport(result) {
       lines.push(`### ${comparison.name}`);
       lines.push(`- Source: ${comparison.source}`);
       lines.push(`- Baseline: ${comparison.baseline_repo} (${comparison.baseline_mode}, requested ${comparison.baseline_requested_mode})`);
-      lines.push(`- Candidate: ${comparison.candidate_repo} (${comparison.candidate_mode}, requested ${comparison.candidate_requested_mode})`);
-      lines.push(`- Indexed files: ${formatMetricComparison(comparison.metrics.indexed_files)}`);
-      lines.push(`- Indexed file bytes: ${formatMetricComparison(comparison.metrics.indexed_file_bytes, "bytes")}`);
-      lines.push(`- Indexed file lines: ${formatMetricComparison(comparison.metrics.indexed_file_lines, "lines")}`);
-      lines.push(`- DB size: ${formatMetricComparison(comparison.metrics.db_file_bytes, "bytes")}`);
-      lines.push(`- Index time: ${formatMetricComparison(comparison.metrics.index_time_ms, "ms")}`);
-      const rowDeltas = Object.entries(comparison.row_deltas)
-        .map(([table, delta]) => `${table} ${formatSignedNumber(delta)}`)
-        .join(", ");
-      lines.push(`- Row deltas candidate vs baseline: ${rowDeltas}`);
+      for (const candidate of comparison.candidates) {
+        const sourceFileSet = candidate.source_file_set ? `; source file set ${candidate.source_file_set}` : "";
+        lines.push(`- Candidate: ${candidate.repo} (${candidate.mode}, requested ${candidate.requested_mode}${sourceFileSet})`);
+        lines.push(`  - Indexed files: ${formatMetricComparison(candidate.metrics.indexed_files)}`);
+        lines.push(`  - Indexed file bytes: ${formatMetricComparison(candidate.metrics.indexed_file_bytes, "bytes")}`);
+        lines.push(`  - Indexed file lines: ${formatMetricComparison(candidate.metrics.indexed_file_lines, "lines")}`);
+        lines.push(`  - DB size: ${formatMetricComparison(candidate.metrics.db_file_bytes, "bytes")}`);
+        lines.push(`  - Index time: ${formatMetricComparison(candidate.metrics.index_time_ms, "ms")}`);
+        const rowDeltas = Object.entries(candidate.row_deltas)
+          .map(([table, delta]) => `${table} ${formatSignedNumber(delta)}`)
+          .join(", ");
+        lines.push(`  - Row deltas candidate vs baseline: ${rowDeltas}`);
+      }
     }
   }
   return `${lines.join("\n")}\n`;

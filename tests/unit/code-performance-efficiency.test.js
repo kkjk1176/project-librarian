@@ -41,13 +41,17 @@ function runGit(cwd, args) {
 function createTrackedGeneratedGitRepo() {
   const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-git-source-"));
   fs.mkdirSync(path.join(source, "src"), { recursive: true });
+  fs.mkdirSync(path.join(source, "docs"), { recursive: true });
   fs.mkdirSync(path.join(source, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(source, "notes"), { recursive: true });
   fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
   fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
+  fs.writeFileSync(path.join(source, "docs", "readme.md"), "# tracked docs\n");
   fs.writeFileSync(path.join(source, "dist", "bundle.js"), "tracked generated artifact\n");
+  fs.writeFileSync(path.join(source, "notes", "local.md"), "untracked local note\n");
   fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
   runGit(source, ["init", "--quiet"]);
-  runGit(source, ["add", "src/index.ts", "dist/bundle.js"]);
+  runGit(source, ["add", "src/index.ts", "docs/readme.md", "dist/bundle.js"]);
   runGit(source, [
     "-c",
     "user.name=Benchmark Test",
@@ -90,6 +94,11 @@ test("actual repo benchmark definitions are repeatable and normalized", () => {
     "script.js",
     "--actual-repo-materialization=git-clone-no-hardlinks",
   ]), "git-clone-no-hardlinks");
+  assert.equal(actualRepoMaterializationMode([
+    "node",
+    "script.js",
+    "--actual-repo-materialization=git-tracked-filtered-copy",
+  ]), "git-tracked-filtered-copy");
   assert.throws(
     () => actualRepoMaterializationMode(["node", "script.js", "--actual-repo-materialization", "copy"]),
     /invalid --actual-repo-materialization/,
@@ -114,9 +123,10 @@ test("actual repo materialization comparison expands Git repos into paired defin
     assert.deepEqual(repos.map((repo) => repo.name), [
       `${reportName}-auto`,
       `${reportName}-filtered-copy`,
+      `${reportName}-git-tracked-filtered-copy`,
     ]);
-    assert.deepEqual(repos.map((repo) => repo.materialization_mode), ["auto", "filtered-copy"]);
-    assert.deepEqual(repos.map((repo) => repo.materialization_comparison_role), ["auto", "filtered-copy"]);
+    assert.deepEqual(repos.map((repo) => repo.materialization_mode), ["auto", "filtered-copy", "git-tracked-filtered-copy"]);
+    assert.deepEqual(repos.map((repo) => repo.materialization_comparison_role), ["auto", "filtered-copy", "git-tracked-filtered-copy"]);
     assert(repos.every((repo) => repo.materialization_comparison_group === reportName));
 
     assert.throws(
@@ -218,7 +228,33 @@ test("actual repo filtered-copy materialization excludes generated paths even fo
 
     const cwd = materializeActualRepo(repo, tmpRoot);
     assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "docs", "readme.md")), true);
     assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "notes", "local.md")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo git-tracked-filtered-copy materialization excludes generated and untracked files", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-tracked-filtered-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "git-tracked-filtered-copy" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "git-tracked-filtered-copy",
+      requested_mode: "git-tracked-filtered-copy",
+      source_file_set: "git-ls-files",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "docs", "readme.md")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "notes", "local.md")), false);
     assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
   } finally {
     fs.rmSync(source, { recursive: true, force: true });
@@ -232,6 +268,10 @@ test("actual repo explicit Git clone materialization fails closed for non-Git so
   try {
     assert.throws(
       () => materializeActualRepo({ name: "sample", source, materialization_mode: "git-clone-no-hardlinks" }, tmpRoot),
+      /requires --actual-repo to point to a Git worktree/,
+    );
+    assert.throws(
+      () => materializeActualRepo({ name: "sample", source, materialization_mode: "git-tracked-filtered-copy" }, tmpRoot),
       /requires --actual-repo to point to a Git worktree/,
     );
   } finally {
@@ -270,22 +310,42 @@ test("actual repo materialization comparison summarizes corpus and timing deltas
         rows: { files: 80, symbols: 240, imports: 40, routes: 5, edges: 420 },
       },
     },
+    {
+      name: "example-git-tracked-filtered-copy",
+      materialization_comparison_group: "example",
+      materialization_comparison_role: "git-tracked-filtered-copy",
+      source: "/tmp/example",
+      materialization: { mode: "git-tracked-filtered-copy", requested_mode: "git-tracked-filtered-copy", source_file_set: "git-ls-files" },
+      index_time_ms: 60,
+      current_db: {
+        file_bytes: 2500,
+        indexed_file_bytes: 10000,
+        indexed_file_lines: 450,
+        rows: { files: 70, symbols: 210, imports: 30, routes: 5, edges: 350 },
+      },
+    },
   ]);
 
   assert.equal(comparisons.length, 1);
   assert.equal(comparisons[0].baseline_mode, "git-clone-no-hardlinks");
-  assert.equal(comparisons[0].candidate_mode, "filtered-copy");
-  assert.deepEqual(comparisons[0].metrics.indexed_files, {
+  assert.deepEqual(comparisons[0].candidates.map((candidate) => candidate.mode), ["filtered-copy", "git-tracked-filtered-copy"]);
+  const rawFiltered = comparisons[0].candidates[0];
+  const trackedFiltered = comparisons[0].candidates[1];
+  assert.deepEqual(rawFiltered.metrics.indexed_files, {
     baseline: 100,
     candidate: 80,
     delta: -20,
     delta_percent: -20,
     field: "current_db.rows.files",
   });
-  assert.equal(comparisons[0].metrics.indexed_file_bytes.delta, -8000);
-  assert.equal(comparisons[0].metrics.indexed_file_bytes.delta_percent, -40);
-  assert.equal(comparisons[0].metrics.index_time_ms.delta_percent, -30);
-  assert.deepEqual(comparisons[0].row_deltas, { edges: -80, files: -20, imports: -10, routes: 0, symbols: -60 });
+  assert.equal(rawFiltered.metrics.indexed_file_bytes.delta, -8000);
+  assert.equal(rawFiltered.metrics.indexed_file_bytes.delta_percent, -40);
+  assert.equal(rawFiltered.metrics.index_time_ms.delta_percent, -30);
+  assert.deepEqual(rawFiltered.row_deltas, { edges: -80, files: -20, imports: -10, routes: 0, symbols: -60 });
+  assert.equal(trackedFiltered.source_file_set, "git-ls-files");
+  assert.equal(trackedFiltered.metrics.indexed_file_bytes.delta, -10000);
+  assert.equal(trackedFiltered.metrics.index_time_ms.delta_percent, -40);
+  assert.deepEqual(trackedFiltered.row_deltas, { edges: -150, files: -30, imports: -20, routes: 0, symbols: -90 });
 });
 
 test("actual repo exclusion helper covers generated and cache directories", () => {
@@ -536,6 +596,20 @@ test("markdown report renders FTS variants and parity status", () => {
           rows: { files: 90, symbols: 220 },
         },
       },
+      {
+        name: "example-app-git-tracked-filtered-copy",
+        materialization_comparison_group: "example-app",
+        materialization_comparison_role: "git-tracked-filtered-copy",
+        source: "/tmp/example-app",
+        materialization: { mode: "git-tracked-filtered-copy", requested_mode: "git-tracked-filtered-copy", source_file_set: "git-ls-files" },
+        index_time_ms: 70,
+        current_db: {
+          file_bytes: 2048,
+          indexed_file_bytes: 10000,
+          indexed_file_lines: 500,
+          rows: { files: 75, symbols: 200 },
+        },
+      },
     ]),
   });
 
@@ -556,7 +630,10 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /## Actual Repository Materialization Comparisons/);
   assert.match(report, /Baseline: example-app-auto \(git-clone-no-hardlinks, requested auto\)/);
   assert.match(report, /Candidate: example-app-filtered-copy \(filtered-copy, requested filtered-copy\)/);
-  assert.match(report, /Indexed file bytes: 20000 bytes -> 12000 bytes \(-8000 bytes, -40\.0%\)/);
-  assert.match(report, /Index time: 100 ms -> 80 ms \(-20 ms, -20\.0%\)/);
-  assert.match(report, /Row deltas candidate vs baseline: files -30, symbols -80/);
+  assert.match(report, /  - Indexed file bytes: 20000 bytes -> 12000 bytes \(-8000 bytes, -40\.0%\)/);
+  assert.match(report, /  - Index time: 100 ms -> 80 ms \(-20 ms, -20\.0%\)/);
+  assert.match(report, /  - Row deltas candidate vs baseline: files -30, symbols -80/);
+  assert.match(report, /Candidate: example-app-git-tracked-filtered-copy \(git-tracked-filtered-copy, requested git-tracked-filtered-copy; source file set git-ls-files\)/);
+  assert.match(report, /  - Indexed file bytes: 20000 bytes -> 10000 bytes \(-10000 bytes, -50\.0%\)/);
+  assert.match(report, /  - Row deltas candidate vs baseline: files -45, symbols -100/);
 });
