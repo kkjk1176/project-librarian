@@ -17,6 +17,8 @@ node benchmarks/tools/code-performance-efficiency.js --quick --compare-native --
 
 `npm run benchmark:claim-ledger` summarizes measured reports and payload previews into `release_claimable`, `diagnostic_only`, or `failed` rows per track and corpus. A passing claim gate is not enough for `release_claimable`; the report also needs a clean source-control provenance, explicit model, sanitized pack, `--require-clean`, `--require-claimable`, and enough runs for `min_runs_for_claim`. Payload previews are always `diagnostic_only` because they do not measure Codex output.
 
+Claim-ledger schema v2 rows include companion Markdown evidence paths when a same-basename `.md` report exists, model sources, observed models, release blockers, and gate issues. These fields make the Markdown ledger reviewable without opening every JSON report; they do not change release classification.
+
 ## Guidance probe benchmark
 
 `npm run benchmark:guidance:dry-run` validates the guidance probe corpus and writes an ignored manifest/Markdown report under `benchmarks/reports/guidance/` without launching Codex. The default corpus compares `current` and `refined_candidate` variants across startup-router, taxonomy, code-localization, stale-router, read-only, and multi-hop probes.
