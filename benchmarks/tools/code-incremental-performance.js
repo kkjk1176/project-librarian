@@ -20,6 +20,13 @@ process.emitWarning = ((warning, ...options) => {
   previousEmitWarning.call(process, warning, ...options);
 });
 const { DatabaseSync } = require("node:sqlite");
+const {
+  diffCounts,
+  maxAbsRowDeltas,
+  medianRun,
+  pairedRowDeltas,
+  parseCodeIndexPhaseTimingsOrThrow,
+} = require("../lib/code-benchmark-claim-evidence.js");
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
 
 function usage() {
@@ -103,9 +110,7 @@ function parseKeyValueLines(stdout) {
 }
 
 function parseTimings(stderr) {
-  const match = /code_index_phase_timings (\{[^\n]+\})/.exec(stderr);
-  if (!match) return {};
-  return JSON.parse(match[1]);
+  return parseCodeIndexPhaseTimingsOrThrow(stderr);
 }
 
 function runCli(repoDir, cli, args, env) {
@@ -179,22 +184,6 @@ function mutateFiles(repoDir, files, count, salt) {
   return selected;
 }
 
-function medianRun(samples) {
-  const selected = samples.slice().sort((left, right) => left.elapsed_ms - right.elapsed_ms)[Math.floor(samples.length / 2)];
-  return {
-    median_ms: selected.elapsed_ms,
-    parsed: selected.parsed,
-    samples_ms: samples.map((sample) => sample.elapsed_ms),
-    timings: selected.timings,
-  };
-}
-
-function diffCounts(left, right) {
-  const diff = {};
-  for (const key of Object.keys(left)) diff[key] = left[key] - right[key];
-  return diff;
-}
-
 function prepareMutatedRepo(args, sourceRepo, workName, changedCount, salt) {
   const repoDir = path.join(args.tmpRoot, workName);
   copyRepo(sourceRepo, repoDir);
@@ -235,6 +224,7 @@ function measureEngine(args, sourceRepo, repoName, changedCount, runIndex, engin
       ...measured,
       counts: rowCounts(repoDir),
       effective_changed_count: effectiveChangedCount,
+      run_index: runIndex,
     };
   } finally {
     if (repoDir) removePath(repoDir);
@@ -262,6 +252,7 @@ function runBenchmark(args) {
       const effectiveChangedCount = Math.min(ts.parsed.reindexed_files ?? changedCount, rust.parsed.reindexed_files ?? changedCount);
       const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
       const rustKey = args.rustMode === "incremental" ? "rust_incremental" : "rust_full";
+      const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
       results.push({
         repo: repoName,
         baseline_files: rust.parsed.files,
@@ -270,6 +261,8 @@ function runBenchmark(args) {
         [rustKey]: rust,
         [`${rustKey}_delta_pct_vs_ts_incremental`]: Number(delta.toFixed(1)),
         [`row_delta_ts_vs_${rustKey}`]: diffCounts(tsSamples.find((sample) => sample.elapsed_ms === ts.median_ms)?.counts ?? tsSamples[0].counts, rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms)?.counts ?? rustSamples[0].counts),
+        [`row_delta_runs_ts_vs_${rustKey}`]: rowDeltaRuns,
+        [`max_abs_row_delta_ts_vs_${rustKey}`]: maxAbsRowDeltas(rowDeltaRuns),
       });
       console.error(`${repoName} changed=${effectiveChangedCount} ts=${ts.median_ms.toFixed(1)}ms ${rustKey}=${rust.median_ms.toFixed(1)}ms delta=${delta.toFixed(1)}%`);
     }
@@ -297,4 +290,13 @@ function main() {
   process.stdout.write(json);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  parseArgs,
+  parseKeyValueLines,
+  parseTimings,
+  runBenchmark,
+};

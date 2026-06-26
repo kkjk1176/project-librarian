@@ -21,6 +21,13 @@ process.emitWarning = ((warning, ...options) => {
 });
 
 const { DatabaseSync } = require("node:sqlite");
+const {
+  diffCounts,
+  maxAbsRowDeltas,
+  medianRun,
+  pairedRowDeltas,
+  parseCodeIndexPhaseTimingsOrThrow,
+} = require("../lib/code-benchmark-claim-evidence.js");
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
 
 function usage() {
@@ -96,9 +103,7 @@ function parseKeyValueLines(stdout) {
 }
 
 function parseTimings(stderr) {
-  const match = /code_index_phase_timings (\{[^\n]+\})/.exec(stderr);
-  if (!match) return {};
-  return JSON.parse(match[1]);
+  return parseCodeIndexPhaseTimingsOrThrow(stderr);
 }
 
 function runCli(repoDir, cli, args, env) {
@@ -143,22 +148,6 @@ function rowCounts(repoDir) {
   }
 }
 
-function medianRun(samples) {
-  const selected = samples.slice().sort((left, right) => left.elapsed_ms - right.elapsed_ms)[Math.floor(samples.length / 2)];
-  return {
-    median_ms: selected.elapsed_ms,
-    parsed: selected.parsed,
-    samples_ms: samples.map((sample) => sample.elapsed_ms),
-    timings: selected.timings,
-  };
-}
-
-function diffCounts(left, right) {
-  const diff = {};
-  for (const key of Object.keys(left)) diff[key] = left[key] - right[key];
-  return diff;
-}
-
 function measureEngine(args, sourceRepo, repoName, runIndex, engine) {
   const repoDir = path.join(args.tmpRoot, `${repoName}-${engine}-${runIndex}`);
   try {
@@ -176,6 +165,7 @@ function measureEngine(args, sourceRepo, repoName, runIndex, engine) {
     return {
       ...measured,
       counts: rowCounts(repoDir),
+      run_index: runIndex,
     };
   } finally {
     removePath(repoDir);
@@ -199,6 +189,7 @@ function runBenchmark(args) {
     const delta = ((rust.median_ms - ts.median_ms) / ts.median_ms) * 100;
     const tsMedian = tsSamples.find((sample) => sample.elapsed_ms === ts.median_ms) ?? tsSamples[0];
     const rustMedian = rustSamples.find((sample) => sample.elapsed_ms === rust.median_ms) ?? rustSamples[0];
+    const rowDeltaRuns = pairedRowDeltas(tsSamples, rustSamples);
     results.push({
       repo: repoName,
       files: rust.parsed.files ?? ts.parsed.files ?? rust.counts?.files ?? ts.counts?.files ?? null,
@@ -208,6 +199,8 @@ function runBenchmark(args) {
       rust_full: rust,
       rust_full_delta_pct_vs_ts_full: Number(delta.toFixed(1)),
       row_delta_ts_vs_rust_full: diffCounts(tsMedian.counts, rustMedian.counts),
+      row_delta_runs_ts_vs_rust_full: rowDeltaRuns,
+      max_abs_row_delta_ts_vs_rust_full: maxAbsRowDeltas(rowDeltaRuns),
     });
     console.error(`${repoName} ts=${ts.median_ms.toFixed(1)}ms rust=${rust.median_ms.toFixed(1)}ms delta=${delta.toFixed(1)}%`);
   }
@@ -232,4 +225,13 @@ function main() {
   process.stdout.write(json);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  parseArgs,
+  parseKeyValueLines,
+  parseTimings,
+  runBenchmark,
+};
