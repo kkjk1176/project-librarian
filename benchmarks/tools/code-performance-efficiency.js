@@ -14,6 +14,10 @@ const {
   copyActualRepoFiltered,
   copyActualRepoGitTrackedFiltered,
 } = require(path.join(repoRoot, "benchmarks", "lib", "actual-repo-materialization.js"));
+const {
+  allNativeStrategies,
+  nativeStrategyRequiredCommands,
+} = require(path.join(repoRoot, "benchmarks", "lib", "native-indexer-strategies.js"));
 
 function hasFlag(name, argv = process.argv) {
   return argv.includes(name);
@@ -237,8 +241,6 @@ function nativeHelperRequest() {
   return "";
 }
 
-const allNativeStrategies = ["sqlite-bridge", "sqlite-direct", "row-stream"];
-
 function nativeStrategiesFromRequest() {
   if (!nativeHelperRequest()) return [];
   const requested = optionValue("--native-strategy", "all").trim();
@@ -267,7 +269,7 @@ function resolveNativeHelper() {
     return { requested: true, enabled: true, mode: "explicit", helper_path: helperPath, strategies };
   }
 
-  const requiredCommands = strategies.includes("sqlite-bridge") ? ["cargo", "sqlite3"] : ["cargo"];
+  const requiredCommands = ["cargo", ...nativeStrategyRequiredCommands(strategies)];
   const missing = requiredCommands.filter((command) => !commandAvailable(command));
   if (missing.length > 0) {
     return {

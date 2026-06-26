@@ -98,6 +98,19 @@ test("incremental benchmark rejects non-sqlite-direct strategies for native incr
       "--native-strategies", "sqlite-direct,row-stream",
     ]);
     assert.deepEqual(fullModeArgs.nativeStrategies, ["sqlite-direct", "row-stream"]);
+
+    assert.throws(
+      () => parseArgs([
+        "--source-root", fixture.sourceRoot,
+        "--repos", "sample",
+        "--changes", "1",
+        "--helper", fixture.helper,
+        "--cli", fixture.cli,
+        "--rust-mode", "full",
+        "--native-strategies", "sqlite-direct,sqlite-bridge",
+      ], { commandAvailable: () => false }),
+      /sqlite-bridge requires command sqlite3/,
+    );
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -107,6 +120,14 @@ test("incremental markdown exposes sqlite-direct release comparison and row-delt
   const markdown = renderIncrementalMarkdownReport({
     changeCounts: [1],
     generated_at: "2026-06-26T00:00:00.000Z",
+    native_strategy_requirements: [
+      {
+        provenance: "native/indexer-rs/src/main.rs sqlite3-direct-ffi output mode",
+        requirements: [],
+        status: "available",
+        strategy: "sqlite-direct",
+      },
+    ],
     native_strategies: ["sqlite-direct"],
     results: [
       {
@@ -135,6 +156,8 @@ test("incremental markdown exposes sqlite-direct release comparison and row-delt
   });
 
   assert.match(markdown, /Top-level release comparison: sqlite-direct \(`rust_incremental`\)/);
+  assert.match(markdown, /Native Strategy Availability/);
+  assert.match(markdown, /sqlite-direct \| available \| helper binary only/);
   assert.match(markdown, /Default native incremental mode is sqlite-direct-only/);
   assert.match(markdown, /Native Strategy Matrix/);
   assert.match(markdown, /TypeScript phases: discover 1\.0 ms/);

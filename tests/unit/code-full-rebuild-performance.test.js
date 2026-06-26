@@ -69,6 +69,46 @@ test("full rebuild benchmark parses unique native strategy matrix requests", () 
   }
 });
 
+test("full rebuild benchmark records native strategy availability before measurement", () => {
+  const fixture = parseArgsFixture();
+  try {
+    assert.throws(
+      () => parseArgs([
+        "--source-root", fixture.sourceRoot,
+        "--repos", "sample",
+        "--helper", fixture.helper,
+        "--cli", fixture.cli,
+        "--native-strategies", "sqlite-direct,sqlite-bridge",
+      ], { commandAvailable: () => false }),
+      /sqlite-bridge requires command sqlite3/,
+    );
+
+    const args = parseArgs([
+      "--source-root", fixture.sourceRoot,
+      "--repos", "sample",
+      "--helper", fixture.helper,
+      "--cli", fixture.cli,
+      "--native-strategies", "sqlite-direct,sqlite-bridge",
+    ], { commandAvailable: (command) => command === "sqlite3" });
+
+    assert.deepEqual(args.nativeStrategies, ["sqlite-direct", "sqlite-bridge"]);
+    assert.deepEqual(args.nativeStrategyRequirements.map((entry) => ({
+      requirements: entry.requirements,
+      status: entry.status,
+      strategy: entry.strategy,
+    })), [
+      { requirements: [], status: "available", strategy: "sqlite-direct" },
+      {
+        requirements: [{ type: "command", name: "sqlite3", status: "available" }],
+        status: "available",
+        strategy: "sqlite-bridge",
+      },
+    ]);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("full rebuild benchmark requires sqlite-direct in native strategy requests", () => {
   const fixture = parseArgsFixture();
   try {
@@ -100,6 +140,20 @@ test("full rebuild benchmark requires sqlite-direct in native strategy requests"
 test("full rebuild markdown exposes strategy matrix and row-delta evidence", () => {
   const markdown = renderFullRebuildMarkdownReport({
     generated_at: "2026-06-26T00:00:00.000Z",
+    native_strategy_requirements: [
+      {
+        provenance: "native/indexer-rs/src/main.rs sqlite3-direct-ffi output mode",
+        requirements: [],
+        status: "available",
+        strategy: "sqlite-direct",
+      },
+      {
+        provenance: "native/indexer-rs/src/main.rs row-stream output, consumed by src/code-index/native-helper.ts",
+        requirements: [],
+        status: "available",
+        strategy: "row-stream",
+      },
+    ],
     native_strategies: ["sqlite-direct", "row-stream"],
     results: [
       {
@@ -133,6 +187,8 @@ test("full rebuild markdown exposes strategy matrix and row-delta evidence", () 
   });
 
   assert.match(markdown, /Top-level release comparison: sqlite-direct/);
+  assert.match(markdown, /Native Strategy Availability/);
+  assert.match(markdown, /sqlite-direct \| available \| helper binary only/);
   assert.match(markdown, /Native Strategy Matrix/);
   assert.match(markdown, /row-stream/);
   assert.match(markdown, /TypeScript phases: discover 1\.0 ms/);

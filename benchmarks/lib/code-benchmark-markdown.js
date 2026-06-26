@@ -48,6 +48,31 @@ function formatRunRowDeltas(rowDeltaRuns) {
     .join("; ");
 }
 
+function formatNativeStrategyRequirements(requirements) {
+  if (!Array.isArray(requirements) || requirements.length === 0) return "helper binary only";
+  return requirements
+    .map((requirement) => `${requirement.type} ${requirement.name}: ${requirement.status}`)
+    .join(", ");
+}
+
+function appendNativeStrategyAvailability(lines, report) {
+  const entries = report.native_strategy_requirements;
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  lines.push("## Native Strategy Availability");
+  lines.push("");
+  lines.push("| Strategy | Status | Requirements | Provenance |");
+  lines.push("| --- | --- | --- | --- |");
+  for (const entry of entries) {
+    lines.push(tableRow([
+      entry.strategy,
+      entry.status,
+      formatNativeStrategyRequirements(entry.requirements),
+      entry.provenance,
+    ]));
+  }
+  lines.push("");
+}
+
 function renderFullRebuildMarkdownReport(report) {
   const lines = [
     "# Code Full Rebuild Performance Report",
@@ -60,6 +85,7 @@ function renderFullRebuildMarkdownReport(report) {
     "Claim boundary: top-level `rust_full` fields are the sqlite-direct release-path comparison. Other native strategies are diagnostic matrix evidence and must not silently replace the release baseline.",
     "",
   ];
+  appendNativeStrategyAvailability(lines, report);
 
   for (const result of report.results ?? []) {
     lines.push(`## ${result.repo}`, "");
@@ -104,6 +130,7 @@ function renderIncrementalMarkdownReport(report) {
     "Claim boundary: top-level `rust_incremental` or `rust_full` fields are the sqlite-direct release-path comparison. Default native incremental mode is sqlite-direct-only; non-sqlite-direct strategies are full-rebuild diagnostics only.",
     "",
   ];
+  appendNativeStrategyAvailability(lines, report);
 
   for (const result of report.results ?? []) {
     const rustKey = result.rust_incremental ? "rust_incremental" : "rust_full";
@@ -142,6 +169,7 @@ function renderIncrementalMarkdownReport(report) {
 
 module.exports = {
   formatPhaseTimings,
+  formatNativeStrategyRequirements,
   formatRowDeltas,
   renderFullRebuildMarkdownReport,
   renderIncrementalMarkdownReport,

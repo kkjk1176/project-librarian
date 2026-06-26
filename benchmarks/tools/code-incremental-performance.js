@@ -30,6 +30,7 @@ const {
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
 const {
   assertIncrementalNativeStrategies,
+  assertNativeStrategyRequirements,
   defaultNativeStrategy,
   parseNativeStrategies,
 } = require("../lib/native-indexer-strategies.js");
@@ -54,7 +55,7 @@ Options:
   process.exit(2);
 }
 
-function parseArgs(argv) {
+function parseArgs(argv, options = {}) {
   const args = {
     changes: [1, 5, 10, 50, 100, 500],
     cli: path.resolve("dist/init-project-wiki.js"),
@@ -96,6 +97,7 @@ function parseArgs(argv) {
   if (args.changes.length === 0) throw new Error("--changes must include at least one positive integer");
   if (!["incremental", "full"].includes(args.rustMode)) throw new Error("--rust-mode must be incremental or full");
   assertIncrementalNativeStrategies(args.nativeStrategies, args.rustMode);
+  args.nativeStrategyRequirements = assertNativeStrategyRequirements(args.nativeStrategies, options);
   if (args.repos.length === 0) {
     args.repos = fs.readdirSync(args.sourceRoot)
       .filter((entry) => fs.statSync(path.join(args.sourceRoot, entry)).isDirectory())
@@ -310,6 +312,7 @@ function runBenchmark(args) {
   return {
     changeCounts: args.changes,
     generated_at: new Date().toISOString(),
+    native_strategy_requirements: args.nativeStrategyRequirements,
     native_strategies: args.nativeStrategies,
     repos: args.repos,
     results,

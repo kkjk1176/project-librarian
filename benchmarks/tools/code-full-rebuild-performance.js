@@ -30,6 +30,7 @@ const {
 } = require("../lib/code-benchmark-claim-evidence.js");
 const { copyActualRepoFiltered } = require("../lib/actual-repo-materialization.js");
 const {
+  assertNativeStrategyRequirements,
   defaultNativeStrategy,
   parseNativeStrategies,
 } = require("../lib/native-indexer-strategies.js");
@@ -52,7 +53,7 @@ Options:
   process.exit(2);
 }
 
-function parseArgs(argv) {
+function parseArgs(argv, options = {}) {
   const args = {
     cli: path.resolve("dist/init-project-wiki.js"),
     helper: process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER || "",
@@ -87,6 +88,7 @@ function parseArgs(argv) {
   if (!fs.existsSync(args.helper)) throw new Error(`native helper does not exist: ${args.helper}`);
   if (!fs.existsSync(args.cli)) throw new Error(`CLI does not exist: ${args.cli}`);
   if (!Number.isInteger(args.runs) || args.runs < 1) throw new Error("--runs must be a positive integer");
+  args.nativeStrategyRequirements = assertNativeStrategyRequirements(args.nativeStrategies, options);
   if (args.repos.length === 0) {
     args.repos = fs.readdirSync(args.sourceRoot)
       .filter((entry) => fs.statSync(path.join(args.sourceRoot, entry)).isDirectory())
@@ -241,6 +243,7 @@ function runBenchmark(args) {
   }
   return {
     generated_at: new Date().toISOString(),
+    native_strategy_requirements: args.nativeStrategyRequirements,
     native_strategies: args.nativeStrategies,
     repos: args.repos,
     results,
