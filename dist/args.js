@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckStrictMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.handoffVerification = exports.handoffStatusMode = exports.handoffState = exports.handoffShowMode = exports.handoffSaveMode = exports.handoffPromoteInboxMode = exports.handoffInjectionStatusMode = exports.handoffInjectionEnableMode = exports.handoffInjectionDisableMode = exports.handoffOpenQuestions = exports.handoffNextActions = exports.handoffLastSuccessCommand = exports.handoffLastFailureCommand = exports.handoffInputMode = exports.handoffGoal = exports.handoffDecisions = exports.handoffClearMode = exports.handoffBlocked = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.invalidAgentTargets = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.agentTargets = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexIncrementalMode = exports.codeIndexEngineMode = exports.codeIndexEngine = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexMigrateMode = exports.codeIndexIncrementalMode = exports.codeIndexEngineMode = exports.codeIndexEngine = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -22,6 +22,7 @@ const flagDefinitions = [
     { name: "--code-index-full", value: "none", aliases: ["--code-evidence-index-full"] },
     { name: "--code-index-health", value: "none" },
     { name: "--code-index-incremental", value: "none", aliases: ["--incremental", "--code-incremental", "--code-evidence-index-incremental"] },
+    { name: "--code-index-migrate", value: "none", aliases: ["--code-evidence-index-migrate"] },
     { name: "--code-index-out", value: "value", aliases: ["--code-evidence-out"] },
     { name: "--code-parser", value: "value", aliases: ["--code-evidence-parser"] },
     { name: "--code-query", value: "value", aliases: ["--code-evidence-query"] },
@@ -185,6 +186,7 @@ function parseArgs(argv) {
         codeIndexFullMode: hasAnyFlag("--code-index-full"),
         codeIndexHealthMode: args.has("--code-index-health"),
         codeIndexIncrementalMode: hasAnyFlag("--code-index-incremental"),
+        codeIndexMigrateMode: hasAnyFlag("--code-index-migrate"),
         codeIndexMode: hasAnyFlag("--code-index"),
         codeIndexOutput: argValueFromAny("--code-index-out") || ".project-wiki/code-evidence.sqlite",
         codeIndexScopes: argValuesFromAny("--code-scope"),
@@ -308,6 +310,7 @@ exports.codeIndexMode = exports.parsedArgs.codeIndexMode;
 exports.codeIndexEngine = exports.parsedArgs.codeIndexEngine;
 exports.codeIndexEngineMode = exports.parsedArgs.codeIndexEngineMode;
 exports.codeIndexIncrementalMode = exports.parsedArgs.codeIndexIncrementalMode;
+exports.codeIndexMigrateMode = exports.parsedArgs.codeIndexMigrateMode;
 exports.codeIndexFullMode = exports.parsedArgs.codeIndexFullMode;
 exports.codeIndexHealthMode = exports.parsedArgs.codeIndexHealthMode;
 exports.codeReportMode = exports.parsedArgs.codeReportMode;

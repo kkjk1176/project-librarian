@@ -52,6 +52,7 @@ const packageFiles = [
     "package.json",
     "agents",
 ];
+const runtimeDependencyPackages = ["typescript"];
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -82,6 +83,18 @@ function installAgents() {
 }
 function packageRoot() {
     return path.resolve(__dirname, "..");
+}
+function runtimeDependencySource(packageName) {
+    try {
+        return path.dirname(require.resolve(`${packageName}/package.json`, { paths: [packageRoot()] }));
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return fail(`missing runtime dependency ${packageName}: run npm install before installing the Project Librarian skill. Error: ${message}`);
+    }
+}
+function runtimeDependencyTarget(packageName) {
+    return path.join("node_modules", ...packageName.split("/"));
 }
 function userAgentRoot(agent) {
     const home = os.homedir();
@@ -236,11 +249,18 @@ function installedProjectSkillSurfaces() {
 }
 function copyPackageFiles(targetRoot, dryRun, labelRoot = targetRoot) {
     const root = packageRoot();
-    return packageFiles.map((relativePath) => {
+    const packageRows = packageFiles.map((relativePath) => {
         const source = path.join(root, relativePath);
         const target = path.join(targetRoot, relativePath);
         return [path.join(labelRoot, relativePath), copyPath(source, target, targetRoot, dryRun)];
     });
+    const dependencyRows = runtimeDependencyPackages.map((packageName) => {
+        const relativePath = runtimeDependencyTarget(packageName);
+        const source = runtimeDependencySource(packageName);
+        const target = path.join(targetRoot, relativePath);
+        return [path.join(labelRoot, relativePath), copyPath(source, target, targetRoot, dryRun)];
+    });
+    return [...packageRows, ...dependencyRows];
 }
 function syncProjectSkillInstall(agent) {
     return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
@@ -261,7 +281,7 @@ function runInstallSkillMode() {
     console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
-    console.log("note: install only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
+    console.log("note: install only installs the reusable skill files and required local-runner runtime dependencies; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
     console.log("compatibility: install-skill remains supported as an alias for install.");
     console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
     for (const [label, status] of rows) {

@@ -70,8 +70,8 @@ function readScopes(scopesJson: string, scopesText: string, fallback: string[]):
   return scopes.length > 0 ? scopes : fallback;
 }
 
-function rebuildCommand(indexableFiles: number | null, smallRepoThreshold: number): string {
-  const parts = ["project-librarian", "--code-index", "--code-index-full"];
+function rebuildCommand(indexableFiles: number | null, smallRepoThreshold: number, options: { schemaMigration?: boolean } = {}): string {
+  const parts = ["project-librarian", "--code-index", options.schemaMigration ? "--code-index-migrate" : "--code-index-full"];
   if (indexableFiles !== null && indexableFiles < smallRepoThreshold) parts.push("--acknowledge-small-repo");
   return parts.join(" ");
 }
@@ -123,6 +123,7 @@ export function inspectCodeIndexHealth(options: InspectCodeIndexHealthOptions): 
     const indexedFiles = indexedFilesText ? Number(indexedFilesText) : null;
     const indexableFiles = safeDiscoverCodeFiles(options.discoverCodeFiles, scopes.length > 0 ? scopes : options.defaultScopes);
     const compatible = foundSchemaVersion === options.expectedSchemaVersion;
+    const schemaMigration = Boolean(foundSchemaVersion) && !compatible;
     return {
       database_path: options.relativePath,
       expected_schema_version: options.expectedSchemaVersion,
@@ -133,7 +134,7 @@ export function inspectCodeIndexHealth(options: InspectCodeIndexHealthOptions): 
         ? `code evidence index is compatible: schema ${foundSchemaVersion}`
         : `code evidence index schema version ${foundSchemaVersion || "(missing)"} is incompatible with ${options.expectedSchemaVersion}`,
       parser_mode: parserMode,
-      recommended_rebuild_command: rebuildCommand(indexableFiles, options.smallRepoThreshold),
+      recommended_rebuild_command: rebuildCommand(indexableFiles, options.smallRepoThreshold, { schemaMigration }),
       scopes,
       status: compatible ? "compatible" : "incompatible_schema",
       tables,

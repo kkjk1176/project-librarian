@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexEngineMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
+import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexEngineMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMigrateMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
 import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall } from "./install-skill";
@@ -72,6 +72,7 @@ Options:
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
+  --code-index-migrate             With --code-index, approve replacing an incompatible schema-version index.
   --code-index-engine <engine>     With --code-index, override default auto engine: typescript or native-rust.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
   --code-query <sql>               Run conservative read-only SQL over the code evidence index.
@@ -194,6 +195,11 @@ if (codeIndexFullMode && !codeIndexMode) {
   process.exit(1);
 }
 
+if (codeIndexMigrateMode && !codeIndexMode) {
+  console.error("--code-index-migrate is only supported with --code-index.");
+  process.exit(1);
+}
+
 if (codeIndexEngineMode && !codeIndexMode) {
   console.error("--code-index-engine is only supported with --code-index.");
   process.exit(1);
@@ -206,6 +212,11 @@ if (codeParserMode && !codeIndexMode) {
 
 if (codeIndexIncrementalMode && codeIndexFullMode) {
   console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
+  process.exit(1);
+}
+
+if (codeIndexIncrementalMode && codeIndexMigrateMode) {
+  console.error("Use one code index update mode at a time: --incremental or --code-index-migrate.");
   process.exit(1);
 }
 

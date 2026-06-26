@@ -71,6 +71,49 @@ function requireCompatibleDatabase(database, runtime) {
         ].join("\n"));
     }
 }
+function schemaMigrationRequired(reason) {
+    return reason.startsWith("existing schema version ") && !reason.includes("(missing)");
+}
+function shellQuote(value) {
+    if (/^[A-Za-z0-9_./:=@+-]+$/.test(value))
+        return value;
+    return `'${value.replace(/'/g, "'\\''")}'`;
+}
+function schemaMigrationApprovalCommand(options) {
+    const parts = ["project-librarian", "--code-index", "--code-index-migrate"];
+    for (const scope of options.scopes) {
+        if (scope !== ".")
+            parts.push("--code-scope", scope);
+    }
+    if (args_1.codeIndexOutput !== ".project-wiki/code-evidence.sqlite")
+        parts.push("--code-index-out", args_1.codeIndexOutput);
+    if (args_1.acknowledgeSmallRepoMode)
+        parts.push("--acknowledge-small-repo");
+    if (options.requestedEngine !== "auto")
+        parts.push("--code-index-engine", options.requestedEngine);
+    if (options.parserMode !== "default")
+        parts.push("--code-parser", options.parserMode);
+    return parts.map(shellQuote).join(" ");
+}
+function schemaMigrationRequiredMessage(runtime, reason, options) {
+    const databasePath = runtime.codeEvidenceDatabasePath();
+    return [
+        `code evidence index schema migration required: ${reason}`,
+        "The existing disposable code evidence index must be replaced before this version can write it.",
+        `approve: ${schemaMigrationApprovalCommand(options)}`,
+        "inspect: project-librarian --code-index-health",
+        `database: ${databasePath.relativePath}`,
+    ].join("\n");
+}
+function unreadableIndexMessage(runtime) {
+    const health = runtime.codeIndexHealth();
+    return [
+        health.message,
+        "inspect: project-librarian --code-index-health",
+        `rebuild: ${health.recommended_rebuild_command}`,
+        `database: ${health.database_path}`,
+    ].join("\n");
+}
 function elapsedMs(started) {
     return Number(process.hrtime.bigint() - started) / 1_000_000;
 }
@@ -125,6 +168,33 @@ function runCodeIndexMode(runtime) {
         runtime.fail(scaleGate.warning);
     const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
     const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
+    const existingIndex = fs.existsSync(databasePath.absolutePath);
+    if (args_1.codeIndexIncrementalMode && !existingIndex) {
+        runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
+    }
+    let compatibility = { compatible: false, reason: "compatibility was not checked" };
+    let checkedCompatibility = false;
+    if (existingIndex) {
+        try {
+            measurePhase(phaseTimings, "compatibility_ms", () => {
+                const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
+                try {
+                    compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
+                    checkedCompatibility = true;
+                }
+                finally {
+                    existingDatabase.close();
+                }
+            });
+        }
+        catch {
+            if (!args_1.codeIndexFullMode && !args_1.codeIndexMigrateMode)
+                runtime.fail(unreadableIndexMessage(runtime));
+        }
+        if (!compatibility.compatible && schemaMigrationRequired(compatibility.reason) && !args_1.codeIndexMigrateMode) {
+            runtime.fail(schemaMigrationRequiredMessage(runtime, compatibility.reason, { parserMode, requestedEngine, scopes }));
+        }
+    }
     if (engine === "native-rust") {
         if (!args_1.codeIndexIncrementalMode) {
             try {
@@ -140,23 +210,9 @@ function runCodeIndexMode(runtime) {
             }
         }
     }
-    const existingIndex = fs.existsSync(databasePath.absolutePath);
-    if (args_1.codeIndexIncrementalMode && !existingIndex) {
-        runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
-    }
     let incremental = false;
-    if (existingIndex && !args_1.codeIndexFullMode) {
-        let compatibility = { compatible: false, reason: "compatibility was not checked" };
-        measurePhase(phaseTimings, "compatibility_ms", () => {
-            const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
-            try {
-                compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
-            }
-            finally {
-                existingDatabase.close();
-            }
-        });
-        incremental = !args_1.codeIndexFullMode && compatibility.compatible;
+    if (existingIndex && checkedCompatibility && !args_1.codeIndexFullMode && !args_1.codeIndexMigrateMode) {
+        incremental = compatibility.compatible;
         if (args_1.codeIndexIncrementalMode && !compatibility.compatible)
             runtime.fail(`--incremental cannot update ${databasePath.relativePath}: ${compatibility.reason}`);
     }

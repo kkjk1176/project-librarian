@@ -480,7 +480,7 @@ test("tools/call reports incompatible index schema with health-style rebuild gui
     const text = toolResultText(response);
     assert.match(text, /schema version 3 is incompatible with 5/);
     assert.match(text, /status: incompatible_schema/);
-    assert.match(text, /rebuild: project-librarian --code-index --code-index-full --acknowledge-small-repo/);
+    assert.match(text, /rebuild: project-librarian --code-index --code-index-migrate --acknowledge-small-repo/);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

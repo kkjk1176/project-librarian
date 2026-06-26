@@ -84,6 +84,25 @@ function openSnapshotDatabase(databasePath) {
   });
 }
 
+function readSchemaVersion(databasePath) {
+  const database = openSnapshotDatabase(databasePath);
+  try {
+    const rows = database.prepare("SELECT value FROM meta WHERE key = 'schema_version'").all();
+    return String(rows[0]?.value ?? "");
+  } finally {
+    database.close();
+  }
+}
+
+function setSchemaVersion(databasePath, version) {
+  const database = openSnapshotDatabase(databasePath);
+  try {
+    database.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(version);
+  } finally {
+    database.close();
+  }
+}
+
 function normalizedNativeParitySnapshot(snapshot) {
   return {
     ...snapshot,
@@ -623,7 +642,7 @@ test("read-only code evidence modes reject old schema indexes with a rebuild mes
     assert.equal(result.status, 1);
     assert.match(result.stderr, /schema version 3 is incompatible with \d+/);
     assert.match(result.stderr, /inspect: project-librarian --code-index-health/);
-    assert.match(result.stderr, /rebuild: project-librarian --code-index --code-index-full --acknowledge-small-repo/);
+    assert.match(result.stderr, /rebuild: project-librarian --code-index --code-index-migrate --acknowledge-small-repo/);
     assert.match(result.stderr, /database: \.project-wiki\/code-evidence\.sqlite/);
     assert.doesNotMatch(result.stderr, /no such column|SQLITE_ERROR/i);
   } finally {
@@ -655,7 +674,66 @@ test("code index health reports old schema details without requiring current sch
     assert.equal(health.found_schema_version, "3");
     assert.equal(health.expected_schema_version, "5");
     assert.equal(health.indexed_files, 1);
-    assert.match(health.recommended_rebuild_command, /project-librarian --code-index --code-index-full --acknowledge-small-repo/);
+    assert.match(health.recommended_rebuild_command, /project-librarian --code-index --code-index-migrate --acknowledge-small-repo/);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code index rebuild requires explicit schema migration approval before replacing old indexes", () => {
+  const cwd = makeTmpDir("code-index-migration-approval-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), "export const app = true;\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
+    const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+    setSchemaVersion(databasePath, "4");
+
+    const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /code evidence index schema migration required: existing schema version 4 does not match 5/);
+    assert.match(result.stderr, /approve: project-librarian --code-index --code-index-migrate --code-scope src --acknowledge-small-repo --code-index-engine typescript/);
+    assert.match(result.stderr, /inspect: project-librarian --code-index-health/);
+    assert.equal(readSchemaVersion(databasePath), "4");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code index migrate approval replaces old schema indexes", () => {
+  const cwd = makeTmpDir("code-index-migration-approved-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), "export const app = true;\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
+    const databasePath = path.join(cwd, ".project-wiki", "code-evidence.sqlite");
+    setSchemaVersion(databasePath, "4");
+
+    const result = runCliResult(cwd, ["--code-index", "--code-index-migrate", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /mode: full/);
+    assert.match(result.stdout, /engine: typescript/);
+    assert.equal(readSchemaVersion(databasePath), "5");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("code index full rebuild replaces unreadable or incomplete indexes", () => {
+  const cwd = makeTmpDir("code-index-unreadable-rebuild-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, ".project-wiki"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.ts"), "export const app = true;\n");
+    const databasePath = path.join(cwd, ".project-wiki", "broken.sqlite");
+    fs.writeFileSync(databasePath, "not sqlite");
+
+    const full = runCliResult(cwd, ["--code-index", "--code-index-full", "--acknowledge-small-repo", "--code-index-out", ".project-wiki/broken.sqlite", "--code-scope", "src", "--code-index-engine", "typescript"]);
+    assert.equal(full.status, 0, full.stderr || full.stdout);
+    assert.match(full.stdout, /mode: full/);
+    assert.equal(readSchemaVersion(databasePath), "5");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
