@@ -556,6 +556,60 @@ test("code report sections expose focused routes, parsers, workspaces, and inval
   }
 });
 
+test("code reports detect pnpm workspace packages from pnpm-workspace.yaml", () => {
+  const cwd = makeTmpDir("code-report-pnpm-workspaces-");
+  try {
+    fs.mkdirSync(path.join(cwd, "apps", "web", "src"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "packages", "auth", "src"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "packages", "db", "src"), { recursive: true });
+    initGitRepository(cwd);
+    fs.writeFileSync(path.join(cwd, "package.json"), JSON.stringify({ name: "pnpm-report-root", private: true }, null, 2));
+    fs.writeFileSync(path.join(cwd, "pnpm-workspace.yaml"), [
+      "packages:",
+      "  - \"apps/*\"",
+      "  - 'packages/*'",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(cwd, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.writeFileSync(path.join(cwd, "apps", "web", "package.json"), JSON.stringify({
+      name: "@example/web",
+      dependencies: {
+        "@example/auth": "workspace:*",
+        react: "^19.0.0",
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(cwd, "packages", "auth", "package.json"), JSON.stringify({
+      name: "@example/auth",
+      dependencies: {
+        "@example/db": "workspace:*",
+      },
+    }, null, 2));
+    fs.writeFileSync(path.join(cwd, "packages", "db", "package.json"), JSON.stringify({ name: "@example/db" }, null, 2));
+    fs.writeFileSync(path.join(cwd, "apps", "web", "src", "index.js"), "export const app = true;\n");
+    fs.writeFileSync(path.join(cwd, "packages", "auth", "src", "index.js"), "export const auth = true;\n");
+    fs.writeFileSync(path.join(cwd, "packages", "db", "src", "index.js"), "export const db = true;\n");
+
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "apps", "--code-scope", "packages", "--code-scope", "package.json", "--code-scope", "pnpm-workspace.yaml"]);
+
+    const workspaces = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "workspaces"]));
+    assert.equal(workspaces.section, "workspaces");
+    assert.ok(workspaces.data.workspace_packages.some((row) => row.root === "apps/web" && row.name === "@example/web" && row.source === "pnpm-workspace.yaml packages" && row.files >= 1));
+    assert.ok(workspaces.data.workspace_packages.some((row) => row.root === "packages/auth" && row.name === "@example/auth" && row.source === "pnpm-workspace.yaml packages"));
+    assert.ok(workspaces.data.workspace_packages.some((row) => row.root === "packages/db" && row.name === "@example/db" && row.source === "pnpm-workspace.yaml packages"));
+
+    const graph = JSON.parse(runCli(cwd, ["--code-report", "--code-report-section", "workspace-graph"]));
+    assert.equal(graph.section, "workspace-graph");
+    assert.equal(graph.data.workspace_count, 3);
+    assert.ok(graph.data.package_managers.includes("pnpm"));
+    assert.ok(graph.data.workspaces.some((row) => row.root === "apps/web" && row.name === "@example/web"));
+    assert.ok(graph.data.internal_dependencies.some((row) => row.from_workspace === "apps/web" && row.to_workspace === "packages/auth"));
+    assert.ok(graph.data.internal_dependencies.some((row) => row.from_workspace === "packages/auth" && row.to_workspace === "packages/db"));
+    assert.ok(graph.data.external_dependency_hotspots.some((row) => row.dependency === "react" && row.workspace_count === 1));
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("code report skips symlinked ownership metadata outside the repository", (t) => {
   const cwd = makeTmpDir("code-report-symlink-metadata-");
   const outside = makeTmpDir("code-report-symlink-metadata-outside-");
