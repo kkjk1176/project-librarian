@@ -22,10 +22,17 @@ function fail(message) {
   process.exit(1);
 }
 
+function companionMarkdownPath(absolutePath) {
+  if (path.extname(absolutePath) !== ".json") return "";
+  const candidate = absolutePath.slice(0, -".json".length) + ".md";
+  return fs.existsSync(candidate) ? path.relative(repoRoot, candidate) : "";
+}
+
 function loadReport(reportPath) {
   const absolutePath = path.isAbsolute(reportPath) ? reportPath : path.resolve(repoRoot, reportPath);
   if (!fs.existsSync(absolutePath)) fail(`missing report: ${reportPath}`);
   return {
+    companionMarkdownPath: companionMarkdownPath(absolutePath),
     reportPath: path.relative(repoRoot, absolutePath),
     report: JSON.parse(fs.readFileSync(absolutePath, "utf8")),
   };

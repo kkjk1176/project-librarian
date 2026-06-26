@@ -4,6 +4,18 @@ const { corporaPresent, scenariosForTrack, scenariosForTrackCorpus, tracksPresen
 
 const statuses = ["release_claimable", "diagnostic_only", "failed"];
 
+function uniqueSorted(values) {
+  return Array.from(new Set(values.filter((value) => typeof value === "string" && value.length > 0))).sort();
+}
+
+function markdownCell(value) {
+  return String(value ?? "-").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+function tableRow(values) {
+  return `| ${values.map(markdownCell).join(" | ")} |`;
+}
+
 function topLevelClaimGate(report) {
   return report && report.claim_gate && typeof report.claim_gate.status === "string"
     ? report.claim_gate.status
@@ -67,7 +79,7 @@ function summarizeStatuses(rows) {
   ]));
 }
 
-function measuredRows(report, reportPath) {
+function measuredRows(report, reportPath, options = {}) {
   const releaseIssues = releaseReadinessIssues(report);
   const rows = [];
   const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
@@ -79,14 +91,19 @@ function measuredRows(report, reportPath) {
       const gateIssues = report?.claim_gate?.per_track?.[track]?.per_corpus?.[corpus]?.issues
         || report?.tracks?.[track]?.corpora?.[corpus]?.claim_gate?.issues
         || [];
+      const modelSources = uniqueSorted(corpusScenarios.map((scenario) => scenario.model_source || "missing"));
+      const observedModels = uniqueSorted(corpusScenarios.flatMap((scenario) => Array.isArray(scenario.models) ? scenario.models : []));
       rows.push({
         report_path: reportPath,
+        evidence_path: options.companionMarkdownPath || "",
         report_kind: report.benchmark_kind || "codex-actual-llm",
         benchmark_track: track,
         corpus,
         status: statusForGate(gateStatus, releaseIssues),
         claim_gate: gateStatus,
         scenario_count: corpusScenarios.length,
+        model_sources: modelSources,
+        observed_models: observedModels,
         release_blockers: releaseIssues,
         gate_issues: gateIssues,
       });
@@ -95,12 +112,15 @@ function measuredRows(report, reportPath) {
   if (rows.length === 0) {
     rows.push({
       report_path: reportPath,
+      evidence_path: options.companionMarkdownPath || "",
       report_kind: report.benchmark_kind || "codex-actual-llm",
       benchmark_track: "unknown",
       corpus: report.corpus || "unknown",
       status: "failed",
       claim_gate: topLevelClaimGate(report),
       scenario_count: 0,
+      model_sources: [],
+      observed_models: [],
       release_blockers: releaseIssues,
       gate_issues: ["no benchmark scenarios"],
     });
@@ -108,7 +128,7 @@ function measuredRows(report, reportPath) {
   return rows;
 }
 
-function previewRows(preview, reportPath) {
+function previewRows(preview, reportPath, options = {}) {
   const issues = previewReadinessIssues(preview);
   const scenarios = Array.isArray(preview.scenarios) ? preview.scenarios : [];
   const trackCorpusPairs = new Map();
@@ -125,9 +145,12 @@ function previewRows(preview, reportPath) {
   const pairs = [...trackCorpusPairs.values()];
   const base = {
     report_path: reportPath,
+    evidence_path: options.companionMarkdownPath || "",
     report_kind: preview.benchmark_kind || "codex-actual-llm-payload-preview",
     status: "diagnostic_only",
     claim_gate: "not_measured",
+    model_sources: [],
+    observed_models: [],
     release_blockers: ["payload preview is not measured evidence", ...issues],
     gate_issues: [],
   };
@@ -136,21 +159,33 @@ function previewRows(preview, reportPath) {
     : [{ ...base, benchmark_track: "preview", corpus: preview.corpus || "unknown", scenario_count: 0 }];
 }
 
-function rowsForReport(report, reportPath = "") {
+function rowsForReport(report, reportPath = "", options = {}) {
   if (report && report.benchmark_kind === "codex-actual-llm-payload-preview") {
-    return previewRows(report, reportPath);
+    return previewRows(report, reportPath, options);
   }
-  return measuredRows(report, reportPath);
+  return measuredRows(report, reportPath, options);
 }
 
 function buildClaimLedger(reports) {
-  const rows = reports.flatMap(({ report, reportPath }) => rowsForReport(report, reportPath));
+  const rows = reports.flatMap(({ report, reportPath, companionMarkdownPath }) =>
+    rowsForReport(report, reportPath, { companionMarkdownPath })
+  );
   return {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: new Date().toISOString(),
     summary: summarizeStatuses(rows),
     rows,
   };
+}
+
+function formatList(values) {
+  return Array.isArray(values) && values.length > 0 ? values.join("; ") : "-";
+}
+
+function formatModelEvidence(row) {
+  const sources = formatList(row.model_sources);
+  const observed = formatList(row.observed_models);
+  return `sources: ${sources}; observed: ${observed}`;
 }
 
 function renderClaimLedgerMarkdown(ledger) {
@@ -159,11 +194,22 @@ function renderClaimLedgerMarkdown(ledger) {
     "",
     `Generated: ${ledger.generated_at}`,
     "",
-    "| Report | Track | Corpus | Status | Claim Gate | Scenarios | Blockers |",
-    "| --- | --- | --- | --- | --- | ---: | --- |",
+    "| Report | Evidence | Track | Corpus | Status | Claim Gate | Scenarios | Model Evidence | Blockers | Gate Issues |",
+    "| --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
   ];
   for (const row of ledger.rows) {
-    lines.push(`| ${row.report_path || "-"} | ${row.benchmark_track} | ${row.corpus} | ${row.status} | ${row.claim_gate} | ${row.scenario_count} | ${row.release_blockers.join("; ") || "-"} |`);
+    lines.push(tableRow([
+      row.report_path || "-",
+      row.evidence_path || "-",
+      row.benchmark_track,
+      row.corpus,
+      row.status,
+      row.claim_gate,
+      row.scenario_count,
+      formatModelEvidence(row),
+      formatList(row.release_blockers),
+      formatList(row.gate_issues),
+    ]));
   }
   return `${lines.join("\n")}\n`;
 }
