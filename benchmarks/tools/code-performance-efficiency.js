@@ -18,14 +18,23 @@ function hasFlag(name) {
   return process.argv.includes(name);
 }
 
-function optionValue(name, fallback) {
-  const index = process.argv.indexOf(name);
-  if (index === -1) return fallback;
-  const value = process.argv[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`missing value for ${name}`);
+function optionValue(name, fallback, argv = process.argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const entry = argv[index];
+    if (entry === name) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error(`missing value for ${name}`);
+      }
+      return value;
+    }
+    if (entry.startsWith(`${name}=`)) {
+      const value = entry.slice(name.length + 1);
+      if (!value) throw new Error(`missing value for ${name}`);
+      return value;
+    }
   }
-  return value;
+  return fallback;
 }
 
 function optionValues(name, argv = process.argv) {
@@ -53,6 +62,7 @@ const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code
 const { SMALL_REPO_FILE_THRESHOLD } = require(path.join(repoRoot, "dist", "code-index-file-policy.js"));
 const defaultScales = hasFlag("--full") ? [3000, 10000, 50000] : [3000, 10000];
 const runsPerCommand = hasFlag("--quick") ? 1 : 3;
+const actualRepoMaterializationModes = new Set(["auto", "filtered-copy", "git-clone-no-hardlinks"]);
 
 function sampleCorpusDefinitions() {
   return [
@@ -112,8 +122,18 @@ function sanitizeReportName(value) {
   return sanitized || "repo";
 }
 
+function normalizeActualRepoMaterializationMode(value) {
+  if (actualRepoMaterializationModes.has(value)) return value;
+  throw new Error(`invalid --actual-repo-materialization: ${value}; expected auto, filtered-copy, or git-clone-no-hardlinks`);
+}
+
+function actualRepoMaterializationMode(argv = process.argv) {
+  return normalizeActualRepoMaterializationMode(optionValue("--actual-repo-materialization", "auto", argv));
+}
+
 function actualRepoDefinitions(argv = process.argv) {
   const usedNames = new Map();
+  const materializationMode = actualRepoMaterializationMode(argv);
   return optionValues("--actual-repo", argv).map((source, index) => {
     const resolved = path.resolve(source);
     const baseName = path.basename(resolved) || `actual-repo-${index + 1}`;
@@ -124,6 +144,7 @@ function actualRepoDefinitions(argv = process.argv) {
     return {
       name,
       corpus_kind: "actual-repo",
+      materialization_mode: materializationMode,
       source: resolved,
       terms: {
         file: "src",
@@ -1030,7 +1051,23 @@ function materializeActualRepo(repo, tmpRoot) {
   const stat = fs.existsSync(source) ? fs.statSync(source) : null;
   if (!stat?.isDirectory()) throw new Error(`--actual-repo must point to an existing directory: ${repo.source}`);
   const cwd = path.join(tmpRoot, `actual-${repo.name}`);
-  if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
+  const requestedMode = normalizeActualRepoMaterializationMode(repo.materialization_mode ?? "auto");
+  const isGitWorktree = fs.existsSync(path.join(source, ".git"));
+  if (requestedMode === "filtered-copy") {
+    copyActualRepoFiltered(source, cwd);
+    return cwd;
+  }
+  if (requestedMode === "git-clone-no-hardlinks") {
+    if (!isGitWorktree) {
+      throw new Error(`--actual-repo-materialization git-clone-no-hardlinks requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--actual-repo-materialization git-clone-no-hardlinks requires git to be available");
+    }
+    run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
+    return cwd;
+  }
+  if (isGitWorktree && commandAvailable("git")) {
     run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
     return cwd;
   }
@@ -1040,15 +1077,32 @@ function materializeActualRepo(repo, tmpRoot) {
 
 function actualRepoMaterialization(repo) {
   const source = path.resolve(repo.source);
+  const requestedMode = normalizeActualRepoMaterializationMode(repo.materialization_mode ?? "auto");
+  if (requestedMode === "git-clone-no-hardlinks") {
+    return {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+      requested_mode: requestedMode,
+    };
+  }
+  if (requestedMode === "filtered-copy") {
+    return {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "filtered-copy",
+      requested_mode: requestedMode,
+    };
+  }
   if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
     return {
       excluded_path_parts: [],
       mode: "git-clone-no-hardlinks",
+      requested_mode: requestedMode,
     };
   }
   return {
     excluded_path_parts: [...actualRepoExcludedPathParts],
     mode: "filtered-copy",
+    requested_mode: requestedMode,
   };
 }
 
@@ -1205,10 +1259,13 @@ function markdownReport(result) {
       lines.push(`### ${repo.name}`);
       lines.push(`- Source: ${repo.source}`);
       if (repo.materialization) {
+        const requested = repo.materialization.requested_mode
+          ? ` (requested ${repo.materialization.requested_mode})`
+          : "";
         const excluded = repo.materialization.excluded_path_parts?.length
           ? `; excluded path parts: ${repo.materialization.excluded_path_parts.join(", ")}`
           : "";
-        lines.push(`- Materialization: ${repo.materialization.mode}${excluded}`);
+        lines.push(`- Materialization: ${repo.materialization.mode}${requested}${excluded}`);
       }
       lines.push(`- Indexed files: ${repo.current_db.rows.files}`);
       lines.push(`- Index time: ${repo.index_time_ms.toFixed(1)} ms`);
@@ -1386,6 +1443,8 @@ if (require.main === module) {
 
 module.exports = {
   actualRepoExcludedPathParts,
+  actualRepoMaterialization,
+  actualRepoMaterializationMode,
   bestVariantDecision,
   compareSearchParity,
   actualRepoDefinitions,

@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -9,6 +10,8 @@ const test = require("node:test");
 const {
   actualRepoExcludedPathParts,
   actualRepoDefinitions,
+  actualRepoMaterialization,
+  actualRepoMaterializationMode,
   bestVariantDecision,
   markdownReport,
   materializeActualRepo,
@@ -28,6 +31,34 @@ function listFiles(root) {
   });
 }
 
+function runGit(cwd, args) {
+  const result = childProcess.spawnSync("git", args, { cwd, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+}
+
+function createTrackedGeneratedGitRepo() {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-git-source-"));
+  fs.mkdirSync(path.join(source, "src"), { recursive: true });
+  fs.mkdirSync(path.join(source, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
+  fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
+  fs.writeFileSync(path.join(source, "dist", "bundle.js"), "tracked generated artifact\n");
+  fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
+  runGit(source, ["init", "--quiet"]);
+  runGit(source, ["add", "src/index.ts", "dist/bundle.js"]);
+  runGit(source, [
+    "-c",
+    "user.name=Benchmark Test",
+    "-c",
+    "user.email=benchmark@example.test",
+    "commit",
+    "--quiet",
+    "-m",
+    "init",
+  ]);
+  return source;
+}
+
 test("actual repo benchmark definitions are repeatable and normalized", () => {
   const repos = actualRepoDefinitions([
     "node",
@@ -39,8 +70,28 @@ test("actual repo benchmark definitions are repeatable and normalized", () => {
 
   assert.deepEqual(repos.map((repo) => repo.name), ["example-repo", "another_repo"]);
   assert.deepEqual(repos.map((repo) => repo.corpus_kind), ["actual-repo", "actual-repo"]);
+  assert.deepEqual(repos.map((repo) => repo.materialization_mode), ["auto", "auto"]);
   assert(repos.every((repo) => path.isAbsolute(repo.source)));
   assert(repos.every((repo) => repo.terms.file && repo.terms.symbol && repo.terms.import));
+
+  const filtered = actualRepoDefinitions([
+    "node",
+    "script.js",
+    "--actual-repo-materialization",
+    "filtered-copy",
+    "--actual-repo",
+    "/tmp/Example Repo",
+  ]);
+  assert.equal(filtered[0].materialization_mode, "filtered-copy");
+  assert.equal(actualRepoMaterializationMode([
+    "node",
+    "script.js",
+    "--actual-repo-materialization=git-clone-no-hardlinks",
+  ]), "git-clone-no-hardlinks");
+  assert.throws(
+    () => actualRepoMaterializationMode(["node", "script.js", "--actual-repo-materialization", "copy"]),
+    /invalid --actual-repo-materialization/,
+  );
 });
 
 test("actual repo materialization copies into a temporary workspace without dependency caches", () => {
@@ -74,6 +125,62 @@ test("actual repo materialization copies into a temporary workspace without depe
     assert.equal(fs.existsSync(path.join(cwd, "coverage")), false);
     assert.equal(fs.existsSync(path.join(cwd, "vendor")), false);
     assert.equal(fs.existsSync(path.join(source, "src", "index.ts")), true);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo auto materialization keeps Git clone semantics for tracked generated files", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-git-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "auto" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+      requested_mode: "auto",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist", "bundle.js")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo filtered-copy materialization excludes generated paths even for Git repos", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-filtered-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "filtered-copy" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "filtered-copy",
+      requested_mode: "filtered-copy",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo explicit Git clone materialization fails closed for non-Git sources", () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-non-git-source-"));
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-non-git-materialized-"));
+  try {
+    assert.throws(
+      () => materializeActualRepo({ name: "sample", source, materialization_mode: "git-clone-no-hardlinks" }, tmpRoot),
+      /requires --actual-repo to point to a Git worktree/,
+    );
   } finally {
     fs.rmSync(source, { recursive: true, force: true });
     fs.rmSync(tmpRoot, { recursive: true, force: true });
