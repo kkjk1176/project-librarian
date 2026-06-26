@@ -22,8 +22,8 @@ function strictReport({ gateStatus = "passed" } = {}) {
       dirty: false,
     },
     scenarios: [
-      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "with", condition: "with_project_librarian" },
-      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "without", condition: "without_project_librarian" },
+      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "with", condition: "with_project_librarian", model_source: "jsonl", models: ["gpt-test"] },
+      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "without", condition: "without_project_librarian", model_source: "jsonl", models: ["gpt-test"] },
     ],
     claim_gate: {
       status: gateStatus,
@@ -56,6 +56,18 @@ test("sample measured report stays diagnostic-only despite a passing gate", () =
 test("strict clean measured report is release-claimable, failed gate is failed", () => {
   assert.deepEqual(rowsForReport(strictReport()).map((row) => row.status), ["release_claimable"]);
   assert.deepEqual(rowsForReport(strictReport({ gateStatus: "failed" })).map((row) => row.status), ["failed"]);
+});
+
+test("requested-only model provenance keeps measured reports diagnostic-only", () => {
+  const report = strictReport();
+  for (const scenario of report.scenarios) {
+    scenario.model_source = "requested";
+    scenario.models = ["gpt-test"];
+  }
+
+  const rows = rowsForReport(report);
+  assert.deepEqual(rows.map((row) => row.status), ["diagnostic_only"]);
+  assert(rows[0].release_blockers.includes("scenario model_source is not jsonl"));
 });
 
 test("payload preview is never measured evidence but validates release preflight shape", () => {

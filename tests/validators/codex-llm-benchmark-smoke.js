@@ -817,7 +817,7 @@ function validateMeasurementClaimability() {
   });
   assert.equal(unclaimable.status, "unclaimable");
   assert(unclaimable.reason.includes("usage available"));
-  assert(unclaimable.reason.includes("model available"));
+  assert(unclaimable.reason.includes("observed JSONL model available"));
 
   const claimable = measurementStatus({
     correctness,
@@ -834,7 +834,7 @@ function validateMeasurementClaimability() {
   });
   assert.equal(claimable.status, "claimable");
 
-  const claimableWithRequestedModel = measurementStatus({
+  const requestedOnlyModel = measurementStatus({
     correctness,
     requested_model: "gpt-test",
     metrics: summarizeJsonl(JSON.stringify({
@@ -847,7 +847,8 @@ function validateMeasurementClaimability() {
       message: sampleFinalText,
     }), { wall_ms: 1000 }),
   });
-  assert.equal(claimableWithRequestedModel.status, "claimable");
+  assert.equal(requestedOnlyModel.status, "unclaimable");
+  assert(requestedOnlyModel.reason.includes("observed JSONL model available"));
 }
 
 function validateRawRetention() {

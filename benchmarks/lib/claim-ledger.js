@@ -20,6 +20,7 @@ function releaseReadinessIssues(report) {
   const issues = [];
   const configuration = report.configuration || {};
   const minRuns = Number(configuration.min_runs_for_claim || 1);
+  const scenarios = Array.isArray(report.scenarios) ? report.scenarios : [];
 
   if (topLevelClaimGate(report) !== "passed") issues.push(`claim gate ${topLevelClaimGate(report)}`);
   if (configuration.require_claimable !== true) issues.push("configuration.require_claimable is not true");
@@ -27,6 +28,10 @@ function releaseReadinessIssues(report) {
   if (Number(configuration.runs || 0) < minRuns) issues.push(`runs ${configuration.runs || 0} below min_runs_for_claim ${minRuns}`);
   if (!configuration.requested_model) issues.push("configuration.requested_model is missing");
   if (configuration.sanitized_pack !== true) issues.push("configuration.sanitized_pack is not true");
+  if (scenarios.some((scenario) => scenario.model_source !== "jsonl")) issues.push("scenario model_source is not jsonl");
+  if (scenarios.some((scenario) => !Array.isArray(scenario.models) || scenario.models.length !== 1)) {
+    issues.push("scenario observed model set is not exactly one model");
+  }
   if (!report.source_control || report.source_control.available !== true) issues.push("source_control is unavailable");
   if (report.source_control && report.source_control.dirty) issues.push("source_control is dirty");
 

@@ -73,10 +73,8 @@ function measurementChecks(run) {
   const metrics = run.metrics || {};
   const unavailable = Array.isArray(metrics.unavailable_event_fields) ? metrics.unavailable_event_fields : [];
   const models = Array.isArray(metrics.models) ? metrics.models : [];
-  const requestedModel = typeof run.requested_model === "string" ? run.requested_model : "";
   const hasObservedModel = !unavailable.includes("model") && models.length > 0;
   const hasSingleObservedModel = !unavailable.includes("single_model") && models.length === 1 && metrics.model === models[0];
-  const hasRequestedModel = requestedModel.length > 0;
 
   // multi_session: ALL sessions must have completed execution, available usage,
   // and a non-empty final text. A familiarization-session failure (session 1 down,
@@ -139,12 +137,12 @@ function measurementChecks(run) {
       passed: metrics.wall_ms > 0,
     },
     {
-      name: "model available",
-      passed: hasObservedModel || hasRequestedModel,
+      name: "observed JSONL model available",
+      passed: hasObservedModel,
     },
     {
-      name: "single model available",
-      passed: hasSingleObservedModel || (hasRequestedModel && models.length === 0),
+      name: "single observed JSONL model available",
+      passed: hasSingleObservedModel,
     },
     {
       name: "final text available",
@@ -645,7 +643,7 @@ function renderLlmMarkdownReport(report) {
     `Runs: ${report.configuration.runs} measured, ${report.configuration.warmup_runs} warmup`,
     `Scenarios: ${report.summary.scenario_count}, complete pairs: ${report.summary.comparison_pair_count}, claimable scenarios: ${report.summary.claimable_scenario_count}`,
     "",
-    "Claim boundary: values below are real Codex JSONL usage and local wall-clock measurements for claimable runs only. `model_source=requested` means the run used an explicit `--model` request because Codex JSONL did not expose a model field.",
+    "Claim boundary: values below are real Codex JSONL usage and local wall-clock measurements for claimable runs only. `model_source=requested` means Codex JSONL did not expose an observed model field; those runs are diagnostic-only and cannot support release claims.",
     "",
     "Tracks are reported separately. Wiki canonical routing and the code-graph code-evidence index are not merged into a single headline; a win on one track does not back a claim about the other.",
     "",
