@@ -142,7 +142,7 @@ test("full rebuild markdown exposes strategy matrix and row-delta evidence", () 
     generated_at: "2026-06-26T00:00:00.000Z",
     native_strategy_requirements: [
       {
-        provenance: "native/indexer-rs/src/main.rs sqlite3-direct-ffi output mode",
+        provenance: "native\\indexer|sqlite3-direct-ffi output mode",
         requirements: [],
         status: "available",
         strategy: "sqlite-direct",
@@ -157,7 +157,7 @@ test("full rebuild markdown exposes strategy matrix and row-delta evidence", () 
     native_strategies: ["sqlite-direct", "row-stream"],
     results: [
       {
-        repo: "sample",
+        repo: "sample\\pipe|repo",
         files: 2,
         ts_full: { median_ms: 100, timings: { discover_files_ms: 1, read_files_ms: 2, sqlite_write_ms: 3, total_ms: 6 } },
         rust_full: { median_ms: 80, timings: { discover_files_ms: 1, native_helper_ms: 2, total_ms: 3 } },
@@ -188,6 +188,7 @@ test("full rebuild markdown exposes strategy matrix and row-delta evidence", () 
 
   assert.match(markdown, /Top-level release comparison: sqlite-direct/);
   assert.match(markdown, /Native Strategy Availability/);
+  assert(markdown.includes("native\\\\indexer\\|sqlite3-direct-ffi output mode"));
   assert.match(markdown, /sqlite-direct \| available \| helper binary only/);
   assert.match(markdown, /Native Strategy Matrix/);
   assert.match(markdown, /row-stream/);

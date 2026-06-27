@@ -75,7 +75,7 @@ test("requested-only model provenance keeps measured reports diagnostic-only", (
 test("claim ledger markdown exposes evidence paths, model evidence, blockers, and gate issues", () => {
   const ledger = buildClaimLedger([
     {
-      companionMarkdownPath: "reports/strict.md",
+      companionMarkdownPath: "reports\\strict|claim.md",
       report: strictReport({ gateStatus: "failed" }),
       reportPath: "reports/strict.json",
     },
@@ -83,7 +83,7 @@ test("claim ledger markdown exposes evidence paths, model evidence, blockers, an
   const markdown = renderClaimLedgerMarkdown(ledger);
 
   assert.match(markdown, /Evidence/);
-  assert.match(markdown, /reports\/strict\.md/);
+  assert(markdown.includes("reports\\\\strict\\|claim.md"));
   assert.match(markdown, /sources: jsonl; observed: gpt-test/);
   assert.match(markdown, /claim gate failed/);
   assert.match(markdown, /missing expected task: release_policy/);

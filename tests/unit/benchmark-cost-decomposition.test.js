@@ -992,12 +992,13 @@ test("the per-track headline delta is the cost-weighted number, not merged total
   const scenarios = pair({
     scale: "medium",
     track: "wiki",
-    taskFamily: "multi_session",
+    taskFamily: "multi\\session|escape",
     withMetrics: { uncached: 5000, cached: 40000, output: 100, toolBytes: 1000 },
     withoutMetrics: { uncached: 9000, cached: 5000, output: 100, toolBytes: 8000 },
   });
   const report = reportWith(scenarios, 0.1);
   const md = renderLlmMarkdownReport(report);
+  assert(md.includes("multi\\\\session\\|escape"));
 
   // Merged total: with = 45100, without = 14100 -> +219.86% (penalizes the with run).
   // Cost-weighted: with = 5000 + 4000 + 100 = 9100; without = 9000 + 500 + 100 = 9600

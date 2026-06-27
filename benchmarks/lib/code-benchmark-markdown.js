@@ -1,7 +1,7 @@
 "use strict";
 
 function markdownCell(value) {
-  return String(value ?? "n/a").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return String(value ?? "n/a").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 function tableRow(values) {
