@@ -47,7 +47,7 @@ exports.incrementalCompatibility = incrementalCompatibility;
 exports.codeIndexSnapshot = codeIndexSnapshot;
 const crypto = __importStar(require("node:crypto"));
 const workspace_1 = require("../workspace");
-exports.codeIndexSchemaVersion = "5";
+exports.codeIndexSchemaVersion = "6";
 function stableFtsRowid(parts) {
     const hash = crypto.createHash("sha256");
     for (const part of parts) {
@@ -158,7 +158,7 @@ function createIndexStatements(database) {
         insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),
         insertRoute: database.prepare("INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)"),
         insertSymbol: database.prepare("INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)"),
-        insertSymbolFts: database.prepare("INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)"),
+        insertSymbolFts: database.prepare("INSERT INTO symbols_fts (rowid, name, kind, file_path, signature) VALUES (last_insert_rowid(), ?, ?, ?, ?)"),
     };
 }
 function removeIndexedFile(filePath, statements) {

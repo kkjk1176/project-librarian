@@ -1,14 +1,20 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
 const {
+  actualRepoExcludedPathParts,
   actualRepoDefinitions,
+  actualRepoMaterialization,
+  actualRepoMaterializationComparisons,
+  actualRepoMaterializationMode,
   bestVariantDecision,
+  compareActualRepoMaterialization,
   markdownReport,
   materializeActualRepo,
   normalizeRows,
@@ -16,6 +22,7 @@ const {
   parseCodeIndexPhaseTimings,
   sampleCorpusDefinitions,
 } = require("../../benchmarks/tools/code-performance-efficiency.js");
+const { isActualRepoExcludedPath } = require("../../benchmarks/lib/actual-repo-materialization.js");
 
 function listFiles(root) {
   const entries = fs.readdirSync(root, { withFileTypes: true });
@@ -24,6 +31,38 @@ function listFiles(root) {
     if (entry.isDirectory()) return listFiles(fullPath);
     return [fullPath];
   });
+}
+
+function runGit(cwd, args) {
+  const result = childProcess.spawnSync("git", args, { cwd, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+}
+
+function createTrackedGeneratedGitRepo() {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-git-source-"));
+  fs.mkdirSync(path.join(source, "src"), { recursive: true });
+  fs.mkdirSync(path.join(source, "docs"), { recursive: true });
+  fs.mkdirSync(path.join(source, "dist"), { recursive: true });
+  fs.mkdirSync(path.join(source, "notes"), { recursive: true });
+  fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
+  fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
+  fs.writeFileSync(path.join(source, "docs", "readme.md"), "# tracked docs\n");
+  fs.writeFileSync(path.join(source, "dist", "bundle.js"), "tracked generated artifact\n");
+  fs.writeFileSync(path.join(source, "notes", "local.md"), "untracked local note\n");
+  fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
+  runGit(source, ["init", "--quiet"]);
+  runGit(source, ["add", "src/index.ts", "docs/readme.md", "dist/bundle.js"]);
+  runGit(source, [
+    "-c",
+    "user.name=Benchmark Test",
+    "-c",
+    "user.email=benchmark@example.test",
+    "commit",
+    "--quiet",
+    "-m",
+    "init",
+  ]);
+  return source;
 }
 
 test("actual repo benchmark definitions are repeatable and normalized", () => {
@@ -37,8 +76,85 @@ test("actual repo benchmark definitions are repeatable and normalized", () => {
 
   assert.deepEqual(repos.map((repo) => repo.name), ["example-repo", "another_repo"]);
   assert.deepEqual(repos.map((repo) => repo.corpus_kind), ["actual-repo", "actual-repo"]);
+  assert.deepEqual(repos.map((repo) => repo.materialization_mode), ["auto", "auto"]);
   assert(repos.every((repo) => path.isAbsolute(repo.source)));
   assert(repos.every((repo) => repo.terms.file && repo.terms.symbol && repo.terms.import));
+
+  const filtered = actualRepoDefinitions([
+    "node",
+    "script.js",
+    "--actual-repo-materialization",
+    "filtered-copy",
+    "--actual-repo",
+    "/tmp/Example Repo",
+  ]);
+  assert.equal(filtered[0].materialization_mode, "filtered-copy");
+  assert.equal(actualRepoMaterializationMode([
+    "node",
+    "script.js",
+    "--actual-repo-materialization=git-clone-no-hardlinks",
+  ]), "git-clone-no-hardlinks");
+  assert.equal(actualRepoMaterializationMode([
+    "node",
+    "script.js",
+    "--actual-repo-materialization=git-tracked-filtered-copy",
+  ]), "git-tracked-filtered-copy");
+  assert.throws(
+    () => actualRepoMaterializationMode(["node", "script.js", "--actual-repo-materialization", "copy"]),
+    /invalid --actual-repo-materialization/,
+  );
+});
+
+test("actual repo materialization comparison expands Git repos into paired definitions", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const nonGitSource = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-non-git-source-"));
+  try {
+    const argv = [
+      "node",
+      "script.js",
+      "--actual-repo",
+      source,
+      "--compare-actual-repo-materialization",
+    ];
+    assert.equal(compareActualRepoMaterialization(argv), true);
+
+    const repos = actualRepoDefinitions(argv);
+    const reportName = path.basename(source).toLowerCase();
+    assert.deepEqual(repos.map((repo) => repo.name), [
+      `${reportName}-auto`,
+      `${reportName}-filtered-copy`,
+      `${reportName}-git-tracked-filtered-copy`,
+    ]);
+    assert.deepEqual(repos.map((repo) => repo.materialization_mode), ["auto", "filtered-copy", "git-tracked-filtered-copy"]);
+    assert.deepEqual(repos.map((repo) => repo.materialization_comparison_role), ["auto", "filtered-copy", "git-tracked-filtered-copy"]);
+    assert(repos.every((repo) => repo.materialization_comparison_group === reportName));
+
+    assert.throws(
+      () => actualRepoDefinitions([
+        "node",
+        "script.js",
+        "--actual-repo",
+        source,
+        "--actual-repo-materialization",
+        "filtered-copy",
+        "--compare-actual-repo-materialization",
+      ]),
+      /cannot be combined/,
+    );
+    assert.throws(
+      () => actualRepoDefinitions([
+        "node",
+        "script.js",
+        "--actual-repo",
+        nonGitSource,
+        "--compare-actual-repo-materialization",
+      ]),
+      /requires --actual-repo to point to a Git worktree/,
+    );
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(nonGitSource, { recursive: true, force: true });
+  }
 });
 
 test("actual repo materialization copies into a temporary workspace without dependency caches", () => {
@@ -48,19 +164,204 @@ test("actual repo materialization copies into a temporary workspace without depe
     fs.mkdirSync(path.join(source, "src"), { recursive: true });
     fs.mkdirSync(path.join(source, "node_modules", "left-pad"), { recursive: true });
     fs.mkdirSync(path.join(source, ".project-wiki"), { recursive: true });
+    fs.mkdirSync(path.join(source, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(source, "build"), { recursive: true });
+    fs.mkdirSync(path.join(source, ".next"), { recursive: true });
+    fs.mkdirSync(path.join(source, "coverage"), { recursive: true });
+    fs.mkdirSync(path.join(source, "vendor"), { recursive: true });
     fs.writeFileSync(path.join(source, "src", "index.ts"), "export const value = 1;\n");
     fs.writeFileSync(path.join(source, "node_modules", "left-pad", "index.js"), "module.exports = null;\n");
     fs.writeFileSync(path.join(source, ".project-wiki", "code-evidence.sqlite"), "");
+    fs.writeFileSync(path.join(source, "dist", "bundle.js"), "generated\n");
+    fs.writeFileSync(path.join(source, "build", "artifact.js"), "generated\n");
+    fs.writeFileSync(path.join(source, ".next", "cache.js"), "generated\n");
+    fs.writeFileSync(path.join(source, "coverage", "coverage.json"), "{}\n");
+    fs.writeFileSync(path.join(source, "vendor", "vendored.js"), "generated\n");
 
     const cwd = materializeActualRepo({ name: "sample", source }, tmpRoot);
     assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
     assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
     assert.equal(fs.existsSync(path.join(cwd, ".project-wiki")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "build")), false);
+    assert.equal(fs.existsSync(path.join(cwd, ".next")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "coverage")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "vendor")), false);
     assert.equal(fs.existsSync(path.join(source, "src", "index.ts")), true);
   } finally {
     fs.rmSync(source, { recursive: true, force: true });
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+});
+
+test("actual repo auto materialization keeps Git clone semantics for tracked generated files", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-git-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "auto" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+      requested_mode: "auto",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist", "bundle.js")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo filtered-copy materialization excludes generated paths even for Git repos", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-filtered-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "filtered-copy" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "filtered-copy",
+      requested_mode: "filtered-copy",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "docs", "readme.md")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "notes", "local.md")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo git-tracked-filtered-copy materialization excludes generated and untracked files", () => {
+  const source = createTrackedGeneratedGitRepo();
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-tracked-filtered-materialized-"));
+  try {
+    const repo = { name: "sample", source, materialization_mode: "git-tracked-filtered-copy" };
+    assert.deepEqual(actualRepoMaterialization(repo), {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "git-tracked-filtered-copy",
+      requested_mode: "git-tracked-filtered-copy",
+      source_file_set: "git-ls-files",
+    });
+
+    const cwd = materializeActualRepo(repo, tmpRoot);
+    assert.equal(fs.existsSync(path.join(cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "docs", "readme.md")), true);
+    assert.equal(fs.existsSync(path.join(cwd, "dist")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "notes", "local.md")), false);
+    assert.equal(fs.existsSync(path.join(cwd, "node_modules")), false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo explicit Git clone materialization fails closed for non-Git sources", () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-non-git-source-"));
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "actual-repo-non-git-materialized-"));
+  try {
+    assert.throws(
+      () => materializeActualRepo({ name: "sample", source, materialization_mode: "git-clone-no-hardlinks" }, tmpRoot),
+      /requires --actual-repo to point to a Git worktree/,
+    );
+    assert.throws(
+      () => materializeActualRepo({ name: "sample", source, materialization_mode: "git-tracked-filtered-copy" }, tmpRoot),
+      /requires --actual-repo to point to a Git worktree/,
+    );
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+test("actual repo materialization comparison summarizes corpus and timing deltas", () => {
+  const comparisons = actualRepoMaterializationComparisons([
+    {
+      name: "example-auto",
+      materialization_comparison_group: "example",
+      materialization_comparison_role: "auto",
+      source: "/tmp/example",
+      materialization: { mode: "git-clone-no-hardlinks", requested_mode: "auto" },
+      index_time_ms: 100,
+      current_db: {
+        file_bytes: 4000,
+        indexed_file_bytes: 20000,
+        indexed_file_lines: 800,
+        rows: { files: 100, symbols: 300, imports: 50, routes: 5, edges: 500 },
+      },
+    },
+    {
+      name: "example-filtered-copy",
+      materialization_comparison_group: "example",
+      materialization_comparison_role: "filtered-copy",
+      source: "/tmp/example",
+      materialization: { mode: "filtered-copy", requested_mode: "filtered-copy" },
+      index_time_ms: 70,
+      current_db: {
+        file_bytes: 3000,
+        indexed_file_bytes: 12000,
+        indexed_file_lines: 500,
+        rows: { files: 80, symbols: 240, imports: 40, routes: 5, edges: 420 },
+      },
+    },
+    {
+      name: "example-git-tracked-filtered-copy",
+      materialization_comparison_group: "example",
+      materialization_comparison_role: "git-tracked-filtered-copy",
+      source: "/tmp/example",
+      materialization: { mode: "git-tracked-filtered-copy", requested_mode: "git-tracked-filtered-copy", source_file_set: "git-ls-files" },
+      index_time_ms: 60,
+      current_db: {
+        file_bytes: 2500,
+        indexed_file_bytes: 10000,
+        indexed_file_lines: 450,
+        rows: { files: 70, symbols: 210, imports: 30, routes: 5, edges: 350 },
+      },
+    },
+  ]);
+
+  assert.equal(comparisons.length, 1);
+  assert.equal(comparisons[0].baseline_mode, "git-clone-no-hardlinks");
+  assert.deepEqual(comparisons[0].candidates.map((candidate) => candidate.mode), ["filtered-copy", "git-tracked-filtered-copy"]);
+  const rawFiltered = comparisons[0].candidates[0];
+  const trackedFiltered = comparisons[0].candidates[1];
+  assert.deepEqual(rawFiltered.metrics.indexed_files, {
+    baseline: 100,
+    candidate: 80,
+    delta: -20,
+    delta_percent: -20,
+    field: "current_db.rows.files",
+  });
+  assert.equal(rawFiltered.metrics.indexed_file_bytes.delta, -8000);
+  assert.equal(rawFiltered.metrics.indexed_file_bytes.delta_percent, -40);
+  assert.equal(rawFiltered.metrics.index_time_ms.delta_percent, -30);
+  assert.deepEqual(rawFiltered.row_deltas, { edges: -80, files: -20, imports: -10, routes: 0, symbols: -60 });
+  assert.equal(trackedFiltered.source_file_set, "git-ls-files");
+  assert.equal(trackedFiltered.metrics.indexed_file_bytes.delta, -10000);
+  assert.equal(trackedFiltered.metrics.index_time_ms.delta_percent, -40);
+  assert.deepEqual(trackedFiltered.row_deltas, { edges: -150, files: -30, imports: -20, routes: 0, symbols: -90 });
+});
+
+test("actual repo exclusion helper covers generated and cache directories", () => {
+  assert.deepEqual(actualRepoExcludedPathParts, [".git", ".next", ".project-wiki", "build", "coverage", "dist", "node_modules", "temp", "tmp", "vendor"]);
+  for (const relative of [
+    "dist/bundle.js",
+    "packages/app/build/index.js",
+    ".next/cache/data.json",
+    "coverage/lcov.info",
+    "vendor/copied.js",
+    "tmp/scratch.js",
+    "temp/scratch.js",
+  ]) {
+    assert.equal(isActualRepoExcludedPath(relative), true, relative);
+  }
+  assert.equal(isActualRepoExcludedPath("src/index.ts"), false);
 });
 
 test("code performance harness includes diverse checked-in sample corpora", () => {
@@ -250,6 +551,7 @@ test("markdown report renders FTS variants and parity status", () => {
       {
         name: "example-app",
         source: "/tmp/example-app",
+        materialization: { mode: "filtered-copy", excluded_path_parts: actualRepoExcludedPathParts },
         index_time_ms: 70,
         phase_timings: { discover_files_ms: 4, total_ms: 70 },
         native_index: {
@@ -265,6 +567,50 @@ test("markdown report renders FTS variants and parity status", () => {
         query_groups: { file_search_path: { median_ms: 1, p95_ms: 2, rows: 3, runs: 1 } },
       },
     ],
+    actual_repo_materialization_comparisons: actualRepoMaterializationComparisons([
+      {
+        name: "example-app-auto",
+        materialization_comparison_group: "example-app",
+        materialization_comparison_role: "auto",
+        source: "/tmp/example-app",
+        materialization: { mode: "git-clone-no-hardlinks", requested_mode: "auto" },
+        index_time_ms: 100,
+        current_db: {
+          file_bytes: 4096,
+          indexed_file_bytes: 20000,
+          indexed_file_lines: 900,
+          rows: { files: 120, symbols: 300 },
+        },
+      },
+      {
+        name: "example-app-filtered-copy",
+        materialization_comparison_group: "example-app",
+        materialization_comparison_role: "filtered-copy",
+        source: "/tmp/example-app",
+        materialization: { mode: "filtered-copy", requested_mode: "filtered-copy" },
+        index_time_ms: 80,
+        current_db: {
+          file_bytes: 3072,
+          indexed_file_bytes: 12000,
+          indexed_file_lines: 600,
+          rows: { files: 90, symbols: 220 },
+        },
+      },
+      {
+        name: "example-app-git-tracked-filtered-copy",
+        materialization_comparison_group: "example-app",
+        materialization_comparison_role: "git-tracked-filtered-copy",
+        source: "/tmp/example-app",
+        materialization: { mode: "git-tracked-filtered-copy", requested_mode: "git-tracked-filtered-copy", source_file_set: "git-ls-files" },
+        index_time_ms: 70,
+        current_db: {
+          file_bytes: 2048,
+          indexed_file_bytes: 10000,
+          indexed_file_lines: 500,
+          rows: { files: 75, symbols: 200 },
+        },
+      },
+    ]),
   });
 
   assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
@@ -279,5 +625,15 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /## Actual Repositories/);
   assert.match(report, /### example-app/);
   assert.match(report, /Source: \/tmp\/example-app/);
+  assert.match(report, /Materialization: filtered-copy; excluded path parts: \.git, \.next, \.project-wiki, build, coverage, dist, node_modules, temp, tmp, vendor/);
   assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 40\.0 ms \(-42\.9% vs TypeScript\)/);
+  assert.match(report, /## Actual Repository Materialization Comparisons/);
+  assert.match(report, /Baseline: example-app-auto \(git-clone-no-hardlinks, requested auto\)/);
+  assert.match(report, /Candidate: example-app-filtered-copy \(filtered-copy, requested filtered-copy\)/);
+  assert.match(report, /  - Indexed file bytes: 20000 bytes -> 12000 bytes \(-8000 bytes, -40\.0%\)/);
+  assert.match(report, /  - Index time: 100 ms -> 80 ms \(-20 ms, -20\.0%\)/);
+  assert.match(report, /  - Row deltas candidate vs baseline: files -30, symbols -80/);
+  assert.match(report, /Candidate: example-app-git-tracked-filtered-copy \(git-tracked-filtered-copy, requested git-tracked-filtered-copy; source file set git-ls-files\)/);
+  assert.match(report, /  - Indexed file bytes: 20000 bytes -> 10000 bytes \(-10000 bytes, -50\.0%\)/);
+  assert.match(report, /  - Row deltas candidate vs baseline: files -45, symbols -100/);
 });

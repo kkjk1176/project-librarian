@@ -780,6 +780,11 @@ function validateReport(reportPath) {
   assert(markdown.includes("Cost-Weighted Delta"));
   // The merged-total section must label itself secondary and defer to cost-weighted.
   assert(markdown.includes("Secondary only: merged total tokens counts cached resends at full weight"));
+  assert(markdown.includes("## Model Provenance And Claimability"));
+  assert(markdown.includes("| Scenario | Track | Corpus | Condition | Model Source | Observed Models | Claimable Runs | Release Evidence |"));
+  assert(markdown.includes("model_source=jsonl"));
+  assert(markdown.includes("Requested-only model metadata is diagnostic-only"));
+  assert(markdown.includes("| Model Source | Observed Models | Model |"));
   // The recomputed discount used by the renderer matches the report's recorded one.
   assert.equal(resolveCacheDiscount(report), report.cache_discount);
 }
@@ -817,7 +822,7 @@ function validateMeasurementClaimability() {
   });
   assert.equal(unclaimable.status, "unclaimable");
   assert(unclaimable.reason.includes("usage available"));
-  assert(unclaimable.reason.includes("model available"));
+  assert(unclaimable.reason.includes("observed JSONL model available"));
 
   const claimable = measurementStatus({
     correctness,
@@ -834,7 +839,7 @@ function validateMeasurementClaimability() {
   });
   assert.equal(claimable.status, "claimable");
 
-  const claimableWithRequestedModel = measurementStatus({
+  const requestedOnlyModel = measurementStatus({
     correctness,
     requested_model: "gpt-test",
     metrics: summarizeJsonl(JSON.stringify({
@@ -847,7 +852,8 @@ function validateMeasurementClaimability() {
       message: sampleFinalText,
     }), { wall_ms: 1000 }),
   });
-  assert.equal(claimableWithRequestedModel.status, "claimable");
+  assert.equal(requestedOnlyModel.status, "unclaimable");
+  assert(requestedOnlyModel.reason.includes("observed JSONL model available"));
 }
 
 function validateRawRetention() {

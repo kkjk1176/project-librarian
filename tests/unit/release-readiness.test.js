@@ -227,6 +227,72 @@ test("release readiness recognizes the current README benchmark boundary as rele
   assert.equal(status.status, "release_claimable");
 });
 
+test("release readiness claim ledger gate accepts schema v2 evidence rows", () => {
+  const root = path.resolve(__dirname, "..", "..");
+  const previewPath = path.join(root, "benchmarks", "reports", "llm", "payload-preview.json");
+  const existingPreview = fs.existsSync(previewPath) ? fs.readFileSync(previewPath) : null;
+  const preview = {
+    benchmark_kind: "codex-actual-llm-payload-preview",
+    corpus: "synthetic",
+    sanitized_pack: { enabled: true },
+    disclosure_boundary: { codex_network_run: false },
+    configuration: {
+      require_claimable: true,
+      require_clean: true,
+      full_matrix: true,
+      requested_model: "gpt-test",
+      expected_codex_exec_count: 1,
+    },
+    scenarios: [
+      { benchmark_track: "wiki", corpus: "synthetic" },
+    ],
+  };
+
+  fs.mkdirSync(path.dirname(previewPath), { recursive: true });
+  fs.writeFileSync(previewPath, `${JSON.stringify(preview, null, 2)}\n`);
+  try {
+    const npmResult = childProcess.spawnSync("npm", ["run", "benchmark:claim-ledger"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.equal(npmResult.status, 0, npmResult.stderr);
+
+    const result = childProcess.spawnSync(process.execPath, [
+      "benchmarks/tools/benchmark-claim-ledger.js",
+      "benchmarks/llm/samples/codex-measured-report.json",
+      "benchmarks/reports/llm/payload-preview.json",
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const ledger = JSON.parse(result.stdout);
+    assert.equal(ledger.schema_version, 2);
+    assert(ledger.rows.length > 0);
+    for (const row of ledger.rows) {
+      assert.equal(typeof row.evidence_path, "string");
+      assert(Array.isArray(row.model_sources));
+      assert(Array.isArray(row.observed_models));
+      assert(Array.isArray(row.release_blockers));
+      assert(Array.isArray(row.gate_issues));
+    }
+  } finally {
+    if (existingPreview) fs.writeFileSync(previewPath, existingPreview);
+    else fs.rmSync(previewPath, { force: true });
+  }
+});
+
+test("benchmark README documents claim ledger schema v2 row evidence", () => {
+  const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "benchmarks", "README.md"), "utf8");
+  assert.match(readme, /schema v2 rows/);
+  assert.match(readme, /companion Markdown/);
+  assert.match(readme, /model sources/);
+  assert.match(readme, /observed models/);
+  assert.match(readme, /gate issues/);
+});
+
 test("release readiness requires README to gate code-evidence claims on freshness", () => {
   const readme = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.md"), "utf8");
   const readmeKo = fs.readFileSync(path.resolve(__dirname, "..", "..", "README.ko.md"), "utf8");

@@ -341,6 +341,12 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
       assert.ok(first.symbols.some((row) => row.name === "run_job" && row.kind === "function" && row.file_path === "src/jobs.py"));
       assert.ok(first.symbols.some((row) => row.name === "GoWorker" && row.kind === "type" && row.file_path === "src/worker.go"));
       assert.ok(first.symbols.some((row) => row.name === "LaunchWorker" && row.kind === "function" && row.file_path === "src/worker.go"));
+      const symbolFtsRowids = firstDatabase.prepare(`
+        SELECT count(*) AS count
+        FROM symbols
+        JOIN symbols_fts ON symbols.id = symbols_fts.rowid
+      `).all()[0];
+      assert.equal(Number(symbolFtsRowids.count), first.symbols.length);
       assert.ok(first.imports.some((row) => row.to_ref === "express" && row.from_file === "src/app.js"));
       assert.ok(first.imports.some((row) => row.to_ref === "json" && row.from_file === "src/jobs.py"));
       assert.ok(first.imports.some((row) => row.to_ref === "pathlib" && row.imported === "Path" && row.from_file === "src/jobs.py"));
@@ -726,7 +732,7 @@ test("code index health reports old schema details without requiring current sch
     const health = JSON.parse(runCli(cwd, ["--code-index-health"]));
     assert.equal(health.status, "incompatible_schema");
     assert.equal(health.found_schema_version, "3");
-    assert.equal(health.expected_schema_version, "5");
+    assert.equal(health.expected_schema_version, "6");
     assert.equal(health.indexed_files, 1);
     assert.match(health.recommended_rebuild_command, /project-librarian --code-index --code-index-migrate --acknowledge-small-repo/);
   } finally {
@@ -746,7 +752,7 @@ test("code index rebuild requires explicit schema migration approval before repl
     const result = runCliResult(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
 
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /code evidence index schema migration required: existing schema version 4 does not match 5/);
+    assert.match(result.stderr, /code evidence index schema migration required: existing schema version 4 does not match 6/);
     assert.match(result.stderr, /approve: project-librarian --code-index --code-index-migrate --code-scope src --acknowledge-small-repo --code-index-engine typescript/);
     assert.match(result.stderr, /inspect: project-librarian --code-index-health/);
     assert.equal(readSchemaVersion(databasePath), "4");
@@ -769,7 +775,7 @@ test("code index migrate approval replaces old schema indexes", () => {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /mode: full/);
     assert.match(result.stdout, /engine: typescript/);
-    assert.equal(readSchemaVersion(databasePath), "5");
+    assert.equal(readSchemaVersion(databasePath), "6");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -787,7 +793,7 @@ test("code index full rebuild replaces unreadable or incomplete indexes", () => 
     const full = runCliResult(cwd, ["--code-index", "--code-index-full", "--acknowledge-small-repo", "--code-index-out", ".project-wiki/broken.sqlite", "--code-scope", "src", "--code-index-engine", "typescript"]);
     assert.equal(full.status, 0, full.stderr || full.stdout);
     assert.match(full.stdout, /mode: full/);
-    assert.equal(readSchemaVersion(databasePath), "5");
+    assert.equal(readSchemaVersion(databasePath), "6");
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
@@ -1041,7 +1047,7 @@ test("native helper wrapper fails on non-zero exits and malformed JSON summaries
       database_path: path.join(cwd, "code.sqlite"),
       files: [],
       parser_mode: "default",
-      schema_version: "5",
+      schema_version: "6",
       scopes: ["src"],
     });
     const nonZeroHelper = path.join(cwd, "non-zero-helper.js");

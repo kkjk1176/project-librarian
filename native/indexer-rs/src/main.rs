@@ -18,7 +18,7 @@ const ABI_VERSION: u32 = 1;
 const ENGINE: &str = "native-rust";
 const MODE_FULL: &str = "full";
 const MODE_INCREMENTAL: &str = "incremental";
-const SCHEMA_VERSION: &str = "5";
+const SCHEMA_VERSION: &str = "6";
 const SQLITE_DIRECT_WARNING: &str = "sqlite3-direct-ffi";
 const SQLITE_BRIDGE_WARNING: &str = "sqlite3-cli-bridge";
 const ROW_STREAM_WARNING: &str = "row-stream";
@@ -1198,7 +1198,7 @@ fn insert_rows_direct(database: &SqliteConnection, rows: &IndexRows) -> Result<(
         "INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)",
     )?;
     let insert_symbol_fts = database.prepare(
-        "INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)",
+        "INSERT INTO symbols_fts (rowid, name, kind, file_path, signature) VALUES (last_insert_rowid(), ?, ?, ?, ?)",
     )?;
     for symbol in &rows.symbols {
         insert_symbol.bind_text(1, &symbol.name)?;
@@ -1307,7 +1307,7 @@ fn insert_symbol_row(sql: &mut String, symbol: &SymbolIndexRow) {
         sql_string(&symbol.signature)
     ));
     sql.push_str(&format!(
-        "INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES ({}, {}, {}, {});\n",
+        "INSERT INTO symbols_fts (rowid, name, kind, file_path, signature) VALUES (last_insert_rowid(), {}, {}, {}, {});\n",
         sql_string(&symbol.name),
         sql_string(&symbol.kind),
         sql_string(&symbol.file_path),

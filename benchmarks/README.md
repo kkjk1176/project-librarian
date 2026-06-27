@@ -13,9 +13,17 @@ npm run build
 node benchmarks/tools/code-performance-efficiency.js --quick --compare-native --native-strategy sqlite-direct --actual-repo /path/to/repo --report-dir /tmp/project-librarian-code-perf
 ```
 
+For native strategy matrix evidence, keep `sqlite-direct` as the release-path baseline and audit the generated report before citing parity or speed direction. The strict audit options below require the expected corpus, every strategy to be available, zero row deltas, per-engine sample evidence for the requested run count, and a faster `sqlite-direct` median for every repo:
+
+```sh
+node benchmarks/tools/assert-native-strategy-matrix-report.js /tmp/native-strategy/full.json --repos cobra,flask,gin,laravel-framework,okhttp,requests,serde,spring-petclinic,symfony-console,tokio --min-repos 10 --min-runs 3 --require-sqlite-direct-faster
+```
+
 ## Claim ledger
 
 `npm run benchmark:claim-ledger` summarizes measured reports and payload previews into `release_claimable`, `diagnostic_only`, or `failed` rows per track and corpus. A passing claim gate is not enough for `release_claimable`; the report also needs a clean source-control provenance, explicit model, sanitized pack, `--require-clean`, `--require-claimable`, and enough runs for `min_runs_for_claim`. Payload previews are always `diagnostic_only` because they do not measure Codex output.
+
+Claim-ledger schema v2 rows include companion Markdown evidence paths when a same-basename `.md` report exists, model sources, observed models, release blockers, and gate issues. These fields make the Markdown ledger reviewable without opening every JSON report; they do not change release classification.
 
 ## Guidance probe benchmark
 

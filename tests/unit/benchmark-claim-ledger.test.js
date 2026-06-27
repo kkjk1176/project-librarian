@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const sampleReport = require("../../benchmarks/llm/samples/codex-measured-report.json");
-const { buildClaimLedger, previewReadinessIssues, rowsForReport } = require("../../benchmarks/lib/claim-ledger");
+const { buildClaimLedger, previewReadinessIssues, renderClaimLedgerMarkdown, rowsForReport } = require("../../benchmarks/lib/claim-ledger");
 
 function strictReport({ gateStatus = "passed" } = {}) {
   return {
@@ -22,8 +22,8 @@ function strictReport({ gateStatus = "passed" } = {}) {
       dirty: false,
     },
     scenarios: [
-      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "with", condition: "with_project_librarian" },
-      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "without", condition: "without_project_librarian" },
+      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "with", condition: "with_project_librarian", model_source: "jsonl", models: ["gpt-test"] },
+      { benchmark_track: "wiki", corpus: "synthetic", prompt_id: "without", condition: "without_project_librarian", model_source: "jsonl", models: ["gpt-test"] },
     ],
     claim_gate: {
       status: gateStatus,
@@ -58,6 +58,37 @@ test("strict clean measured report is release-claimable, failed gate is failed",
   assert.deepEqual(rowsForReport(strictReport({ gateStatus: "failed" })).map((row) => row.status), ["failed"]);
 });
 
+test("requested-only model provenance keeps measured reports diagnostic-only", () => {
+  const report = strictReport();
+  for (const scenario of report.scenarios) {
+    scenario.model_source = "requested";
+    scenario.models = ["gpt-test"];
+  }
+
+  const rows = rowsForReport(report);
+  assert.deepEqual(rows.map((row) => row.status), ["diagnostic_only"]);
+  assert(rows[0].release_blockers.includes("scenario model_source is not jsonl"));
+  assert.deepEqual(rows[0].model_sources, ["requested"]);
+  assert.deepEqual(rows[0].observed_models, ["gpt-test"]);
+});
+
+test("claim ledger markdown exposes evidence paths, model evidence, blockers, and gate issues", () => {
+  const ledger = buildClaimLedger([
+    {
+      companionMarkdownPath: "reports\\strict|claim.md",
+      report: strictReport({ gateStatus: "failed" }),
+      reportPath: "reports/strict.json",
+    },
+  ]);
+  const markdown = renderClaimLedgerMarkdown(ledger);
+
+  assert.match(markdown, /Evidence/);
+  assert(markdown.includes("reports\\\\strict\\|claim.md"));
+  assert.match(markdown, /sources: jsonl; observed: gpt-test/);
+  assert.match(markdown, /claim gate failed/);
+  assert.match(markdown, /missing expected task: release_policy/);
+});
+
 test("payload preview is never measured evidence but validates release preflight shape", () => {
   const preview = {
     benchmark_kind: "codex-actual-llm-payload-preview",
@@ -79,6 +110,7 @@ test("payload preview is never measured evidence but validates release preflight
 
   assert.deepEqual(previewReadinessIssues(preview), []);
   const ledger = buildClaimLedger([{ report: preview, reportPath: "preview.json" }]);
+  assert.equal(ledger.schema_version, 2);
   assert.deepEqual(ledger.summary, { release_claimable: 0, diagnostic_only: 1, failed: 0 });
   assert.equal(ledger.rows[0].claim_gate, "not_measured");
   assert(ledger.rows[0].release_blockers.includes("payload preview is not measured evidence"));

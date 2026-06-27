@@ -9,19 +9,37 @@ const { DatabaseSync } = require("node:sqlite");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const cliPath = path.join(repoRoot, "dist", "init-project-wiki.js");
+const {
+  actualRepoExcludedPathParts,
+  copyActualRepoFiltered,
+  copyActualRepoGitTrackedFiltered,
+} = require(path.join(repoRoot, "benchmarks", "lib", "actual-repo-materialization.js"));
+const {
+  allNativeStrategies,
+  nativeStrategyRequiredCommands,
+} = require(path.join(repoRoot, "benchmarks", "lib", "native-indexer-strategies.js"));
 
-function hasFlag(name) {
-  return process.argv.includes(name);
+function hasFlag(name, argv = process.argv) {
+  return argv.includes(name);
 }
 
-function optionValue(name, fallback) {
-  const index = process.argv.indexOf(name);
-  if (index === -1) return fallback;
-  const value = process.argv[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`missing value for ${name}`);
+function optionValue(name, fallback, argv = process.argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const entry = argv[index];
+    if (entry === name) {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error(`missing value for ${name}`);
+      }
+      return value;
+    }
+    if (entry.startsWith(`${name}=`)) {
+      const value = entry.slice(name.length + 1);
+      if (!value) throw new Error(`missing value for ${name}`);
+      return value;
+    }
   }
-  return value;
+  return fallback;
 }
 
 function optionValues(name, argv = process.argv) {
@@ -49,6 +67,7 @@ const { searchFiles, searchSymbols } = require(path.join(repoRoot, "dist", "code
 const { SMALL_REPO_FILE_THRESHOLD } = require(path.join(repoRoot, "dist", "code-index-file-policy.js"));
 const defaultScales = hasFlag("--full") ? [3000, 10000, 50000] : [3000, 10000];
 const runsPerCommand = hasFlag("--quick") ? 1 : 3;
+const actualRepoMaterializationModes = new Set(["auto", "filtered-copy", "git-clone-no-hardlinks", "git-tracked-filtered-copy"]);
 
 function sampleCorpusDefinitions() {
   return [
@@ -108,9 +127,27 @@ function sanitizeReportName(value) {
   return sanitized || "repo";
 }
 
+function normalizeActualRepoMaterializationMode(value) {
+  if (actualRepoMaterializationModes.has(value)) return value;
+  throw new Error(`invalid --actual-repo-materialization: ${value}; expected auto, filtered-copy, git-clone-no-hardlinks, or git-tracked-filtered-copy`);
+}
+
+function actualRepoMaterializationMode(argv = process.argv) {
+  return normalizeActualRepoMaterializationMode(optionValue("--actual-repo-materialization", "auto", argv));
+}
+
+function compareActualRepoMaterialization(argv = process.argv) {
+  return hasFlag("--compare-actual-repo-materialization", argv);
+}
+
 function actualRepoDefinitions(argv = process.argv) {
   const usedNames = new Map();
-  return optionValues("--actual-repo", argv).map((source, index) => {
+  const materializationMode = actualRepoMaterializationMode(argv);
+  const compareMaterialization = compareActualRepoMaterialization(argv);
+  if (compareMaterialization && materializationMode !== "auto") {
+    throw new Error("--compare-actual-repo-materialization compares auto against filtered-copy and cannot be combined with --actual-repo-materialization");
+  }
+  const repos = optionValues("--actual-repo", argv).map((source, index) => {
     const resolved = path.resolve(source);
     const baseName = path.basename(resolved) || `actual-repo-${index + 1}`;
     const baseReportName = sanitizeReportName(baseName);
@@ -120,6 +157,7 @@ function actualRepoDefinitions(argv = process.argv) {
     return {
       name,
       corpus_kind: "actual-repo",
+      materialization_mode: materializationMode,
       source: resolved,
       terms: {
         file: "src",
@@ -130,6 +168,38 @@ function actualRepoDefinitions(argv = process.argv) {
       },
     };
   });
+  if (!compareMaterialization) return repos;
+  for (const repo of repos) {
+    if (!fs.existsSync(path.join(repo.source, ".git"))) {
+      throw new Error(`--compare-actual-repo-materialization requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--compare-actual-repo-materialization requires git to be available");
+    }
+  }
+  return repos.flatMap((repo) => [
+    {
+      ...repo,
+      name: `${repo.name}-auto`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "auto",
+      materialization_mode: "auto",
+    },
+    {
+      ...repo,
+      name: `${repo.name}-filtered-copy`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "filtered-copy",
+      materialization_mode: "filtered-copy",
+    },
+    {
+      ...repo,
+      name: `${repo.name}-git-tracked-filtered-copy`,
+      materialization_comparison_group: repo.name,
+      materialization_comparison_role: "git-tracked-filtered-copy",
+      materialization_mode: "git-tracked-filtered-copy",
+    },
+  ]);
 }
 
 function mkdirp(dir) {
@@ -171,8 +241,6 @@ function nativeHelperRequest() {
   return "";
 }
 
-const allNativeStrategies = ["sqlite-bridge", "sqlite-direct", "row-stream"];
-
 function nativeStrategiesFromRequest() {
   if (!nativeHelperRequest()) return [];
   const requested = optionValue("--native-strategy", "all").trim();
@@ -201,7 +269,7 @@ function resolveNativeHelper() {
     return { requested: true, enabled: true, mode: "explicit", helper_path: helperPath, strategies };
   }
 
-  const requiredCommands = strategies.includes("sqlite-bridge") ? ["cargo", "sqlite3"] : ["cargo"];
+  const requiredCommands = ["cargo", ...nativeStrategyRequiredCommands(strategies)];
   const missing = requiredCommands.filter((command) => !commandAvailable(command));
   if (missing.length > 0) {
     return {
@@ -314,6 +382,8 @@ function databaseStats(dbPath) {
   try {
     const pageCount = scalar(db, "PRAGMA page_count");
     const pageSize = scalar(db, "PRAGMA page_size");
+    const indexedFileBytes = scalar(db, "SELECT coalesce(sum(bytes), 0) FROM files");
+    const indexedFileLines = scalar(db, "SELECT coalesce(sum(lines), 0) FROM files");
     const counts = Object.fromEntries(db.prepare(`
       SELECT 'files' AS table_name, count(*) AS rows FROM files
       UNION ALL SELECT 'symbols', count(*) FROM symbols
@@ -323,6 +393,8 @@ function databaseStats(dbPath) {
     `).all().map((row) => [String(row.table_name), Number(row.rows)]));
     return {
       file_bytes: fs.statSync(dbPath).size,
+      indexed_file_bytes: indexedFileBytes,
+      indexed_file_lines: indexedFileLines,
       page_count: pageCount,
       page_size: pageSize,
       page_bytes: pageCount * pageSize,
@@ -333,6 +405,76 @@ function databaseStats(dbPath) {
   }
 }
 
+function percentDelta(candidate, baseline) {
+  if (typeof candidate !== "number" || typeof baseline !== "number" || !Number.isFinite(candidate) || !Number.isFinite(baseline) || baseline === 0) {
+    return null;
+  }
+  return ((candidate - baseline) / baseline) * 100;
+}
+
+function numericDelta(candidate, baseline) {
+  return typeof candidate === "number" && typeof baseline === "number" ? candidate - baseline : null;
+}
+
+function rowDeltas(candidateRows = {}, baselineRows = {}) {
+  const tableNames = [...new Set([...Object.keys(baselineRows), ...Object.keys(candidateRows)])].sort();
+  return Object.fromEntries(tableNames.map((table) => [table, (candidateRows[table] ?? 0) - (baselineRows[table] ?? 0)]));
+}
+
+function metricDelta(candidate, baseline, field) {
+  return {
+    baseline,
+    candidate,
+    delta: numericDelta(candidate, baseline),
+    delta_percent: percentDelta(candidate, baseline),
+    field,
+  };
+}
+
+function actualRepoMaterializationComparisonCandidate(candidate, baseline) {
+  return {
+    repo: candidate.name,
+    mode: candidate.materialization?.mode,
+    requested_mode: candidate.materialization?.requested_mode,
+    source_file_set: candidate.materialization?.source_file_set,
+    metrics: {
+      indexed_files: metricDelta(candidate.current_db?.rows?.files, baseline.current_db?.rows?.files, "current_db.rows.files"),
+      indexed_file_bytes: metricDelta(candidate.current_db?.indexed_file_bytes, baseline.current_db?.indexed_file_bytes, "current_db.indexed_file_bytes"),
+      indexed_file_lines: metricDelta(candidate.current_db?.indexed_file_lines, baseline.current_db?.indexed_file_lines, "current_db.indexed_file_lines"),
+      db_file_bytes: metricDelta(candidate.current_db?.file_bytes, baseline.current_db?.file_bytes, "current_db.file_bytes"),
+      index_time_ms: metricDelta(candidate.index_time_ms, baseline.index_time_ms, "index_time_ms"),
+    },
+    row_deltas: rowDeltas(candidate.current_db?.rows, baseline.current_db?.rows),
+  };
+}
+
+function actualRepoMaterializationComparisons(actualRepos) {
+  const groups = new Map();
+  for (const repo of actualRepos) {
+    if (!repo.materialization_comparison_group || !repo.materialization_comparison_role) continue;
+    const group = groups.get(repo.materialization_comparison_group) ?? {};
+    group[repo.materialization_comparison_role] = repo;
+    groups.set(repo.materialization_comparison_group, group);
+  }
+  return [...groups.entries()].map(([name, group]) => {
+    const baseline = group.auto;
+    const candidates = ["filtered-copy", "git-tracked-filtered-copy"]
+      .map((role) => group[role])
+      .filter(Boolean);
+    if (!baseline || candidates.length === 0) {
+      throw new Error(`missing paired actual-repo materialization results for ${name}`);
+    }
+    return {
+      name,
+      source: baseline.source,
+      baseline_repo: baseline.name,
+      baseline_mode: baseline.materialization?.mode,
+      baseline_requested_mode: baseline.materialization?.requested_mode,
+      candidates: candidates.map((candidate) => actualRepoMaterializationComparisonCandidate(candidate, baseline)),
+    };
+  });
+}
+
 function queryPlans(dbPath, term, searchMode = "current") {
   const db = openDatabase(dbPath);
   const contains = `%${term}%`;
@@ -340,10 +482,8 @@ function queryPlans(dbPath, term, searchMode = "current") {
   const ftsQuery = ftsPrefixQuery(term);
   const fileFtsJoin = searchMode === "rowid_fts"
     ? "files.rowid = files_fts.rowid"
-    : "files.path = files_fts.path";
-  const symbolFtsJoin = searchMode === "rowid_fts"
-    ? "symbols.id = symbols_fts.rowid"
-    : "symbols.name = symbols_fts.name AND symbols.kind = symbols_fts.kind AND symbols.file_path = symbols_fts.file_path AND symbols.signature = symbols_fts.signature";
+    : "files.fts_rowid = files_fts.rowid";
+  const symbolFtsJoin = "symbols.id = symbols_fts.rowid";
   try {
     const plans = {
       file_prefix_like: db.prepare("EXPLAIN QUERY PLAN SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY path LIMIT 25").all(prefix),
@@ -1023,24 +1163,86 @@ function materializeSampleCorpus(sample, tmpRoot) {
   return cwd;
 }
 
+function gitTrackedPaths(source) {
+  return run("git", ["-C", source, "ls-files", "-z"]).stdout.split("\0").filter(Boolean);
+}
+
 function materializeActualRepo(repo, tmpRoot) {
   const source = path.resolve(repo.source);
   const stat = fs.existsSync(source) ? fs.statSync(source) : null;
   if (!stat?.isDirectory()) throw new Error(`--actual-repo must point to an existing directory: ${repo.source}`);
   const cwd = path.join(tmpRoot, `actual-${repo.name}`);
-  if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
+  const requestedMode = normalizeActualRepoMaterializationMode(repo.materialization_mode ?? "auto");
+  const isGitWorktree = fs.existsSync(path.join(source, ".git"));
+  if (requestedMode === "filtered-copy") {
+    copyActualRepoFiltered(source, cwd);
+    return cwd;
+  }
+  if (requestedMode === "git-tracked-filtered-copy") {
+    if (!isGitWorktree) {
+      throw new Error(`--actual-repo-materialization git-tracked-filtered-copy requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--actual-repo-materialization git-tracked-filtered-copy requires git to be available");
+    }
+    copyActualRepoGitTrackedFiltered(source, cwd, gitTrackedPaths(source));
+    return cwd;
+  }
+  if (requestedMode === "git-clone-no-hardlinks") {
+    if (!isGitWorktree) {
+      throw new Error(`--actual-repo-materialization git-clone-no-hardlinks requires --actual-repo to point to a Git worktree: ${repo.source}`);
+    }
+    if (!commandAvailable("git")) {
+      throw new Error("--actual-repo-materialization git-clone-no-hardlinks requires git to be available");
+    }
     run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
     return cwd;
   }
-  fs.cpSync(source, cwd, {
-    recursive: true,
-    filter: (entry) => {
-      const relative = path.relative(source, entry);
-      if (!relative) return true;
-      return !relative.split(path.sep).some((part) => [".git", ".project-wiki", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"].includes(part));
-    },
-  });
+  if (isGitWorktree && commandAvailable("git")) {
+    run("git", ["clone", "--quiet", "--no-hardlinks", source, cwd]);
+    return cwd;
+  }
+  copyActualRepoFiltered(source, cwd);
   return cwd;
+}
+
+function actualRepoMaterialization(repo) {
+  const source = path.resolve(repo.source);
+  const requestedMode = normalizeActualRepoMaterializationMode(repo.materialization_mode ?? "auto");
+  if (requestedMode === "git-clone-no-hardlinks") {
+    return {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+      requested_mode: requestedMode,
+    };
+  }
+  if (requestedMode === "filtered-copy") {
+    return {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "filtered-copy",
+      requested_mode: requestedMode,
+    };
+  }
+  if (requestedMode === "git-tracked-filtered-copy") {
+    return {
+      excluded_path_parts: [...actualRepoExcludedPathParts],
+      mode: "git-tracked-filtered-copy",
+      requested_mode: requestedMode,
+      source_file_set: "git-ls-files",
+    };
+  }
+  if (fs.existsSync(path.join(source, ".git")) && commandAvailable("git")) {
+    return {
+      excluded_path_parts: [],
+      mode: "git-clone-no-hardlinks",
+      requested_mode: requestedMode,
+    };
+  }
+  return {
+    excluded_path_parts: [...actualRepoExcludedPathParts],
+    mode: "filtered-copy",
+    requested_mode: requestedMode,
+  };
 }
 
 function measureBuildCommands() {
@@ -1058,6 +1260,16 @@ function measureBuildCommands() {
 function formatSignedPercent(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function formatSignedNumber(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return `${value >= 0 ? "+" : ""}${value}`;
+}
+
+function formatMetricComparison(metric, unit = "") {
+  const suffix = unit ? ` ${unit}` : "";
+  return `${metric.baseline}${suffix} -> ${metric.candidate}${suffix} (${formatSignedNumber(metric.delta)}${suffix}, ${formatSignedPercent(metric.delta_percent)})`;
 }
 
 function formatNativeIndexLabel(nativeIndex) {
@@ -1195,6 +1407,15 @@ function markdownReport(result) {
       lines.push("");
       lines.push(`### ${repo.name}`);
       lines.push(`- Source: ${repo.source}`);
+      if (repo.materialization) {
+        const requested = repo.materialization.requested_mode
+          ? ` (requested ${repo.materialization.requested_mode})`
+          : "";
+        const excluded = repo.materialization.excluded_path_parts?.length
+          ? `; excluded path parts: ${repo.materialization.excluded_path_parts.join(", ")}`
+          : "";
+        lines.push(`- Materialization: ${repo.materialization.mode}${requested}${excluded}`);
+      }
       lines.push(`- Indexed files: ${repo.current_db.rows.files}`);
       lines.push(`- Index time: ${repo.index_time_ms.toFixed(1)} ms`);
       if (repo.phase_timings) {
@@ -1207,6 +1428,31 @@ function markdownReport(result) {
       }
       for (const [name, timing] of Object.entries(repo.query_groups)) {
         lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
+      }
+    }
+  }
+  if (result.actual_repo_materialization_comparisons?.length > 0) {
+    lines.push("");
+    lines.push("## Actual Repository Materialization Comparisons");
+    lines.push("");
+    lines.push("Paired comparisons run the same Git source once through default auto materialization and once through explicit filtered-copy materialization.");
+    for (const comparison of result.actual_repo_materialization_comparisons) {
+      lines.push("");
+      lines.push(`### ${comparison.name}`);
+      lines.push(`- Source: ${comparison.source}`);
+      lines.push(`- Baseline: ${comparison.baseline_repo} (${comparison.baseline_mode}, requested ${comparison.baseline_requested_mode})`);
+      for (const candidate of comparison.candidates) {
+        const sourceFileSet = candidate.source_file_set ? `; source file set ${candidate.source_file_set}` : "";
+        lines.push(`- Candidate: ${candidate.repo} (${candidate.mode}, requested ${candidate.requested_mode}${sourceFileSet})`);
+        lines.push(`  - Indexed files: ${formatMetricComparison(candidate.metrics.indexed_files)}`);
+        lines.push(`  - Indexed file bytes: ${formatMetricComparison(candidate.metrics.indexed_file_bytes, "bytes")}`);
+        lines.push(`  - Indexed file lines: ${formatMetricComparison(candidate.metrics.indexed_file_lines, "lines")}`);
+        lines.push(`  - DB size: ${formatMetricComparison(candidate.metrics.db_file_bytes, "bytes")}`);
+        lines.push(`  - Index time: ${formatMetricComparison(candidate.metrics.index_time_ms, "ms")}`);
+        const rowDeltas = Object.entries(candidate.row_deltas)
+          .map(([table, delta]) => `${table} ${formatSignedNumber(delta)}`)
+          .join(", ");
+        lines.push(`  - Row deltas candidate vs baseline: ${rowDeltas}`);
       }
     }
   }
@@ -1248,6 +1494,7 @@ function main() {
     scales: [],
     sample_corpora: [],
     actual_repos: [],
+    actual_repo_materialization_comparisons: [],
     build_commands: {},
     decisions: {},
   };
@@ -1335,7 +1582,10 @@ function main() {
       result.actual_repos.push({
         name: repo.name,
         corpus_kind: repo.corpus_kind,
+        materialization_comparison_group: repo.materialization_comparison_group,
+        materialization_comparison_role: repo.materialization_comparison_role,
         source: repo.source,
+        materialization: actualRepoMaterialization(repo),
         index_time_ms: indexRun.elapsedMs,
         phase_timings: indexRun.phase_timings,
         native_index: nativeComparison.fastest,
@@ -1345,6 +1595,7 @@ function main() {
         query_groups: measureDatabaseQueryGroupsForTerms(dbPath, repo.terms),
       });
     }
+    result.actual_repo_materialization_comparisons = actualRepoMaterializationComparisons(result.actual_repos);
     result.build_commands = measureBuildCommands();
     const largest = result.scales[result.scales.length - 1];
     const ftsDelta = largest.contentless_fts_size_delta_percent;
@@ -1369,7 +1620,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+  actualRepoExcludedPathParts,
+  actualRepoMaterialization,
+  actualRepoMaterializationComparisons,
+  actualRepoMaterializationMode,
   bestVariantDecision,
+  compareActualRepoMaterialization,
   compareSearchParity,
   actualRepoDefinitions,
   markdownReport,
