@@ -1,6 +1,6 @@
 "use strict";
 
-const { corporaPresent, scenariosForTrack, scenariosForTrackCorpus, tracksPresent } = require("./llm-report");
+const { corporaPresent, modelSourceIsReleaseEligible, scenariosForTrack, scenariosForTrackCorpus, tracksPresent } = require("./llm-report");
 
 const statuses = ["release_claimable", "diagnostic_only", "failed"];
 
@@ -40,7 +40,9 @@ function releaseReadinessIssues(report) {
   if (Number(configuration.runs || 0) < minRuns) issues.push(`runs ${configuration.runs || 0} below min_runs_for_claim ${minRuns}`);
   if (!configuration.requested_model) issues.push("configuration.requested_model is missing");
   if (configuration.sanitized_pack !== true) issues.push("configuration.sanitized_pack is not true");
-  if (scenarios.some((scenario) => scenario.model_source !== "jsonl")) issues.push("scenario model_source is not jsonl");
+  if (scenarios.some((scenario) => !modelSourceIsReleaseEligible(scenario.model_source))) {
+    issues.push("scenario model_source is not release-eligible");
+  }
   if (scenarios.some((scenario) => !Array.isArray(scenario.models) || scenario.models.length !== 1)) {
     issues.push("scenario observed model set is not exactly one model");
   }

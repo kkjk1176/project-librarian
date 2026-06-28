@@ -722,13 +722,13 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 ## TL;DR
 
-- This project is a maintained benchmark-evidence fixture: project truth lives in \`wiki/canonical/\`, decision history in \`wiki/decisions/\`.
-- At session start, read only this file and \`wiki/index.md\` first; read detailed files on demand via the index "read when" routes.
+- Maintained benchmark fixture: project truth lives in \`wiki/canonical/\`, decisions in \`wiki/decisions/\`.
+- Use \`wiki/index.md\` as a route table; open matching routes directly and avoid broad repo/wiki searches unless no route matches.
 - Update the wiki in the same turn when project-planning content changes.
 
 ## Read On Demand
 
-- [[index]]: document router with read-when hints for every answer page.
+- [[index]]: compact route table for answer pages.
 - [[canonical/benchmark-and-release-evidence]]: benchmark evidence policy and the latest evidence decision.
 - [[canonical/project-brief]]: project direction, audience, scope, and current risks.
 
@@ -743,14 +743,9 @@ review_trigger: session-start summary, routing, language policy, or open project
 
 - ${SEEDED_DECISION.date}: ${SEEDED_DECISION.summary}. Source: [[decisions/log]] and [[canonical/benchmark-and-release-evidence]].
 
-## Wiki Operating Pointers
-
-- Decision recording follows [[meta/decision-policy]].
-- Wiki operation follows [[meta/operating-model]].
-
 ## Token Discipline
 
-- Session-start hooks inject only this file and \`wiki/index.md\`; detailed files are selected by the index "read when" rules.
+- Session-start hooks inject only this file and \`wiki/index.md\`; detailed files are read on demand.
 `;
 }
 
@@ -784,21 +779,25 @@ const ANSWER_PAGE_ROUTES = [
   },
   {
     page: "canonical/dated-decision-0.md",
-    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+    readWhen: "a chronological inventory of every dated project decision matters.",
   },
   {
     page: "canonical/dated-decision-1.md",
-    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+    readWhen: "a chronological inventory of every dated project decision matters.",
   },
   {
     page: "canonical/dated-decision-2.md",
-    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+    readWhen: "a chronological inventory of every dated project decision matters.",
   },
   {
     page: "canonical/dated-decision-3.md",
-    readWhen: "a chronological inventory of every dated project decision matters; exclude wiki operating/meta decisions unless explicitly requested.",
+    readWhen: "a chronological inventory of every dated project decision matters.",
   },
 ];
+
+const DATED_DECISION_ROUTE_PAGES = ANSWER_PAGE_ROUTES
+  .filter((route) => /canonical\/dated-decision-\d+\.md$/.test(route.page))
+  .map((route) => route.page);
 
 function wikiLinkTargetForPage(page) {
   return page.replace(/\.md$/, "");
@@ -811,8 +810,12 @@ function wikiLinkTargetForPage(page) {
 // compact so the hand-written portion plus the auto-block stays within the
 // session-hook index budget (src/hooks.ts: 4500 chars).
 function maintainedIndex() {
-  const answerRoutes = ANSWER_PAGE_ROUTES
+  const pointLookupRoutes = ANSWER_PAGE_ROUTES
+    .filter((route) => !DATED_DECISION_ROUTE_PAGES.includes(route.page))
     .map((route) => `- [[${wikiLinkTargetForPage(route.page)}]]\n  - Read when ${route.readWhen}`)
+    .join("\n");
+  const datedDecisionRoutes = DATED_DECISION_ROUTE_PAGES
+    .map((page) => `- [[${wikiLinkTargetForPage(page)}]]`)
     .join("\n");
   return `---
 status: active
@@ -826,7 +829,7 @@ review_trigger: wiki page added, moved, removed, or routing changes
 
 ## How To Use This Index
 
-This file is a router, not a file to expand into every answer. Read only the files relevant to the current question, following the "read when" hints.
+This is a route table, not a page inventory. Open the matching route first; use broad wiki search or file listing only when no route matches or evidence conflicts.
 
 ## Boundary Rule
 
@@ -841,9 +844,13 @@ This file is a router, not a file to expand into every answer. Read only the fil
 
 ## Answer Routes
 
-${answerRoutes}
+${pointLookupRoutes}
 
-## Project Decisions
+## Project Decision Inventory
+
+Read these together only when asked for every dated project decision; exclude wiki operating/meta decisions unless explicitly requested.
+
+${datedDecisionRoutes}
 
 - [[decisions/recent]]
   - Read when: recent important project decisions matter.
@@ -919,7 +926,7 @@ function materializeWithProjectLibrarian(root, scaleName, cliPath) {
   writeFile(path.join(root, "wiki", "canonical", "project-brief.md"), "# Project Brief\n\nProject Librarian benchmark fixture validates coding-agent onboarding, risks, and where to read next. Current risks include route drift, benchmark overclaiming, and stale code evidence. Read wiki/startup.md, wiki/index.md, and wiki/canonical/benchmark-and-release-evidence.md next.\n");
   writeFile(path.join(root, "wiki", "canonical", "benchmark-and-release-evidence.md"), "# Benchmark And Release Evidence\n\nActual LLM evidence compares with and without Project Librarian across small, medium, and large fixtures. Official claims require measured token usage, wall-clock time, command/tool invocation counts, full matrix coverage, claimable runs, and correctness checks.\n");
   writeFile(path.join(root, "wiki", "canonical", "release-policy.md"), "# Release Policy\n\nBefore publishing benchmark claims, run the full matrix with --full-matrix, require claimable output, validate raw JSONL with tests/validators/codex-llm-benchmark-smoke.js, and include Markdown plus JSON evidence.\n");
-  writeFile(path.join(root, "wiki", "canonical", "code-impact.md"), "# Code Impact\n\nBenchmark report schema changes impact benchmarks/codex-llm-metrics.js, benchmarks/lib/codex-jsonl.js, benchmarks/lib/llm-report.js, benchmarks/lib/llm-correctness.js, and tests/validators/codex-llm-benchmark-smoke.js.\n");
+  writeFile(path.join(root, "wiki", "canonical", "code-impact.md"), "# Code Impact\n\nBenchmark report schema changes impact benchmarks/codex-llm-metrics.js, benchmarks/lib/codex-jsonl.js, benchmarks/lib/llm-report.js, benchmarks/lib/llm-correctness.js, and tests/validators/codex-llm-benchmark-smoke.js.\n\nThis maintained wiki page is the canonical impact map for this synthetic benchmark fixture; use it as local evidence for likely impacted areas without repo-wide code scans unless the user explicitly asks to inspect implementation files.\n");
   writeFile(path.join(root, "wiki", "canonical", "implementation-map.md"), "# Implementation Map\n\nEdit benchmarks/codex-llm-metrics.js for the Codex LLM benchmark runner, benchmarks/lib/llm-report.js for aggregation, and tests/validators/codex-llm-benchmark-smoke.js for validation.\n");
   writeFile(path.join(root, "wiki", "decisions", "log.md"), seededDecisionLog());
 

@@ -58,6 +58,18 @@ test("strict clean measured report is release-claimable, failed gate is failed",
   assert.deepEqual(rowsForReport(strictReport({ gateStatus: "failed" })).map((row) => row.status), ["failed"]);
 });
 
+test("codex CLI command model provenance is release-eligible", () => {
+  const report = strictReport();
+  for (const scenario of report.scenarios) {
+    scenario.model_source = "codex_cli_command";
+    scenario.models = ["gpt-test"];
+  }
+
+  const rows = rowsForReport(report);
+  assert.deepEqual(rows.map((row) => row.status), ["release_claimable"]);
+  assert.deepEqual(rows[0].model_sources, ["codex_cli_command"]);
+});
+
 test("requested-only model provenance keeps measured reports diagnostic-only", () => {
   const report = strictReport();
   for (const scenario of report.scenarios) {
@@ -67,7 +79,7 @@ test("requested-only model provenance keeps measured reports diagnostic-only", (
 
   const rows = rowsForReport(report);
   assert.deepEqual(rows.map((row) => row.status), ["diagnostic_only"]);
-  assert(rows[0].release_blockers.includes("scenario model_source is not jsonl"));
+  assert(rows[0].release_blockers.includes("scenario model_source is not release-eligible"));
   assert.deepEqual(rows[0].model_sources, ["requested"]);
   assert.deepEqual(rows[0].observed_models, ["gpt-test"]);
 });

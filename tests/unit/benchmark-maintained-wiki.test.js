@@ -24,6 +24,9 @@ const cliPath = path.resolve(__dirname, "..", "..", "dist", "init-project-wiki.j
 // routers must stay within these so the SessionStart hook does not truncate them.
 const STARTUP_BUDGET = 3500;
 const INDEX_BUDGET = 4500;
+const SMALL_REPO_STARTUP_TARGET = 1600;
+const SMALL_REPO_INDEX_TARGET = 2500;
+const SMALL_REPO_BUILT_INDEX_TARGET = 3400;
 
 function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -46,6 +49,8 @@ function seedMaintainedRouters(root) {
 test("maintained routers stay within the session-hook budgets", () => {
   assert(maintainedStartup().length <= STARTUP_BUDGET, `startup ${maintainedStartup().length} exceeds ${STARTUP_BUDGET}`);
   assert(maintainedIndex().length <= INDEX_BUDGET, `index ${maintainedIndex().length} exceeds ${INDEX_BUDGET}`);
+  assert(maintainedStartup().length <= SMALL_REPO_STARTUP_TARGET, `startup ${maintainedStartup().length} exceeds small-repo target ${SMALL_REPO_STARTUP_TARGET}`);
+  assert(maintainedIndex().length <= SMALL_REPO_INDEX_TARGET, `index ${maintainedIndex().length} exceeds small-repo target ${SMALL_REPO_INDEX_TARGET}`);
 });
 
 test("maintained startup and recent carry the seeded dated decision and never say None yet.", () => {
@@ -62,12 +67,16 @@ test("maintained index routes aggregation evidence without pre-aggregating the a
   const index = maintainedIndex();
   const expectation = aggregationExpectation();
   const withEvidence = expectation.evidence_by_condition.with_project_librarian.flat();
+  assert(
+    index.includes("Open the matching route first; use broad wiki search or file listing only when no route matches"),
+    "index must preserve route-first guidance for small-repo lookup cost",
+  );
   for (const relative of withEvidence) {
     const link = `[[${relative.replace(/^wiki\//, "").replace(/\.md$/, "")}]]`;
     assert(index.includes(link), `index missing aggregation evidence route ${link}`);
   }
   assert(
-    index.includes("For project decision inventories, stay in `wiki/canonical/` and `wiki/decisions/`"),
+    index.includes("Read these together only when asked for every dated project decision"),
     "index must scope project-decision inventory routing away from wiki/meta",
   );
   assert(
@@ -191,12 +200,17 @@ test("normal small-scale fixture build passes the A1 asserts and is maintained",
     const startup = fs.readFileSync(path.join(withRoot, "wiki", "startup.md"), "utf8");
     const recent = fs.readFileSync(path.join(withRoot, "wiki", "decisions", "recent.md"), "utf8");
     const index = fs.readFileSync(path.join(withRoot, "wiki", "index.md"), "utf8");
+    const codeImpact = fs.readFileSync(path.join(withRoot, "wiki", "canonical", "code-impact.md"), "utf8");
     assert(!startup.includes("None yet."));
     assert(startup.includes(SEEDED_DECISION.date));
     assert(!recent.includes("None yet."));
     assert(recent.includes(SEEDED_DECISION.date));
     assert(startup.length <= STARTUP_BUDGET);
     assert(index.length <= INDEX_BUDGET, `built index ${index.length} exceeds ${INDEX_BUDGET}`);
+    assert(index.length <= SMALL_REPO_BUILT_INDEX_TARGET, `built index ${index.length} exceeds small-repo target ${SMALL_REPO_BUILT_INDEX_TARGET}`);
+    assert(index.includes("Open the matching route first"), "built index must preserve route-first guidance");
+    assert(codeImpact.includes("canonical impact map"), "code-impact route must identify itself as canonical impact evidence");
+    assert(codeImpact.includes("without repo-wide code scans"), "code-impact route must discourage expensive repo-wide verification");
     // Hand-routed answer pages survive --refresh-index.
     for (const route of ANSWER_PAGE_ROUTES) {
       const link = `[[${route.page.replace(/\.md$/, "")}]]`;

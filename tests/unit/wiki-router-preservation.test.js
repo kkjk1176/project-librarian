@@ -49,8 +49,10 @@ test("bootstrap creates router templates when absent", () => {
   try {
     runCli(root);
     assert.match(readFile(root, "wiki/startup.md"), /## Read On Demand/);
+    assert.match(readFile(root, "wiki/startup.md"), /open matching detail files directly/);
     assert.match(readFile(root, "wiki/startup.md"), /meta\/document-taxonomy/);
     assert.match(readFile(root, "wiki/index.md"), /# Wiki Index/);
+    assert.match(readFile(root, "wiki/index.md"), /Open the matching route first/);
     assert.match(readFile(root, "wiki/index.md"), /## Language Policy/);
     assert.match(readFile(root, "wiki/index.md"), /decisions\/README/);
     assert.match(readFile(root, "AGENTS.md"), /Classify new project-planning content with `wiki\/meta\/document-taxonomy.md`/);

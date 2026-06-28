@@ -182,15 +182,30 @@ function runMetrics(args, options = {}) {
   });
 }
 
-function writeFakeCodex(binDir, { exitCode = 0, responseText = "fake codex benchmark response" } = {}) {
+function writeFakeCodex(binDir, { exitCode = 0, responseText = "fake codex benchmark response", delayMs = 0, failFirst = false } = {}) {
   fs.mkdirSync(binDir, { recursive: true });
   const codexPath = path.join(binDir, "codex");
+  const failFirstMarker = path.join(binDir, "fake-codex-fail-first-marker");
   fs.writeFileSync(codexPath, `#!/usr/bin/env node
 "use strict";
+const fs = require("fs");
 
 if (process.argv.includes("--version")) {
   console.log("codex-test 0.0.0");
   process.exit(0);
+}
+
+const delayMs = ${JSON.stringify(delayMs)};
+if (delayMs > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
+
+const failFirst = ${JSON.stringify(failFirst)};
+const failFirstMarker = ${JSON.stringify(failFirstMarker)};
+if (failFirst && !fs.existsSync(failFirstMarker)) {
+  fs.writeFileSync(failFirstMarker, "failed\\n");
+  console.error("fake codex first attempt failure");
+  process.exit(42);
 }
 
 const exitCode = ${JSON.stringify(exitCode)};
@@ -320,6 +335,45 @@ test("--payload-preview records the requested model for claimable release prefli
   assert.equal(preview.configuration.requested_model, "gpt-test");
   assert(preview.scenarios.every((scenario) => scenario.command_prefix.includes("--model")), "preview command prefix must expose the requested model flag");
   assert(preview.scenarios.every((scenario) => scenario.command_prefix.includes("gpt-test")), "preview command prefix must expose the requested model value");
+});
+
+test("--codex execution controls are recorded in previews and reject invalid values", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-timeout-preview-"));
+  const previewPath = path.join(tmp, "preview.json");
+  const result = runMetrics([
+    "--payload-preview", previewPath,
+    "--codex-timeout-ms", "1234",
+    "--codex-execution-retries", "2",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
+  assert.equal(preview.configuration.codex_timeout_ms, 1234);
+  assert.equal(preview.configuration.codex_execution_retries, 2);
+  assert.equal(preview.configuration.expected_codex_exec_count, 2);
+  assert.equal(preview.configuration.max_codex_exec_count, 6);
+
+  const bad = runMetrics([
+    "--payload-preview", path.join(tmp, "bad.json"),
+    "--codex-timeout-ms", "-1",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+  ]);
+  assert.notEqual(bad.status, 0);
+  assert.match(bad.stderr, /invalid integer for --codex-timeout-ms/);
+
+  const badRetries = runMetrics([
+    "--payload-preview", path.join(tmp, "bad-retries.json"),
+    "--codex-execution-retries", "-1",
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+  ]);
+  assert.notEqual(badRetries.status, 0);
+  assert.match(badRetries.stderr, /invalid integer for --codex-execution-retries/);
 });
 
 test("--payload-preview can select one diagnostic prompt without requiring a complete pair", () => {
@@ -461,6 +515,90 @@ test("measured benchmark reports live progress on stderr without corrupting stdo
   assert.match(result.stderr, /\[benchmark:progress\] done .*current=2\/2 .*status=completed .*exit=0/);
   const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
   assert.equal(report.scenarios.length, 2);
+});
+
+test("measured benchmark records timed-out codex children as failed runs", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-timeout-measured-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", "decision_lookup-small-with_project_librarian",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--codex-timeout-ms", "50",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp, { delayMs: 1000 }) });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.configuration.codex_timeout_ms, 50);
+  const [scenario] = report.scenarios;
+  const [run] = scenario.runs;
+  assert.equal(run.execution.status, "failed");
+  assert.equal(run.execution.timed_out, true);
+  assert.match(run.execution.error, /timed out|ETIMEDOUT/i);
+  assert.equal(run.measurement.status, "unclaimable");
+});
+
+test("measured benchmark retries transient codex execution failures and records attempts", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-retry-measured-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", "decision_lookup-small-with_project_librarian",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--codex-execution-retries", "1",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp, { failFirst: true }) });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.configuration.codex_execution_retries, 1);
+  const [scenario] = report.scenarios;
+  const [run] = scenario.runs;
+  assert.equal(run.execution.status, "completed");
+  assert.equal(run.execution.attempt, 2);
+  assert.equal(run.execution.attempt_count, 2);
+  assert.equal(run.execution.previous_attempts.length, 1);
+  assert.equal(run.execution.previous_attempts[0].execution.exit_code, 42);
+  assert(fs.existsSync(run.execution.previous_attempts[0].raw_jsonl_path), "failed attempt raw JSONL should be retained");
+  assert.match(run.raw_jsonl_path, /attempt-2\.jsonl$/);
+});
+
+test("measured benchmark does not retry completed correctness failures", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-retry-correctness-"));
+  const reportPath = path.join(tmp, "report.json");
+  const result = runMetrics([
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--only-prompt-id", "decision_lookup-small-with_project_librarian",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--codex-execution-retries", "1",
+    "--model", "gpt-test",
+    "--out", reportPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: "completed but incorrect" }) });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  const [scenario] = report.scenarios;
+  const [run] = scenario.runs;
+  assert.equal(run.execution.status, "completed");
+  assert.equal(run.execution.attempt, 1);
+  assert.equal(run.execution.attempt_count, undefined);
+  assert.equal(run.correctness.status, "failed");
+  assert.equal(run.measurement.status, "unclaimable");
 });
 
 test("measured benchmark interleaves repeated pair runs and records execution order", () => {
