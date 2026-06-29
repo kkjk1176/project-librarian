@@ -5,7 +5,7 @@ import { acknowledgeSmallRepoMode, codeContextPackMode, codeContextPackTarget, c
 import { openDatabase as openSqliteDatabase, type SqliteDatabase } from "./code-index-db";
 import { cachedDiscoveredCodeFileStat, codeEvidenceDirectory, discoverCodeFiles, fileLanguage, maxIndexedBytes, SMALL_REPO_FILE_THRESHOLD, smallRepoCodeIndexGate } from "./code-index-file-policy";
 import { isReadOnlySql } from "./code-index-sql";
-import { collectCodeEvidence } from "./code-index/evidence";
+import { collectCodeEvidence, type CodeEvidenceCollectorOptions } from "./code-index/evidence";
 import { createExtractionBackendRegistry, extractionProfile } from "./code-index/extractors/registry";
 import { oneLine } from "./code-index/extractors/shared";
 import type { CodeFile, CodeFileFingerprint } from "./code-index/extractors/types";
@@ -626,16 +626,22 @@ function codeContextScaleLine(fileCount: number): string {
     : `scale large (${fileCount} indexed files >= ${SMALL_REPO_FILE_THRESHOLD}); indexed traversal is useful for impact-style context`;
 }
 
-function structuralSignature(value: unknown): string {
-  const signature = oneLine(String(value ?? ""));
-  const bodyStart = signature.indexOf("{");
-  return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
-}
-
-export function codeContextPack(database: SqliteDatabase, query: string, options: CodeContextPackOptions = {}): string {
-  const normalized = query.trim();
-  if (!normalized) return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
-  const evidence = collectCodeEvidence(database, normalized, {
+function codeContextCollectorOptions(fileCount: number): CodeEvidenceCollectorOptions {
+  if (fileCount < SMALL_REPO_FILE_THRESHOLD) {
+    return {
+      edgeLimit: 8,
+      fileLimit: 8,
+      includeEdgeEvidenceMatches: false,
+      includeOwnerCodeowners: false,
+      includeRouteEdges: false,
+      importLimit: 12,
+      ownerSampleLimit: 3,
+      routeEdgeLimit: 0,
+      routeLimit: 8,
+      symbolLimit: 12,
+    };
+  }
+  return {
     edgeLimit: 30,
     fileLimit: 12,
     includeEdgeEvidenceMatches: true,
@@ -646,15 +652,28 @@ export function codeContextPack(database: SqliteDatabase, query: string, options
     routeEdgeLimit: 0,
     routeLimit: 20,
     symbolLimit: 20,
-  });
-  const staleness = options.staleness ?? codeIndexStaleness(database);
+  };
+}
+
+function structuralSignature(value: unknown): string {
+  const signature = oneLine(String(value ?? ""));
+  const bodyStart = signature.indexOf("{");
+  return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
+}
+
+export function codeContextPack(database: SqliteDatabase, query: string, options: CodeContextPackOptions = {}): string {
+  const normalized = query.trim();
+  if (!normalized) return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
   const coverage = evidenceCoverage(database);
+  const indexedFileCount = Number(coverage.files ?? 0);
+  const evidence = collectCodeEvidence(database, normalized, codeContextCollectorOptions(indexedFileCount));
+  const staleness = options.staleness ?? codeIndexStaleness(database);
   const staleLabel = staleness.stale
     ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`
     : "fresh";
 
   const lines = [
-    `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
+    `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(indexedFileCount)}.`,
     "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
   ];
   pushBudgetedSection(lines, "Files:", evidence.files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);

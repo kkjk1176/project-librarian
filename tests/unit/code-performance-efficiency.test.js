@@ -523,7 +523,7 @@ test("markdown report renders FTS variants and parity status", () => {
         current_db: { file_bytes: 1000 },
         contentless_fts_db: { file_bytes: 750 },
         contentless_fts_size_delta_percent: -25,
-        commands: { code_status: { median_ms: 10, p95_ms: 12, runs: 1 } },
+        commands: { code_status: { median_ms: 10, p95_ms: 12, runs: 1, phase_timings: { open_database_ms: 2, staleness_ms: 3, query_ms: 4, total_ms: 12 } } },
         query_plans: { file_prefix_like: ["SCAN files"], file_fts_match: ["SCAN files_fts"] },
         query_groups: { file_search_path: { median_ms: 1, p95_ms: 2, rows: 1, runs: 1 } },
         fts_variants: [
@@ -563,7 +563,7 @@ test("markdown report renders FTS variants and parity status", () => {
         },
         native_indexes: [],
         current_db: { file_bytes: 2048, rows: { files: 123 } },
-        commands: { code_status: { median_ms: 8, p95_ms: 9, runs: 1 } },
+        commands: { code_status: { median_ms: 8, p95_ms: 9, runs: 1, phase_timings: { open_database_ms: 1, staleness_ms: 2, query_ms: 3, total_ms: 8 } } },
         query_groups: { file_search_path: { median_ms: 1, p95_ms: 2, rows: 3, runs: 1 } },
       },
     ],
@@ -615,6 +615,7 @@ test("markdown report renders FTS variants and parity status", () => {
 
   assert.match(report, /FTS variant contentless-delete-rowid: 750 bytes \(-25\.0% vs current\), parity passed/);
   assert.match(report, /Index phases: discover 1\.0 ms, read 2\.0 ms, sqlite 3\.0 ms, total 10\.0 ms/);
+  assert.match(report, /code_status phases: open-db 2\.0 ms, staleness 3\.0 ms, query 4\.0 ms, total 12\.0 ms/);
   assert.match(report, /Native comparison: enabled \(auto, native\/indexer-rs\/target\/debug\/project-librarian-indexer\)/);
   assert.match(report, /Fastest native strategy: sqlite-direct \(80\.0 ms\)/);
   assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 80\.0 ms \(-20\.0% vs TypeScript\)/);
@@ -627,6 +628,7 @@ test("markdown report renders FTS variants and parity status", () => {
   assert.match(report, /Source: \/tmp\/example-app/);
   assert.match(report, /Materialization: filtered-copy; excluded path parts: \.git, \.next, \.project-wiki, build, coverage, dist, node_modules, temp, tmp, vendor/);
   assert.match(report, /Native index sqlite-direct \(mixed-native-rust\): 40\.0 ms \(-42\.9% vs TypeScript\)/);
+  assert.match(report, /code_status phases: open-db 1\.0 ms, staleness 2\.0 ms, query 3\.0 ms, total 8\.0 ms/);
   assert.match(report, /## Actual Repository Materialization Comparisons/);
   assert.match(report, /Baseline: example-app-auto \(git-clone-no-hardlinks, requested auto\)/);
   assert.match(report, /Candidate: example-app-filtered-copy \(filtered-copy, requested filtered-copy\)/);
