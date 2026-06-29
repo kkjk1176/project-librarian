@@ -12,7 +12,7 @@ const { DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_D
 const { evaluateCorrectness } = require("../../benchmarks/lib/llm-correctness");
 const { aggregationExpectation, conditions } = require("../../benchmarks/lib/llm-fixtures");
 const { sampleImpactTraceExpectation } = require("../../benchmarks/llm/samples/sample-code-graph-expectation");
-const { claimableRuns, completePairCount, corporaPresent, costWeightedTokens, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, renderLlmMarkdownReport, resolveCacheDiscount, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("../../benchmarks/lib/llm-report");
+const { claimableRuns, completePairCount, corporaPresent, costWeightedTokens, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, modelEvidenceForRun, modelRequestFromCommand, renderLlmMarkdownReport, resolveCacheDiscount, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("../../benchmarks/lib/llm-report");
 
 const root = path.resolve(__dirname, "..", "..");
 const sampleFinalText = "2026-06-10 metrics decision in wiki/decisions/log.md documents Project Librarian benchmark evidence.";
@@ -637,12 +637,13 @@ function validateReport(reportPath) {
     }
 
     const actualClaimableRuns = claimableRuns(scenario.runs);
-    const observedModels = [...runModels];
-    const expectedScenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+    const runModelEvidence = scenario.runs.map(modelEvidenceForRun);
+    const expectedScenarioModels = [...new Set(runModelEvidence.flatMap((evidence) => evidence.models || []).filter(Boolean))];
+    const expectedModelSources = [...new Set(runModelEvidence.map((evidence) => evidence.source).filter(Boolean))];
     assert.deepEqual(scenario.models, expectedScenarioModels);
     if (scenario.models.length === 1) assert.equal(scenario.model, scenario.models[0]);
     if (scenario.models.length !== 1) assert.equal(scenario.model, null);
-    assert.equal(scenario.model_source, observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null));
+    assert.equal(scenario.model_source, expectedModelSources.length === 1 ? expectedModelSources[0] : (expectedModelSources.length > 1 ? "mixed" : null));
     assert.equal(scenario.passed_run_count, passedRunCount);
     assert.equal(scenario.claimable_run_count, actualClaimableRuns.length);
     assert.deepEqual(scenario.median_all_runs, medianMetrics(scenario.runs));
@@ -783,7 +784,7 @@ function validateReport(reportPath) {
   assert(markdown.includes("## Model Provenance And Claimability"));
   assert(markdown.includes("| Scenario | Track | Corpus | Condition | Model Source | Observed Models | Claimable Runs | Release Evidence |"));
   assert(markdown.includes("model_source=jsonl"));
-  assert(markdown.includes("Requested-only model metadata is diagnostic-only"));
+  assert(markdown.includes("Plain `model_source=requested` remains diagnostic-only."));
   assert(markdown.includes("| Model Source | Observed Models | Model |"));
   // The recomputed discount used by the renderer matches the report's recorded one.
   assert.equal(resolveCacheDiscount(report), report.cache_discount);
@@ -822,7 +823,7 @@ function validateMeasurementClaimability() {
   });
   assert.equal(unclaimable.status, "unclaimable");
   assert(unclaimable.reason.includes("usage available"));
-  assert(unclaimable.reason.includes("observed JSONL model available"));
+  assert(unclaimable.reason.includes("model provenance available"));
 
   const claimable = measurementStatus({
     correctness,
@@ -853,7 +854,23 @@ function validateMeasurementClaimability() {
     }), { wall_ms: 1000 }),
   });
   assert.equal(requestedOnlyModel.status, "unclaimable");
-  assert(requestedOnlyModel.reason.includes("observed JSONL model available"));
+  assert(requestedOnlyModel.reason.includes("model provenance available"));
+
+  const codexCliCommandModel = measurementStatus({
+    correctness,
+    requested_model: "gpt-test",
+    model_request: modelRequestFromCommand(["codex", "exec", "--model", "gpt-test", "prompt"], "gpt-test"),
+    metrics: summarizeJsonl(JSON.stringify({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        total_tokens: 15,
+      },
+      message: sampleFinalText,
+    }), { wall_ms: 1000 }),
+  });
+  assert.equal(codexCliCommandModel.status, "claimable");
 }
 
 function validateRawRetention() {

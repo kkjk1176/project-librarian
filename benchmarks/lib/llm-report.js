@@ -1,6 +1,7 @@
 "use strict";
 
 const DEFAULT_CACHE_DISCOUNT = 0.1;
+const RELEASE_ELIGIBLE_MODEL_SOURCES = new Set(["jsonl", "codex_cli_command"]);
 
 const metricFields = [
   "input_tokens",
@@ -69,12 +70,103 @@ function passedRuns(runs) {
   return runs.filter((run) => run.correctness.status === "passed");
 }
 
+function commandRequestsModel(command, requestedModel) {
+  if (!requestedModel || !Array.isArray(command)) return false;
+  for (let index = 0; index < command.length; index += 1) {
+    const arg = command[index];
+    if ((arg === "--model" || arg === "-m") && command[index + 1] === requestedModel) return true;
+    if (arg === `--model=${requestedModel}` || arg === `-m=${requestedModel}`) return true;
+  }
+  return false;
+}
+
+function modelRequestFromCommand(command, requestedModel) {
+  if (!requestedModel) return null;
+  return {
+    source: commandRequestsModel(command, requestedModel) ? "codex_cli_command" : "requested",
+    model: requestedModel,
+  };
+}
+
+function modelEvidenceForRun(run) {
+  const metrics = run?.metrics || {};
+  const unavailable = Array.isArray(metrics.unavailable_event_fields) ? metrics.unavailable_event_fields : [];
+  const observedModels = Array.isArray(metrics.models) ? metrics.models.filter(Boolean) : [];
+  const uniqueObservedModels = [...new Set(observedModels)];
+  const hasObservedModel = !unavailable.includes("model") && uniqueObservedModels.length > 0;
+  const hasSingleObservedModel = !unavailable.includes("single_model")
+    && uniqueObservedModels.length === 1
+    && metrics.model === uniqueObservedModels[0];
+
+  if (hasSingleObservedModel) {
+    return {
+      source: "jsonl",
+      model: uniqueObservedModels[0],
+      models: uniqueObservedModels,
+      provenance_available: true,
+      single_model_available: true,
+      release_eligible: true,
+    };
+  }
+
+  if (hasObservedModel) {
+    return {
+      source: "jsonl",
+      model: metrics.model || null,
+      models: uniqueObservedModels,
+      provenance_available: true,
+      single_model_available: false,
+      release_eligible: false,
+    };
+  }
+
+  const modelRequest = run?.model_request || null;
+  if (
+    modelRequest
+    && modelRequest.source === "codex_cli_command"
+    && typeof modelRequest.model === "string"
+    && modelRequest.model.length > 0
+    && modelRequest.model === run?.requested_model
+  ) {
+    return {
+      source: "codex_cli_command",
+      model: modelRequest.model,
+      models: [modelRequest.model],
+      provenance_available: true,
+      single_model_available: true,
+      release_eligible: true,
+    };
+  }
+
+  if (run?.requested_model) {
+    return {
+      source: "requested",
+      model: run.requested_model,
+      models: [run.requested_model],
+      provenance_available: false,
+      single_model_available: false,
+      release_eligible: false,
+    };
+  }
+
+  return {
+    source: null,
+    model: null,
+    models: [],
+    provenance_available: false,
+    single_model_available: false,
+    release_eligible: false,
+  };
+}
+
+function modelSourceIsReleaseEligible(source) {
+  return RELEASE_ELIGIBLE_MODEL_SOURCES.has(source);
+}
+
 function measurementChecks(run) {
   const metrics = run.metrics || {};
   const unavailable = Array.isArray(metrics.unavailable_event_fields) ? metrics.unavailable_event_fields : [];
-  const models = Array.isArray(metrics.models) ? metrics.models : [];
-  const hasObservedModel = !unavailable.includes("model") && models.length > 0;
-  const hasSingleObservedModel = !unavailable.includes("single_model") && models.length === 1 && metrics.model === models[0];
+  const modelEvidence = modelEvidenceForRun(run);
 
   // multi_session: ALL sessions must have completed execution, available usage,
   // and a non-empty final text. A familiarization-session failure (session 1 down,
@@ -137,12 +229,12 @@ function measurementChecks(run) {
       passed: metrics.wall_ms > 0,
     },
     {
-      name: "observed JSONL model available",
-      passed: hasObservedModel,
+      name: "model provenance available",
+      passed: modelEvidence.provenance_available,
     },
     {
-      name: "single observed JSONL model available",
-      passed: hasSingleObservedModel,
+      name: "single model provenance available",
+      passed: modelEvidence.single_model_available,
     },
     {
       name: "final text available",
@@ -510,7 +602,7 @@ function modelProvenanceRows(scenarios) {
       ? scenario.models.join(", ")
       : "none";
     const runCount = Array.isArray(scenario.runs) ? scenario.runs.length : 0;
-    const releaseEvidence = scenario.model_source === "jsonl" ? "eligible" : "diagnostic-only";
+    const releaseEvidence = modelSourceIsReleaseEligible(scenario.model_source) ? "eligible" : "diagnostic-only";
     return tableRow([
       scenario.prompt_id || `${scenario.scale}/${scenario.task_family}/${scenario.condition}`,
       benchmarkTrackOf(scenario),
@@ -670,7 +762,7 @@ function renderLlmMarkdownReport(report) {
     `Runs: ${report.configuration.runs} measured, ${report.configuration.warmup_runs} warmup`,
     `Scenarios: ${report.summary.scenario_count}, complete pairs: ${report.summary.comparison_pair_count}, claimable scenarios: ${report.summary.claimable_scenario_count}`,
     "",
-    "Claim boundary: values below are real Codex JSONL usage and local wall-clock measurements for claimable runs only. `model_source=requested` means Codex JSONL did not expose an observed model field; those runs are diagnostic-only and cannot support release claims.",
+    "Claim boundary: values below are real Codex JSONL usage and local wall-clock measurements for claimable runs only. `model_source=jsonl` means the raw JSONL exposed one observed model. `model_source=codex_cli_command` means current Codex JSONL omitted model fields, but the measured `codex exec` command carried an explicit matching `--model` request; claims are scoped to that requested CLI model. Plain `model_source=requested` remains diagnostic-only.",
     "",
     "Tracks are reported separately. Wiki canonical routing and the code-graph code-evidence index are not merged into a single headline; a win on one track does not back a claim about the other.",
     "",
@@ -681,7 +773,7 @@ function renderLlmMarkdownReport(report) {
     "",
     "## Model Provenance And Claimability",
     "",
-    "Release-claimable model evidence requires `model_source=jsonl` and exactly one observed JSONL model. Requested-only model metadata is diagnostic-only even when the requested model is present.",
+    "Release-claimable model evidence requires exactly one model from JSONL provenance or an audited Codex CLI `--model` request when JSONL omits model fields. Requested-only model metadata without command provenance is diagnostic-only.",
     "",
     "| Scenario | Track | Corpus | Condition | Model Source | Observed Models | Claimable Runs | Release Evidence |",
     "| --- | --- | --- | --- | --- | --- | ---: | --- |",
@@ -698,6 +790,7 @@ module.exports = {
   DEFAULT_CACHE_DISCOUNT,
   benchmarkTrackOf,
   claimableRuns,
+  commandRequestsModel,
   completePairCount,
   corpusOf,
   corporaPresent,
@@ -708,6 +801,9 @@ module.exports = {
   medianMetrics,
   metricStats,
   metricFields,
+  modelEvidenceForRun,
+  modelRequestFromCommand,
+  modelSourceIsReleaseEligible,
   pairedScenarioGroups,
   passedRuns,
   renderLlmMarkdownReport,

@@ -332,11 +332,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -964,11 +964,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -1721,11 +1721,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -2617,11 +2617,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -3479,11 +3479,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -4214,11 +4214,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -4948,11 +4948,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {
@@ -5711,11 +5711,11 @@
                 "passed": true
               },
               {
-                "name": "observed JSONL model available",
+                "name": "model provenance available",
                 "passed": true
               },
               {
-                "name": "single observed JSONL model available",
+                "name": "single model provenance available",
                 "passed": true
               },
               {

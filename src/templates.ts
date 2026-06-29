@@ -209,7 +209,7 @@ export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-op
 - This project is in an initial planning state unless the canonical wiki says otherwise.
 - Project truth lives in \`wiki/canonical/\`, future work in \`wiki/roadmaps/\` and \`wiki/plans/\`, project decisions in \`wiki/decisions/\`, and sources in \`wiki/sources/\`.
 - Wiki operating rules and wiki operating decisions live in \`wiki/meta/\`.
-- At session start, read only this file and \`wiki/index.md\` first; read detailed files on demand.
+- At session start, read only this file and \`wiki/index.md\` first; use the index as a route table, open matching detail files directly, and avoid broad repo/wiki search unless no route matches.
 - Project canonical content language is not fixed by this bootstrap. The LLM should choose the language that best matches the user and project context.
 - Completed roadmaps/plans are removed after truth/rationale/evidence capture.
 - Update the wiki in the same turn when project-planning content changes.
@@ -242,7 +242,7 @@ export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-op
 ## Token Discipline
 
 - Codex, Claude Code, Cursor, and Gemini CLI session-start hooks inject only this file and \`wiki/index.md\`.
-- Detailed files are selected by the "read when" rules in \`wiki/index.md\`.
+- Detailed files are selected by \`wiki/index.md\`; use broad wiki search only when no route matches or evidence conflicts.
 - Long decision history is not injected wholesale; read only relevant Decision Packs or ADRs.
 `;
 
@@ -251,7 +251,7 @@ export const index = `${metadata("wiki-router", "short", "wiki/meta/wiki-ops-v1-
 
 ## How To Use This Index
 
-This file is a router, not a file to expand into every answer. Read only the files that are relevant to the current question.
+This is a route table, not a page inventory. Open the matching route first; use broad wiki search or file listing only when no route matches or evidence conflicts.
 
 ## Language Policy
 

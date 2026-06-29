@@ -399,6 +399,44 @@ test("codeIndexSnapshot returns stable normalized evidence rows", () => {
   }
 });
 
+test("code context pack keeps evidence-only edge matching for large indexes", () => {
+  const cwd = makeTmpDir("code-context-pack-large-edge-evidence-");
+  try {
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "src", "app.js"), "export function healthHandler() {}\n");
+    runCli(cwd, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src"]);
+
+    const database = openSnapshotDatabase(path.join(cwd, ".project-wiki", "code-evidence.sqlite"));
+    try {
+      const fresh = { stale: false, changed: 0, added: 0, deleted: 0 };
+      database.prepare(`
+        INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence)
+        VALUES ('call', 'function', 'plainSource', 'function', 'plainTarget', 'src/app.js', 1, 'rareEvidenceOnlyToken')
+      `).run();
+
+      const smallPack = codeContextPack(database, "rareEvidenceOnlyToken", { staleness: fresh });
+      assert.doesNotMatch(smallPack, /edge-(?:in|out) call plainSource -> plainTarget/);
+
+      const insertFile = database.prepare(`
+        INSERT INTO files (path, fts_rowid, language, profile, kind, bytes, lines, hash, mtime_ms, size)
+        VALUES (?, ?, 'javascript', 'typescript-ast', 'source', 1, 1, ?, 1, 1)
+      `);
+      for (let index = 0; index < SMALL_REPO_FILE_THRESHOLD; index += 1) {
+        insertFile.run(`src/generated-${index}.js`, -(index + 1), `dummy-${index}`);
+      }
+
+      const largePack = codeContextPack(database, "rareEvidenceOnlyToken", { staleness: fresh });
+      assert.match(largePack, /scale large/);
+      assert.match(largePack, /edge-out call plainSource -> plainTarget/);
+      assert.match(largePack, /edge-in call plainSource -> plainTarget/);
+    } finally {
+      database.close();
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("code search golden queries cover exact, prefix, FTS, and contains ranking paths", () => {
   const cwd = makeTmpDir("code-search-golden-");
   try {

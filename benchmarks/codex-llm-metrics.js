@@ -21,11 +21,26 @@ const { DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_D
 function isRealScenario(scenario) {
   return scenario && scenario.fixture_fingerprint && scenario.fixture_fingerprint.algorithm === "pinned-sha-git-clean";
 }
-const { DEFAULT_CACHE_DISCOUNT, claimableRuns, completePairCount, corporaPresent, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, passedRuns, renderLlmMarkdownReport, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("./lib/llm-report");
+const { DEFAULT_CACHE_DISCOUNT, claimableRuns, completePairCount, corporaPresent, evaluateTracksClaimGate, measurementStatus, medianMetrics, metricStats, modelEvidenceForRun, modelRequestFromCommand, passedRuns, renderLlmMarkdownReport, scenariosForTrack, scenariosForTrackCorpus, selectPairedScenarios, tracksPresent } = require("./lib/llm-report");
 
 const root = path.resolve(__dirname, "..");
 const cli = path.join(root, "dist", "init-project-wiki.js");
 const scenarioOrderStrategies = ["run-major-balanced", "scenario-major"];
+
+function codexSpawnOptions({ cwd, env, codexTimeoutMs }) {
+  return {
+    cwd,
+    env,
+    encoding: "utf8",
+    maxBuffer: 50 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(codexTimeoutMs > 0 ? { timeout: codexTimeoutMs, killSignal: "SIGTERM" } : {}),
+  };
+}
+
+function spawnTimedOut(result) {
+  return result.error && result.error.code === "ETIMEDOUT";
+}
 
 function fail(message) {
   console.error(message);
@@ -269,6 +284,77 @@ function safeName(value) {
   return value.replace(/[^a-z0-9_.-]+/gi, "-").replace(/^-+|-+$/g, "");
 }
 
+function markdownCompanionPath(reportPath) {
+  return path.extname(reportPath).toLowerCase() === ".json"
+    ? `${reportPath.slice(0, -".json".length)}.md`
+    : "";
+}
+
+function uniqueSnapshotPath(filePath) {
+  if (!fs.existsSync(filePath)) return filePath;
+  const ext = path.extname(filePath);
+  const stem = ext ? filePath.slice(0, -ext.length) : filePath;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${stem}-${index}${ext}`;
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+}
+
+function snapshotReuseSourceReport({ reportPath, out }) {
+  if (!fs.existsSync(reportPath)) fail(`--reuse-claimable-from report file not found: ${reportPath}`);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const stem = safeName(path.basename(reportPath, path.extname(reportPath))) || "report";
+  const snapshotDir = path.join(path.dirname(out), "reuse-snapshots", `${timestamp}-${stem}`);
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const snapshotPath = uniqueSnapshotPath(path.join(snapshotDir, path.basename(reportPath)));
+  fs.copyFileSync(reportPath, snapshotPath);
+
+  const markdownPath = markdownCompanionPath(reportPath);
+  let markdownSnapshotPath = "";
+  if (markdownPath && fs.existsSync(markdownPath)) {
+    markdownSnapshotPath = uniqueSnapshotPath(path.join(snapshotDir, path.basename(markdownPath)));
+    fs.copyFileSync(markdownPath, markdownSnapshotPath);
+  }
+
+  console.error(`[benchmark:reuse] snapshotted prior report ${reportPath} -> ${snapshotPath}`);
+  return {
+    original_report: reportPath,
+    snapshot_report: snapshotPath,
+    original_markdown: markdownPath && fs.existsSync(markdownPath) ? markdownPath : null,
+    snapshot_markdown: markdownSnapshotPath || null,
+  };
+}
+
+function snapshotOverwrittenReuseReports({ reportPaths, out }) {
+  const resolvedOut = path.resolve(out);
+  const snapshotsByOriginal = new Map();
+  const snapshots = [];
+  const effectiveReportPaths = [];
+
+  for (const reportPath of reportPaths || []) {
+    const resolvedReportPath = path.resolve(reportPath);
+    if (resolvedReportPath !== resolvedOut) {
+      effectiveReportPaths.push(resolvedReportPath);
+      continue;
+    }
+
+    let snapshot = snapshotsByOriginal.get(resolvedReportPath);
+    if (!snapshot) {
+      snapshot = snapshotReuseSourceReport({ reportPath: resolvedReportPath, out: resolvedOut });
+      snapshotsByOriginal.set(resolvedReportPath, snapshot);
+      snapshots.push(snapshot);
+    }
+    effectiveReportPaths.push(snapshot.snapshot_report);
+  }
+
+  return { reportPaths: effectiveReportPaths, snapshots };
+}
+
+function runPathStem(scenario, runIndex, attemptIndex = 1) {
+  const retrySuffix = attemptIndex > 1 ? `-attempt-${attemptIndex}` : "";
+  return `${safeName(scenario.prompt_id)}-run-${runIndex}${retrySuffix}`;
+}
+
 function summarizeJsonlSafely(content, timing) {
   try {
     return summarizeJsonl(content, timing);
@@ -280,9 +366,9 @@ function summarizeJsonlSafely(content, timing) {
   }
 }
 
-function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
-  const rawPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.jsonl`);
-  const stderrPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${runIndex}.stderr.txt`);
+function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress, codexTimeoutMs = 0, attemptIndex = 1 }) {
+  const rawPath = path.join(rawRoot, `${runPathStem(scenario, runIndex, attemptIndex)}.jsonl`);
+  const stderrPath = path.join(rawRoot, `${runPathStem(scenario, runIndex, attemptIndex)}.stderr.txt`);
   fs.mkdirSync(path.dirname(rawPath), { recursive: true });
 
   const command = scenario.command[0];
@@ -315,13 +401,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
   }
   const progressItem = progress ? progress.start({ scenario, runIndex }) : null;
   const started = process.hrtime.bigint();
-  const result = childProcess.spawnSync(command, args, {
-    cwd: scenario.cwd,
-    env: spawnEnv,
-    encoding: "utf8",
-    maxBuffer: 50 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = childProcess.spawnSync(command, args, codexSpawnOptions({ cwd: scenario.cwd, env: spawnEnv, codexTimeoutMs }));
   const wallMs = Number(process.hrtime.bigint() - started) / 1_000_000;
   fs.writeFileSync(rawPath, result.stdout || "");
   if (result.stderr) fs.writeFileSync(stderrPath, result.stderr);
@@ -360,10 +440,14 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
     run_index: runIndex,
     raw_jsonl_path: rawPath,
     requested_model: scenario.requested_model,
+    model_request: modelRequestFromCommand(scenario.command, scenario.requested_model),
     execution: {
       status: result.error || result.status !== 0 ? "failed" : "completed",
+      attempt: attemptIndex,
       exit_code: result.status,
+      signal: result.signal || null,
       error: result.error ? result.error.message : "",
+      timed_out: Boolean(spawnTimedOut(result)),
       stderr_path: result.stderr ? stderrPath : null,
     },
     metrics,
@@ -383,7 +467,7 @@ function runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv, progress }) {
 // metrics and raw JSONL paths are recorded in session_metrics so the session-2
 // metrics are reported separately from session 1. Both sessions are ephemeral with
 // no shared codex state, so the only amortization surface is the repo itself.
-function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs, progress }) {
+function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs, progress, codexTimeoutMs = 0, attemptIndex = 1 }) {
   if (!Array.isArray(scenario.sessions) || scenario.sessions.length === 0) {
     fail(`internal error: multi_session scenario ${scenario.prompt_id} has no sessions`);
   }
@@ -402,9 +486,9 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
   const sessionMetrics = [];
   let measuredSession = null;
   for (const [index, session] of scenario.sessions.entries()) {
-    const sessionTag = `${runIndex}-s${session.session_index}`;
-    const rawPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${sessionTag}.jsonl`);
-    const stderrPath = path.join(rawRoot, `${safeName(scenario.prompt_id)}-run-${sessionTag}.stderr.txt`);
+    const sessionTag = `${runPathStem(scenario, runIndex, attemptIndex)}-s${session.session_index}`;
+    const rawPath = path.join(rawRoot, `${sessionTag}.jsonl`);
+    const stderrPath = path.join(rawRoot, `${sessionTag}.stderr.txt`);
     fs.mkdirSync(path.dirname(rawPath), { recursive: true });
     const spawnEnv = sessionSpawnEnvs[index];
     if (!spawnEnv || typeof spawnEnv !== "object") {
@@ -414,13 +498,7 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
     const args = session.command.slice(1);
     const progressItem = progress ? progress.start({ scenario, runIndex, session }) : null;
     const started = process.hrtime.bigint();
-    const result = childProcess.spawnSync(command, args, {
-      cwd: scenario.cwd,
-      env: spawnEnv,
-      encoding: "utf8",
-      maxBuffer: 50 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const result = childProcess.spawnSync(command, args, codexSpawnOptions({ cwd: scenario.cwd, env: spawnEnv, codexTimeoutMs }));
     const wallMs = Number(process.hrtime.bigint() - started) / 1_000_000;
     fs.writeFileSync(rawPath, result.stdout || "");
     if (result.stderr) fs.writeFileSync(stderrPath, result.stderr);
@@ -429,10 +507,14 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
       session_index: session.session_index,
       role: session.role,
       raw_jsonl_path: rawPath,
+      command: session.command,
       execution: {
         status: result.error || result.status !== 0 ? "failed" : "completed",
+        attempt: attemptIndex,
         exit_code: result.status,
+        signal: result.signal || null,
         error: result.error ? result.error.message : "",
+        timed_out: Boolean(spawnTimedOut(result)),
         stderr_path: result.stderr ? stderrPath : null,
       },
       metrics,
@@ -481,6 +563,7 @@ function runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs
     // session_metrics and surfaced on the scenario.
     raw_jsonl_path: measuredSession.raw_jsonl_path,
     requested_model: scenario.requested_model,
+    model_request: modelRequestFromCommand(measuredSession.command, scenario.requested_model),
     execution: measuredSession.execution,
     metrics,
     correctness,
@@ -504,6 +587,34 @@ function executionFailureReason(run) {
     }
   }
   return "";
+}
+
+function executionAttemptSummary(run) {
+  return {
+    run_index: run.run_index,
+    raw_jsonl_path: run.raw_jsonl_path,
+    execution: run.execution,
+    session_metrics: Array.isArray(run.session_metrics)
+      ? run.session_metrics.map((session) => ({
+        session_index: session.session_index,
+        role: session.role,
+        raw_jsonl_path: session.raw_jsonl_path,
+        execution: session.execution,
+      }))
+      : undefined,
+  };
+}
+
+function attachPreviousExecutionAttempts(run, previousAttempts) {
+  if (!previousAttempts.length) return run;
+  return {
+    ...run,
+    execution: {
+      ...run.execution,
+      attempt_count: previousAttempts.length + 1,
+      previous_attempts: previousAttempts,
+    },
+  };
 }
 
 function requireCompletedExecutionForClaimableRun(scenario, run) {
@@ -1081,6 +1192,8 @@ function compatibilityIssuesForReuseReport(report, {
   warmupRuns,
   fullMatrix,
   minRunsForClaim,
+  codexTimeoutMs,
+  codexExecutionRetries,
   controlProfile,
   cacheDiscount,
   scenarioOrder,
@@ -1103,6 +1216,8 @@ function compatibilityIssuesForReuseReport(report, {
   if (configuration.warmup_runs !== warmupRuns) issues.push(`warmup_runs ${configuration.warmup_runs} differs from ${warmupRuns}`);
   if (Boolean(configuration.full_matrix) !== Boolean(fullMatrix)) issues.push("full_matrix differs");
   if (configuration.min_runs_for_claim !== minRunsForClaim) issues.push(`min_runs_for_claim ${configuration.min_runs_for_claim} differs from ${minRunsForClaim}`);
+  if ((configuration.codex_timeout_ms || 0) !== codexTimeoutMs) issues.push(`codex_timeout_ms ${configuration.codex_timeout_ms || 0} differs from ${codexTimeoutMs}`);
+  if ((configuration.codex_execution_retries || 0) !== codexExecutionRetries) issues.push(`codex_execution_retries ${configuration.codex_execution_retries || 0} differs from ${codexExecutionRetries}`);
   if (configuration.control_profile !== controlProfile) issues.push(`control_profile ${configuration.control_profile || "n/a"} differs from ${controlProfile}`);
   if (configuration.cache_discount !== cacheDiscount) issues.push(`cache_discount ${configuration.cache_discount} differs from ${cacheDiscount}`);
   if (configuration.scenario_order !== scenarioOrder) issues.push(`scenario_order ${configuration.scenario_order || "n/a"} differs from ${scenarioOrder}`);
@@ -1122,7 +1237,7 @@ function compatibilityIssuesForReuseReport(report, {
   return issues.map((issue) => `${reportPath}: ${issue}`);
 }
 
-function buildClaimableReuse({ reportPaths, manifest, selectedScenarios, scenarioRunPlan, authMode, runs, warmupRuns, fullMatrix, minRunsForClaim, controlProfile, cacheDiscount, scenarioOrder, requestedModel, selectedScales, selectedTasks, sourceRoot, requireClean }) {
+function buildClaimableReuse({ reportPaths, manifest, selectedScenarios, scenarioRunPlan, authMode, runs, warmupRuns, fullMatrix, minRunsForClaim, codexTimeoutMs, codexExecutionRetries, controlProfile, cacheDiscount, scenarioOrder, requestedModel, selectedScales, selectedTasks, sourceRoot, requireClean }) {
   const sourceReports = [...new Set(reportPaths || [])];
   const runsByKey = new Map();
   const expectedOrders = new Map();
@@ -1153,6 +1268,8 @@ function buildClaimableReuse({ reportPaths, manifest, selectedScenarios, scenari
       warmupRuns,
       fullMatrix,
       minRunsForClaim,
+      codexTimeoutMs,
+      codexExecutionRetries,
       controlProfile,
       cacheDiscount,
       scenarioOrder,
@@ -1298,10 +1415,11 @@ function scenarioPayloadPreview(scenario, runs, warmupRuns) {
   return preview;
 }
 
-function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection, claimableReuse = null }) {
+function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, codexTimeoutMs, codexExecutionRetries, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, droppedScenarios, diagnosticSelection, claimableReuse = null }) {
   const readableRoots = [...new Set(selectedScenarios.map((scenario) => scenario.cwd))].sort();
   const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
   const codexExecCount = remainingCodexExecCountForPlan({ scenarioRunPlan, claimableReuse });
+  const maxCodexExecCount = codexExecCount * (codexExecutionRetries + 1);
   return {
     schema_version: 1,
     benchmark_kind: "codex-actual-llm-payload-preview",
@@ -1326,6 +1444,8 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       max_scenarios: maxScenarios,
       full_matrix: fullMatrix,
       min_runs_for_claim: minRunsForClaim,
+      codex_timeout_ms: codexTimeoutMs,
+      codex_execution_retries: codexExecutionRetries,
       require_claimable: requireClaimable,
       require_clean: requireClean,
       requested_model: manifest.requested_model,
@@ -1341,6 +1461,7 @@ function buildPayloadPreview({ manifest, selectedScenarios, dryRun, runs, warmup
       selected_scenarios: selectedScenarios.length,
       total_manifest_scenarios: manifest.scenarios.length,
       expected_codex_exec_count: codexExecCount,
+      max_codex_exec_count: maxCodexExecCount,
       diagnostic_selection: diagnosticSelectionConfig(diagnosticSelection),
       reuse_claimable: claimableReuse ? claimableReuse.summary : { enabled: false, source_reports: [], reusable_run_count: 0, reused_run_count: 0, saved_codex_exec_count: 0, ignored_run_count: 0 },
       dropped_scenarios: droppedScenarios.length > 0 ? droppedScenarios.map((scenario) => scenario.prompt_id) : [],
@@ -1363,7 +1484,7 @@ function expectedTasksByTrack(selectedTasks) {
   return byTrack;
 }
 
-function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, claimableReuse = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
+function measuredReport({ manifest, selectedScenariosOverride = null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, codexTimeoutMs, codexExecutionRetries, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot = root, sanitizedPack = null, droppedScenarios = [], diagnosticSelection = null, claimableReuse = null, keepCodexHomes = false, autoPruneCodexHomes = true, autoPruneCodexHomesOlderThanDays = DEFAULT_AUTO_PRUNE_CODEX_HOME_AGE_DAYS, autoPruneRawRuns = true, autoPruneRawRunsOlderThanDays = DEFAULT_AUTO_PRUNE_RAW_RUN_AGE_DAYS, rawReportRoot = "" }) {
   requireMeasuredAuth(authMode);
   const resolvedRawReportRoot = rawReportRoot
     ? path.resolve(rawReportRoot)
@@ -1479,14 +1600,28 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
     return buildSpawnEnv({ sourceEnv: process.env, codexHome: scenarioHome, authMode, homeDir });
   }
 
-  function runScenarioOnce(scenario, runIndex) {
+  function runScenarioAttempt(scenario, runIndex, attemptIndex) {
+    const isolatedHomeRunIndex = attemptIndex > 1 ? `${runIndex}-attempt-${attemptIndex}` : runIndex;
     if (Array.isArray(scenario.sessions) && scenario.sessions.length > 0) {
-      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, runIndex), progress });
+      return runMultiSessionScenario(scenario, { rawRoot, runIndex, sessionSpawnEnvs: buildSessionSpawnEnvs(scenario, isolatedHomeRunIndex), progress, codexTimeoutMs, attemptIndex });
     }
     // Real-corpus scenarios use a per-scenario isolated home (with conditional MCP
     // injection); synthetic scenarios share the single auth-only isolated home.
-    const scenarioSpawnEnv = isRealScenario(scenario) ? buildRealScenarioSpawnEnv(scenario, runIndex) : spawnEnv;
-    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv, progress });
+    const scenarioSpawnEnv = isRealScenario(scenario) ? buildRealScenarioSpawnEnv(scenario, isolatedHomeRunIndex) : spawnEnv;
+    return runCodexScenario(scenario, { rawRoot, runIndex, spawnEnv: scenarioSpawnEnv, progress, codexTimeoutMs, attemptIndex });
+  }
+
+  function runScenarioWithRetries(scenario, runIndex) {
+    const previousAttempts = [];
+    for (let attemptIndex = 1; attemptIndex <= codexExecutionRetries + 1; attemptIndex += 1) {
+      const run = runScenarioAttempt(scenario, runIndex, attemptIndex);
+      const reason = executionFailureReason(run);
+      if (!reason || attemptIndex > codexExecutionRetries) {
+        return attachPreviousExecutionAttempts(run, previousAttempts);
+      }
+      previousAttempts.push(executionAttemptSummary(run));
+    }
+    fail("internal error: exhausted Codex execution retries without returning a run");
   }
 
   const scenarios = [];
@@ -1496,7 +1631,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
     for (const entry of scenarioRunPlan) {
       const reuseKey = measuredRunKey(entry.scenario.prompt_id, entry.run_index);
       const reusableRun = entry.phase === "measured" ? claimableReuse?.runsByKey.get(reuseKey) : null;
-      const run = reusableRun || runScenarioOnce(entry.scenario, entry.run_index);
+      const run = reusableRun || runScenarioWithRetries(entry.scenario, entry.run_index);
       run.execution_order = runExecutionOrder(entry, scenarioOrder);
       if (requireClaimable) requireCompletedExecutionForClaimableRun(entry.scenario, run);
       if (entry.phase === "measured") {
@@ -1508,8 +1643,9 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
       const measuredRuns = measuredRunsByPromptId.get(scenario.prompt_id) || [];
       const correctnessPassedRuns = passedRuns(measuredRuns);
       const actualClaimableRuns = claimableRuns(measuredRuns);
-      const observedModels = [...new Set(measuredRuns.flatMap((run) => run.metrics.models || []).filter(Boolean))];
-      const scenarioModels = observedModels.length > 0 ? observedModels : (scenario.requested_model ? [scenario.requested_model] : []);
+      const modelEvidence = measuredRuns.map(modelEvidenceForRun);
+      const modelSources = [...new Set(modelEvidence.map((evidence) => evidence.source).filter(Boolean))];
+      const scenarioModels = [...new Set(modelEvidence.flatMap((evidence) => evidence.models || []).filter(Boolean))];
       const scenarioModel = scenarioModels.length === 1 ? scenarioModels[0] : null;
       const isMultiSession = Array.isArray(scenario.sessions) && scenario.sessions.length > 0;
       const scenarioRecord = {
@@ -1538,7 +1674,7 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
         fixture_fingerprint: scenario.fixture_fingerprint,
         requested_model: scenario.requested_model,
         model: scenarioModel,
-        model_source: observedModels.length === 1 ? "jsonl" : (scenario.requested_model ? "requested" : null),
+        model_source: modelSources.length === 1 ? modelSources[0] : (modelSources.length > 1 ? "mixed" : null),
         models: scenarioModels,
         runs: measuredRuns,
         // Scenario medians/dispersion are sourced from each run's primary metrics. For
@@ -1640,6 +1776,8 @@ function measuredReport({ manifest, selectedScenariosOverride = null, authMode, 
       max_scenarios: maxScenarios,
       full_matrix: fullMatrix,
       min_runs_for_claim: minRunsForClaim,
+      codex_timeout_ms: codexTimeoutMs,
+      codex_execution_retries: codexExecutionRetries,
       require_claimable: requireClaimable,
       require_clean: requireClean,
       control_profile: manifest.control_profile,
@@ -1774,16 +1912,27 @@ function rescoreReport(reportPath) {
       // run record is self-contained (the Markdown renderer reads run.metrics.final_text
       // for display).  All other metric fields are unchanged.
       const metrics = run.metrics ? { ...run.metrics, final_text: finalText } : run.metrics;
-      const rescoredRun = { ...run, metrics, correctness };
+      const rescoredRun = {
+        ...run,
+        model_request: run.model_request || modelRequestFromCommand(scenario.command, scenario.requested_model),
+        metrics,
+        correctness,
+      };
       rescoredRun.measurement = measurementStatus(rescoredRun);
       return rescoredRun;
     });
 
     const correctnessPassedRuns = passedRuns(rescoredRuns);
     const actualClaimableRuns = claimableRuns(rescoredRuns);
+    const modelEvidence = rescoredRuns.map(modelEvidenceForRun);
+    const modelSources = [...new Set(modelEvidence.map((evidence) => evidence.source).filter(Boolean))];
+    const scenarioModels = [...new Set(modelEvidence.flatMap((evidence) => evidence.models || []).filter(Boolean))];
     return {
       ...scenario,
       runs: rescoredRuns,
+      model: scenarioModels.length === 1 ? scenarioModels[0] : null,
+      model_source: modelSources.length === 1 ? modelSources[0] : (modelSources.length > 1 ? "mixed" : null),
+      models: scenarioModels,
       passed_run_count: correctnessPassedRuns.length,
       claimable_run_count: actualClaimableRuns.length,
       correctness: rescoredRuns.map((run) => run.correctness),
@@ -1929,6 +2078,8 @@ function main() {
   const runs = positiveIntegerArgValue("--runs", 1);
   const warmupRuns = nonNegativeIntegerArgValue("--warmup-runs", 1);
   const minRunsForClaim = positiveIntegerArgValue("--min-runs-for-claim", 1);
+  const codexTimeoutMs = nonNegativeIntegerArgValue("--codex-timeout-ms", 0);
+  const codexExecutionRetries = nonNegativeIntegerArgValue("--codex-execution-retries", 0);
   const cacheDiscount = cacheDiscountArgValue("--cache-discount", DEFAULT_CACHE_DISCOUNT);
   const scenarioOrder = scenarioOrderArgValue("--scenario-order", "run-major-balanced");
   const fullMatrixScenarioCount = selectedScales.length * selectedTasks.length * conditions.length;
@@ -2042,8 +2193,11 @@ function main() {
     ? diagnosticSelection.selected_scenarios
     : selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
   const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
+  const reuseSource = (!dryRun && !payloadPreviewPath)
+    ? snapshotOverwrittenReuseReports({ reportPaths: reuseClaimableFrom, out })
+    : { reportPaths: reuseClaimableFrom, snapshots: [] };
   const claimableReuse = buildClaimableReuse({
-    reportPaths: reuseClaimableFrom,
+    reportPaths: reuseSource.reportPaths,
     manifest,
     selectedScenarios,
     scenarioRunPlan,
@@ -2052,6 +2206,8 @@ function main() {
     warmupRuns,
     fullMatrix,
     minRunsForClaim,
+    codexTimeoutMs,
+    codexExecutionRetries,
     controlProfile: manifest.control_profile,
     cacheDiscount,
     scenarioOrder,
@@ -2061,6 +2217,9 @@ function main() {
     sourceRoot,
     requireClean,
   });
+  if (reuseSource.snapshots.length > 0) {
+    claimableReuse.summary.source_report_snapshots = reuseSource.snapshots;
+  }
   if (payloadPreviewPath) {
     if (selectedScenarios.length === 0) {
       fail(diagnosticSelection ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");
@@ -2074,6 +2233,8 @@ function main() {
       maxScenarios,
       fullMatrix,
       minRunsForClaim,
+      codexTimeoutMs,
+      codexExecutionRetries,
       requireClaimable,
       requireClean,
       selectedScales,
@@ -2100,6 +2261,7 @@ function main() {
       sanitized_pack: sanitizedPack ? sanitizedPack.pack_root : null,
       scenario_count: selectedScenarios.length,
       expected_codex_exec_count: preview.configuration.expected_codex_exec_count,
+      max_codex_exec_count: preview.configuration.max_codex_exec_count,
       reused_run_count: preview.configuration.reuse_claimable.reused_run_count,
       saved_codex_exec_count: preview.configuration.reuse_claimable.saved_codex_exec_count,
     }, null, 2));
@@ -2107,7 +2269,7 @@ function main() {
   }
 
   if (!dryRun) {
-    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, claimableReuse, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
+    const report = measuredReport({ manifest, selectedScenariosOverride: diagnosticSelection ? selectedScenarios : null, authMode, runs, warmupRuns, maxScenarios, fullMatrix, minRunsForClaim, codexTimeoutMs, codexExecutionRetries, requireClaimable, requireClean, selectedScales, selectedTasks, cacheDiscount, scenarioOrder, sourceRoot, sanitizedPack, droppedScenarios, diagnosticSelection, claimableReuse, keepCodexHomes, autoPruneCodexHomes, autoPruneCodexHomesOlderThanDays, autoPruneRawRuns, autoPruneRawRunsOlderThanDays, rawReportRoot });
     writeJson(out, report);
     const markdownOut = markdown ? path.resolve(root, markdown) : "";
     if (markdownOut) writeText(markdownOut, renderLlmMarkdownReport(report));

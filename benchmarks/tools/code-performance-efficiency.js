@@ -337,6 +337,15 @@ function summarizeTimings(samples) {
   };
 }
 
+function summarizeCommandRuns(samples) {
+  const summary = summarizeTimings(samples.map((sample) => sample.elapsedMs));
+  const medianSample = samples
+    .slice()
+    .sort((left, right) => left.elapsedMs - right.elapsedMs)[Math.floor(samples.length / 2)];
+  if (medianSample?.phase_timings) summary.phase_timings = medianSample.phase_timings;
+  return summary;
+}
+
 function writeFixture(root, fileCount) {
   mkdirp(path.join(root, "src"));
   run("git", ["init", "-q"], { cwd: root });
@@ -772,9 +781,10 @@ function measureCommands(cwd, scale) {
   for (const [name, args] of Object.entries(commands)) {
     const samples = [];
     for (let runIndex = 0; runIndex < runsPerCommand; runIndex += 1) {
-      samples.push(run(process.execPath, [cliPath, ...args], { cwd }).elapsedMs);
+      const result = runCodeIndexCommand(cwd, args);
+      samples.push({ elapsedMs: result.elapsedMs, phase_timings: result.phase_timings });
     }
-    measured[name] = summarizeTimings(samples);
+    measured[name] = summarizeCommandRuns(samples);
   }
   return measured;
 }
@@ -790,9 +800,10 @@ function measureSampleCommands(cwd, sample) {
   for (const [name, args] of Object.entries(commands)) {
     const samples = [];
     for (let runIndex = 0; runIndex < runsPerCommand; runIndex += 1) {
-      samples.push(run(process.execPath, [cliPath, ...args], { cwd }).elapsedMs);
+      const result = runCodeIndexCommand(cwd, args);
+      samples.push({ elapsedMs: result.elapsedMs, phase_timings: result.phase_timings });
     }
-    measured[name] = summarizeTimings(samples);
+    measured[name] = summarizeCommandRuns(samples);
   }
   return measured;
 }
@@ -1339,6 +1350,9 @@ function markdownReport(result) {
     }
     for (const [command, timing] of Object.entries(scale.commands)) {
       lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
+      if (timing.phase_timings) {
+        lines.push(`  - ${command} phases: ${formatPhaseTimings(timing.phase_timings)}`);
+      }
     }
     lines.push("");
   }
@@ -1393,6 +1407,9 @@ function markdownReport(result) {
     lines.push(`- Current DB size: ${sample.current_db.file_bytes} bytes`);
     for (const [command, timing] of Object.entries(sample.commands)) {
       lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
+      if (timing.phase_timings) {
+        lines.push(`  - ${command} phases: ${formatPhaseTimings(timing.phase_timings)}`);
+      }
     }
     for (const [name, timing] of Object.entries(sample.query_groups)) {
       lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
@@ -1425,6 +1442,9 @@ function markdownReport(result) {
       lines.push(`- Current DB size: ${repo.current_db.file_bytes} bytes`);
       for (const [command, timing] of Object.entries(repo.commands)) {
         lines.push(`- ${command}: median ${timing.median_ms.toFixed(1)} ms, p95 ${timing.p95_ms.toFixed(1)} ms (${timing.runs} runs)`);
+        if (timing.phase_timings) {
+          lines.push(`  - ${command} phases: ${formatPhaseTimings(timing.phase_timings)}`);
+        }
       }
       for (const [name, timing] of Object.entries(repo.query_groups)) {
         lines.push(`- query ${name}: median ${timing.median_ms.toFixed(1)} ms, rows ${timing.rows} (${timing.runs} runs)`);
@@ -1461,11 +1481,17 @@ function markdownReport(result) {
 
 function formatPhaseTimings(phaseTimings) {
   const labels = {
+    require_existing_index_ms: "require-index",
+    open_database_ms: "open-db",
     discover_files_ms: "discover",
     compatibility_ms: "compat",
+    staleness_ms: "staleness",
     prepare_output_ms: "prepare",
     fingerprints_ms: "fingerprints",
     read_files_ms: "read",
+    query_ms: "query",
+    render_ms: "render",
+    close_database_ms: "close-db",
     sqlite_write_ms: "sqlite",
     native_helper_ms: "native",
     total_ms: "total",

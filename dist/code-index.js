@@ -648,16 +648,22 @@ function codeContextScaleLine(fileCount) {
         ? `scale small (${fileCount} indexed files < ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); direct reads are usually cheaper for simple lookups`
         : `scale large (${fileCount} indexed files >= ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); indexed traversal is useful for impact-style context`;
 }
-function structuralSignature(value) {
-    const signature = (0, shared_1.oneLine)(String(value ?? ""));
-    const bodyStart = signature.indexOf("{");
-    return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
-}
-function codeContextPack(database, query, options = {}) {
-    const normalized = query.trim();
-    if (!normalized)
-        return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
-    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, {
+function codeContextCollectorOptions(fileCount) {
+    if (fileCount < code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD) {
+        return {
+            edgeLimit: 8,
+            fileLimit: 8,
+            includeEdgeEvidenceMatches: false,
+            includeOwnerCodeowners: false,
+            includeRouteEdges: false,
+            importLimit: 12,
+            ownerSampleLimit: 3,
+            routeEdgeLimit: 0,
+            routeLimit: 8,
+            symbolLimit: 12,
+        };
+    }
+    return {
         edgeLimit: 30,
         fileLimit: 12,
         includeEdgeEvidenceMatches: true,
@@ -668,14 +674,26 @@ function codeContextPack(database, query, options = {}) {
         routeEdgeLimit: 0,
         routeLimit: 20,
         symbolLimit: 20,
-    });
-    const staleness = options.staleness ?? codeIndexStaleness(database);
+    };
+}
+function structuralSignature(value) {
+    const signature = (0, shared_1.oneLine)(String(value ?? ""));
+    const bodyStart = signature.indexOf("{");
+    return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
+}
+function codeContextPack(database, query, options = {}) {
+    const normalized = query.trim();
+    if (!normalized)
+        return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
     const coverage = (0, reports_1.evidenceCoverage)(database);
+    const indexedFileCount = Number(coverage.files ?? 0);
+    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, codeContextCollectorOptions(indexedFileCount));
+    const staleness = options.staleness ?? codeIndexStaleness(database);
     const staleLabel = staleness.stale
         ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`
         : "fresh";
     const lines = [
-        `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
+        `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(indexedFileCount)}.`,
         "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
     ];
     pushBudgetedSection(lines, "Files:", evidence.files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
