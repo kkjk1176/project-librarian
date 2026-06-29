@@ -284,6 +284,72 @@ function safeName(value) {
   return value.replace(/[^a-z0-9_.-]+/gi, "-").replace(/^-+|-+$/g, "");
 }
 
+function markdownCompanionPath(reportPath) {
+  return path.extname(reportPath).toLowerCase() === ".json"
+    ? `${reportPath.slice(0, -".json".length)}.md`
+    : "";
+}
+
+function uniqueSnapshotPath(filePath) {
+  if (!fs.existsSync(filePath)) return filePath;
+  const ext = path.extname(filePath);
+  const stem = ext ? filePath.slice(0, -ext.length) : filePath;
+  for (let index = 2; ; index += 1) {
+    const candidate = `${stem}-${index}${ext}`;
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+}
+
+function snapshotReuseSourceReport({ reportPath, out }) {
+  if (!fs.existsSync(reportPath)) fail(`--reuse-claimable-from report file not found: ${reportPath}`);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const stem = safeName(path.basename(reportPath, path.extname(reportPath))) || "report";
+  const snapshotDir = path.join(path.dirname(out), "reuse-snapshots", `${timestamp}-${stem}`);
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const snapshotPath = uniqueSnapshotPath(path.join(snapshotDir, path.basename(reportPath)));
+  fs.copyFileSync(reportPath, snapshotPath);
+
+  const markdownPath = markdownCompanionPath(reportPath);
+  let markdownSnapshotPath = "";
+  if (markdownPath && fs.existsSync(markdownPath)) {
+    markdownSnapshotPath = uniqueSnapshotPath(path.join(snapshotDir, path.basename(markdownPath)));
+    fs.copyFileSync(markdownPath, markdownSnapshotPath);
+  }
+
+  console.error(`[benchmark:reuse] snapshotted prior report ${reportPath} -> ${snapshotPath}`);
+  return {
+    original_report: reportPath,
+    snapshot_report: snapshotPath,
+    original_markdown: markdownPath && fs.existsSync(markdownPath) ? markdownPath : null,
+    snapshot_markdown: markdownSnapshotPath || null,
+  };
+}
+
+function snapshotOverwrittenReuseReports({ reportPaths, out }) {
+  const resolvedOut = path.resolve(out);
+  const snapshotsByOriginal = new Map();
+  const snapshots = [];
+  const effectiveReportPaths = [];
+
+  for (const reportPath of reportPaths || []) {
+    const resolvedReportPath = path.resolve(reportPath);
+    if (resolvedReportPath !== resolvedOut) {
+      effectiveReportPaths.push(resolvedReportPath);
+      continue;
+    }
+
+    let snapshot = snapshotsByOriginal.get(resolvedReportPath);
+    if (!snapshot) {
+      snapshot = snapshotReuseSourceReport({ reportPath: resolvedReportPath, out: resolvedOut });
+      snapshotsByOriginal.set(resolvedReportPath, snapshot);
+      snapshots.push(snapshot);
+    }
+    effectiveReportPaths.push(snapshot.snapshot_report);
+  }
+
+  return { reportPaths: effectiveReportPaths, snapshots };
+}
+
 function runPathStem(scenario, runIndex, attemptIndex = 1) {
   const retrySuffix = attemptIndex > 1 ? `-attempt-${attemptIndex}` : "";
   return `${safeName(scenario.prompt_id)}-run-${runIndex}${retrySuffix}`;
@@ -2127,8 +2193,11 @@ function main() {
     ? diagnosticSelection.selected_scenarios
     : selectPairedScenarios(manifest.scenarios, maxScenarios, conditions);
   const scenarioRunPlan = buildScenarioRunPlan({ selectedScenarios, runs, warmupRuns, scenarioOrder });
+  const reuseSource = (!dryRun && !payloadPreviewPath)
+    ? snapshotOverwrittenReuseReports({ reportPaths: reuseClaimableFrom, out })
+    : { reportPaths: reuseClaimableFrom, snapshots: [] };
   const claimableReuse = buildClaimableReuse({
-    reportPaths: reuseClaimableFrom,
+    reportPaths: reuseSource.reportPaths,
     manifest,
     selectedScenarios,
     scenarioRunPlan,
@@ -2148,6 +2217,9 @@ function main() {
     sourceRoot,
     requireClean,
   });
+  if (reuseSource.snapshots.length > 0) {
+    claimableReuse.summary.source_report_snapshots = reuseSource.snapshots;
+  }
   if (payloadPreviewPath) {
     if (selectedScenarios.length === 0) {
       fail(diagnosticSelection ? "no diagnostic scenarios selected" : "no complete with/without scenario pair selected");

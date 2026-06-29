@@ -104,15 +104,30 @@ See [Usage](docs/usage.md) for install scopes, runner paths, generated files, mi
 
 These numbers are maintainer release evidence, not a blanket promise. Every value is real Codex JSONL usage and local wall-clock time, measured hermetically against an `organic` control with no Project Librarian. The wiki-routing track and the code-graph track are measured separately; a win on one never backs a claim about the other.
 
-Wiki track, cost-weighted tokens vs control:
+Latest clean synthetic wiki-routing track release evidence: 2026-06-29, `gpt-5.5`, branch `perf/small-repo-code-evidence-safeguards` at `ae79390`, 42 scenarios, 21 with/without pairs, 3 measured runs plus 1 warmup each. The overall claim gate **passed**, and the claim ledger classified the report as release-claimable. A repair run reused 125 claimable measured runs from retained raw JSONL and remeasured the remaining failed slot. This is bounded to the synthetic wiki-routing track and listed task families; it is not a claim about code-graph behavior, real repositories, every agent surface, or every question shape.
 
-| Scale | decision_lookup | aggregation | multi_session |
-| --- | --- | --- | --- |
-| Small | 14.4% less | 81.0% more | 22.0% less |
-| Medium | 52.0% less | 19.0% less | 54.1% less |
-| Large | 71.1% less | 29.0% less | 71.8% less |
+Wiki track aggregate deltas vs control:
 
-Latest synthetic wiki-routing track release candidate: 2026-06-19, `gpt-5.5`, 42 scenarios, 3 measured runs plus 1 warmup each. The overall claim gate **passed**. This is bounded to the synthetic wiki-routing track and listed task families; it is not a claim about code-graph behavior, real repositories, every agent surface, or every question shape.
+| Scale | Cost-weighted tokens | Total tokens | Wall time | Commands | Tool output |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| All | 51.39% less | 48.67% less | 19.83% less | 18.40% less | 85.88% less |
+| Small | 21.59% less | 9.31% less | 13.91% less | 12.64% less | 43.89% less |
+| Medium | 45.95% less | 37.42% less | 11.88% less | 4.30% less | 69.12% less |
+| Large | 66.97% less | 69.87% less | 31.90% less | 35.19% less | 95.58% less |
+
+Wiki track task-family cost-weighted token deltas vs control:
+
+| Task family | Delta |
+| --- | ---: |
+| onboarding | 65.95% less |
+| decision_lookup | 48.46% less |
+| code_impact | 55.61% less |
+| release_policy | 58.22% less |
+| change_location | 29.59% less |
+| multi_session | 52.58% less |
+| aggregation | 42.53% less |
+
+Timing and command-count caveat: `code_impact`, `change_location`, and `aggregation` still had wall-time or command-count regressions in this report, even though token and output-byte metrics improved for every task family.
 
 Code-graph track, cost-weighted tokens vs control:
 

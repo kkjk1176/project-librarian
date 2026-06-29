@@ -721,6 +721,76 @@ test("--reuse-claimable-from reuses compatible raw JSONL without spawning measur
   }
 });
 
+test("--reuse-claimable-from snapshots prior report before overwriting the same output", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-snapshot-test-"));
+  const reportPath = path.join(tmp, "current.json");
+  const reportMarkdownPath = path.join(tmp, "current.md");
+  const correctText = [
+    "The latest benchmark evidence policy decision is 2026-06-10.",
+    "It is a benchmark metrics decision.",
+    "Sources: wiki/decisions/log.md and docs/notes/decision-log.md.",
+  ].join(" ");
+
+  const baseArgs = [
+    "--allow-codex-run",
+    "--auth-mode", "api-key",
+    "--raw-report-root", tmp,
+    "--scales", "small",
+    "--tasks", "decision_lookup",
+    "--max-scenarios", "2",
+    "--runs", "1",
+    "--warmup-runs", "0",
+    "--min-runs-for-claim", "1",
+    "--require-claimable",
+    "--model", "gpt-test",
+  ];
+
+  const first = runMetrics([
+    ...baseArgs,
+    "--out", reportPath,
+    "--markdown", reportMarkdownPath,
+  ], { env: fakeCodexEnv(tmp, { responseText: correctText }) });
+  assert.equal(first.status, 0, first.stderr);
+  assert(fs.existsSync(reportMarkdownPath), "first run should write the Markdown companion");
+
+  const resumed = runMetrics([
+    ...baseArgs,
+    "--reuse-claimable-from", reportPath,
+    "--out", reportPath,
+    "--markdown", path.join(tmp, "resumed.md"),
+  ], { env: fakeCodexEnv(tmp, { exitCode: 7 }) });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  assert.match(resumed.stderr, /\[benchmark:reuse\] snapshotted prior report .*current\.json -> .*reuse-snapshots/);
+  assert.match(resumed.stderr, /\[benchmark:progress\] plan .*codex_exec_total=0 .*reused_runs=2 .*saved_codex_exec=2/);
+  assert(!/\[benchmark:progress\] start /.test(resumed.stderr), "fully reused in-place repair should not spawn Codex scenarios");
+
+  const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+  assert.equal(report.claim_gate.status, "passed");
+  assert.equal(report.configuration.reuse_claimable.enabled, true);
+  assert.equal(report.configuration.reuse_claimable.reused_run_count, 2);
+  assert.equal(report.configuration.reuse_claimable.saved_codex_exec_count, 2);
+  assert.equal(report.configuration.reuse_claimable.source_reports.length, 1);
+
+  const [snapshotReportPath] = report.configuration.reuse_claimable.source_reports;
+  assert.notEqual(snapshotReportPath, reportPath);
+  assert.match(snapshotReportPath, /reuse-snapshots/);
+  assert(fs.existsSync(snapshotReportPath), "snapshot report should remain after output is overwritten");
+  assert(fs.existsSync(snapshotReportPath.replace(/\.json$/, ".md")), "Markdown companion should be snapshotted when present");
+
+  assert.deepEqual(report.configuration.reuse_claimable.source_report_snapshots, [{
+    original_report: reportPath,
+    snapshot_report: snapshotReportPath,
+    original_markdown: reportMarkdownPath,
+    snapshot_markdown: snapshotReportPath.replace(/\.json$/, ".md"),
+  }]);
+  for (const scenario of report.scenarios) {
+    const [run] = scenario.runs;
+    assert.equal(run.reused_from_report, snapshotReportPath);
+    assert.equal(run.measurement.status, "claimable");
+    assert.equal(run.correctness.status, "passed");
+  }
+});
+
 test("--reuse-claimable-from rehydrates multi-session runs from retained session raw JSONL", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-reuse-multi-session-test-"));
   const priorReportPath = path.join(tmp, "prior.json");
