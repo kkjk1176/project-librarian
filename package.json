@@ -97,6 +97,6 @@
     "@sengac/tree-sitter-typescript": "^0.25.15"
   },
   "devDependencies": {
-    "@types/node": "^22.20.0"
+    "@types/node": "^26.0.1"
   }
 }
