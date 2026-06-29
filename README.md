@@ -115,7 +115,7 @@ Wiki track aggregate deltas vs control:
 | Medium | 45.95% less | 37.42% less | 11.88% less | 4.30% less | 69.12% less |
 | Large | 66.97% less | 69.87% less | 31.90% less | 35.19% less | 95.58% less |
 
-Wiki track task-family cost-weighted token deltas vs control:
+Wiki track task-family cost-weighted token deltas vs control, all scales combined:
 
 | Task family | Delta |
 | --- | ---: |
@@ -126,6 +126,8 @@ Wiki track task-family cost-weighted token deltas vs control:
 | change_location | 29.59% less |
 | multi_session | 52.58% less |
 | aggregation | 42.53% less |
+
+Scale-specific values vary; see [Benchmark Evidence](docs/benchmarks.md#wiki-track) for the small/medium/large task-family matrix and the cells that still regress.
 
 Timing and command-count caveat: `code_impact`, `change_location`, and `aggregation` still had wall-time or command-count regressions in this report, even though token and output-byte metrics improved for every task family.
 

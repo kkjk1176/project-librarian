@@ -17,17 +17,33 @@ Generated benchmark reports under `benchmarks/reports/llm/` are ignored by defau
 
 ## Wiki Track
 
-Cost-weighted tokens, Project Librarian vs control:
+Latest clean synthetic wiki-track release evidence: 2026-06-29, `gpt-5.5`, branch `perf/small-repo-code-evidence-safeguards` at `ae79390`, 42 scenarios, 21 with/without pairs, 3 measured runs plus 1 warmup each. The overall claim gate **passed**, and the claim ledger classified the report as release-claimable. A repair run reused 125 claimable measured runs from retained raw JSONL and remeasured the remaining failed slot.
 
-| Scale | decision_lookup | aggregation | multi_session (2nd session) |
-| --- | --- | --- | --- |
-| Small | 14.4% less | 81.0% more | 22.0% less |
-| Medium | 52.0% less | 19.0% less | 54.1% less |
-| Large | 71.1% less | 29.0% less | 71.8% less |
+Cost-weighted tokens, Project Librarian vs control, all scales combined:
 
-Latest synthetic wiki-track release candidate: 2026-06-19, `gpt-5.5`, 42 scenarios, 3 measured runs plus 1 warmup each. The overall claim gate **passed**: 42/42 scenarios passed correctness, all 42 scenarios were claimable, and every corpus gate met the 3-run minimum.
+| Task family | Delta |
+| --- | ---: |
+| onboarding | 65.95% less |
+| decision_lookup | 48.46% less |
+| code_impact | 55.61% less |
+| release_policy | 58.22% less |
+| change_location | 29.59% less |
+| multi_session | 52.58% less |
+| aggregation | 42.53% less |
 
-The release claim is bounded to the synthetic wiki-routing track and the listed task families. It is not a claim about code-graph behavior, real repositories, every agent surface, or every question shape. Published boundaries remain visible: small `aggregation` still costs 81.0% more with the wiki, small `release_policy` costs 9.4% more in the full report, and `aggregation` stays slower at every scale even when token cost drops.
+Scale-specific cost-weighted token deltas:
+
+| Task family | Small | Medium | Large |
+| --- | ---: | ---: | ---: |
+| onboarding | 60.88% less | 65.53% less | 69.17% less |
+| decision_lookup | 19.18% less | 51.29% less | 60.12% less |
+| code_impact | 26.61% less | 54.81% less | 68.43% less |
+| release_policy | 30.23% less | 62.16% less | 67.26% less |
+| change_location | 7.79% less | 2.86% more | 57.27% less |
+| multi_session | 54.29% more | 35.32% less | 82.77% less |
+| aggregation | 7.66% less | 51.32% less | 49.17% less |
+
+The release claim is bounded to the synthetic wiki-routing track and the listed task families. It is not a claim about code-graph behavior, real repositories, every agent surface, or every question shape. Published boundaries remain visible: small `multi_session` and medium `change_location` cost more with the wiki in the cost-weighted token metric. `code_impact`, `change_location`, and `aggregation` also still have wall-time or command-count regressions in this report, even though token and output-byte metrics improved at the task-family aggregate level.
 
 ## Code-Graph Track
 
@@ -52,7 +68,11 @@ Repositories under test:
 
 Question types:
 
+- **onboarding** - summarize what the project is, current risks, and where to read next.
 - **decision_lookup** - find the latest project decision and its date from the wiki.
+- **code_impact** - identify likely impacted files or areas for a benchmark report schema change.
+- **release_policy** - find the checks required before publishing or making benchmark claims.
+- **change_location** - find where an agent should edit to implement the Codex LLM benchmark runner.
 - **aggregation** - answer a question whose facts are scattered across several pages and must be synthesized.
 - **multi_session** - a second session on the same project, measuring whether the durable wiki helps the next session, not just the first.
 - **impact_trace** - trace the full set of direct and indirect importers for a changing module.
