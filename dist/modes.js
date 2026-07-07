@@ -725,9 +725,10 @@ function migrationLegacyReferenceDiagnostics(files, corpus) {
         message: "new project truth must not link to or cite wiki_legacy*; migrate the meaning or keep unresolved material in migration inboxes",
     }));
 }
-function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
+function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)(), options = {}) {
     const diagnostics = [];
     const files = corpus.files;
+    const currentDate = options.today ?? workspace_1.today;
     const titles = new Map();
     for (const file of files) {
         const text = (0, wiki_corpus_1.wikiCorpusText)(corpus, file);
@@ -742,7 +743,7 @@ function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)())
         if (tldrExpected && !/##\s+TL;DR/.test(body)) {
             diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
         }
-        const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, workspace_1.today) : null;
+        const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, currentDate) : null;
         if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
             diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
         }
