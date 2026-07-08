@@ -9,7 +9,6 @@ const modes_1 = require("./modes");
 const migration_1 = require("./migration");
 const session_handoff_1 = require("./session-handoff");
 const templates_1 = require("./templates");
-const wiki_visualizer_1 = require("./wiki-visualizer");
 const workspace_1 = require("./workspace");
 function codeIndex() {
     return require("./code-index");
@@ -37,8 +36,6 @@ Options:
   --dry-run                        With install, preview copied skill files without writing them.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
   --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
-  --wiki-visualize                 Write a static wiki graph visualizer to .project-wiki/wiki-graph.html.
-  --wiki-visualize-out <path>      With --wiki-visualize, write under a custom .project-wiki/ path.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
@@ -145,10 +142,6 @@ if (args_1.issueCreateMode && args_1.issueDraftMode) {
 }
 if (args_1.codeReportSection && !args_1.codeReportMode) {
     console.error("--code-report-section is only supported with --code-report.");
-    process.exit(1);
-}
-if (args_1.wikiVisualizeOutput && !args_1.wikiVisualizeMode) {
-    console.error("--wiki-visualize-out is only supported with --wiki-visualize.");
     process.exit(1);
 }
 if (args_1.pruneCheckStrictMode && !args_1.pruneCheckMode) {
@@ -264,18 +257,6 @@ function runInitCommand() {
     if (args_1.wikiImpactMode) {
         (0, modes_1.runWikiImpactMode)();
         exitAfterStdoutDrain(0);
-        return;
-    }
-    if (args_1.wikiVisualizeMode) {
-        try {
-            const output = (0, wiki_visualizer_1.writeWikiVisualizer)(args_1.wikiVisualizeOutput);
-            console.log(`Project wiki visualizer written: ${output}`);
-            exitAfterStdoutDrain(0);
-        }
-        catch (error) {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(1);
-        }
         return;
     }
     if (args_1.queryTerm) {

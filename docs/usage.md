@@ -67,7 +67,6 @@ Wiki setup and maintenance:
 | Refresh generated routing before diagnostics | "Refresh Project Librarian routing and then run diagnostics." | `--doctor --fix` |
 | Search project wiki content | "Search the Project Librarian wiki for authentication decisions." | `--query "authentication decisions"` |
 | Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for decisions/release-policy." | `--wiki-impact "decisions/release-policy"` |
-| Generate a wiki graph visualizer | "Generate the Project Librarian wiki graph visualizer." | `--wiki-visualize` |
 | Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | Save a session handoff | "Save a Project Librarian session handoff for the current work." | `--handoff-save --goal "..." --state "..." --next "..."` |
 | Resume from a handoff | "Show the last Project Librarian session handoff." | `--handoff-show` |
@@ -158,10 +157,8 @@ MCP server registration is a preservation-first merge into `mcpServers` for Clau
 6. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
 7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
-9. Read-only wiki consumers share a concept read model that derives user-facing page types from paths and frontmatter without rewriting the canonical wiki schema.
-10. Wiki producers keep writing the canonical markdown/YAML schema, while read-only consumers such as diagnostics, MCP, and the visualizer use derived projections instead of mutating source documents.
-11. `--wiki-visualize` writes a static graph artifact to `.project-wiki/`, reusing the wiki graph and concept read model instead of introducing a database or server.
-12. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
+9. Wiki producers keep writing the canonical markdown/YAML schema, while read-only consumers such as diagnostics and MCP inspect source documents without mutating them.
+10. Diagnostics report broken links, duplicate routes, orphan pages, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
 Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:
 

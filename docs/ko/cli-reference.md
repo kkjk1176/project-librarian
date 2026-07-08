@@ -28,8 +28,6 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--migration-doctor` | migration-lint와 migration-quality-check를 함께 실행합니다. |
 | `--query <terms>` | 위키 경로, 메타데이터, 제목, 본문을 검색하고 크기 제한이 있는 answer-first 출력을 제공합니다. |
 | `--wiki-impact <page-or-term>` | 일치하는 페이지의 backlinks, `decision_ref` 인용, outgoing link, router depth를 보여줍니다. |
-| `--wiki-visualize` | `.project-wiki/wiki-graph.html`에 독립 실행형 정적 위키 그래프를 작성합니다. |
-| `--wiki-visualize-out <path>` | `--wiki-visualize`와 함께 사용해 `.project-wiki/` 아래 사용자 지정 저장소 상대 경로에 작성합니다. |
 | `--refresh-index` | 자동 발견된 위키 routing을 갱신합니다. |
 | `--capture-inbox --title <title> --content <content> --category <category>` | 후보 메모를 위키 inbox에 추가합니다. category 기본값은 `project-candidate`입니다. |
 | `--handoff-save --goal <goal> --state <state> --next <action>` | `.project-wiki/session/` 아래에 생성형 로컬 세션 핸드오프를 저장합니다. 필요하면 `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, `--last-failure-command`를 반복합니다. |

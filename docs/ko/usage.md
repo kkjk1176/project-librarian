@@ -69,7 +69,6 @@ npx project-librarian@latest install --scope project --agents all
 | 진단 전 라우팅 갱신 | "Project Librarian 라우팅을 갱신한 뒤 진단을 실행해줘." | `--doctor --fix` |
 | 위키 내용 검색 | "Project Librarian 위키에서 authentication decisions를 찾아줘." | `--query "authentication decisions"` |
 | 페이지 영향도 확인 | "decisions/release-policy의 Project Librarian 위키 영향도를 보여줘." | `--wiki-impact "decisions/release-policy"` |
-| 위키 그래프 생성 | "Project Librarian 위키 그래프 시각화를 생성해줘." | `--wiki-visualize` |
 | 후보 메모 저장 | "이 내용을 Project Librarian 후보 메모로 저장해줘: <내용>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | 세션 핸드오프 저장 | "현재 작업을 Project Librarian 세션 핸드오프로 저장해줘." | `--handoff-save --goal "..." --state "..." --next "..."` |
 | 핸드오프 보기 | "마지막 Project Librarian 세션 핸드오프를 보여줘." | `--handoff-show` |
@@ -160,9 +159,7 @@ MCP 서버 등록은 Claude Code(`.mcp.json`), Cursor(`.cursor/mcp.json`), Gemin
 6. `--refresh-index`는 새로 발견한 위키 페이지를 라우팅합니다. route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 나눕니다.
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`는 계획 업데이트에 쓸 코드 기반 근거를 노출합니다.
-9. 읽기 전용 위키 소비자는 경로와 frontmatter에서 사용자-facing page type을 파생하는 concept read model을 공유합니다.
-10. 위키 생산자는 canonical markdown/YAML 스키마를 계속 쓰고, 진단/MCP/시각화 같은 읽기 전용 소비자는 파생 projection을 사용합니다.
-11. `--wiki-visualize`는 데이터베이스나 서버 없이 `.project-wiki/` 아래 정적 그래프 산출물을 작성합니다.
-12. 진단은 깨진 링크, 중복 route, orphan page, stale page, TL;DR 누락, 근거 공백, 마이그레이션 정책 위반을 보고합니다.
+9. 위키 생산자는 canonical markdown/YAML 스키마를 계속 쓰고, 진단/MCP 같은 읽기 전용 소비자는 원본 문서를 변경하지 않고 검사합니다.
+10. 진단은 깨진 링크, 중복 route, orphan page, stale page, TL;DR 누락, 근거 공백, 마이그레이션 정책 위반을 보고합니다.
 
 마이그레이션은 검토 우선입니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 파일은 건너뛰며, 여러 성격이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.

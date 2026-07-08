@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.codeIndexMode = exports.acknowledgeSmallRepoMode = exports.noGitConfigMode = exports.reviewMigrationMode = exports.pruneCheckStrictMode = exports.pruneCheckMode = exports.captureInboxMode = exports.refreshIndexMode = exports.issueDraftMode = exports.issueCreateMode = exports.handoffVerification = exports.handoffStatusMode = exports.handoffState = exports.handoffShowMode = exports.handoffSaveMode = exports.handoffPromoteInboxMode = exports.handoffInjectionStatusMode = exports.handoffInjectionEnableMode = exports.handoffInjectionDisableMode = exports.handoffOpenQuestions = exports.handoffNextActions = exports.handoffLastSuccessCommand = exports.handoffLastFailureCommand = exports.handoffInputMode = exports.handoffGoal = exports.handoffDecisions = exports.handoffClearMode = exports.handoffBlocked = exports.glossaryMode = exports.fixMode = exports.doctorMode = exports.qualityCheckMode = exports.linkCheckMode = exports.migrationQualityCheckMode = exports.migrationLintMode = exports.migrationDoctorMode = exports.lintMode = exports.migrateMode = exports.invalidAgentTargets = exports.missingValueOptions = exports.unexpectedValueOptions = exports.unknownOptions = exports.args = exports.commandArgs = exports.command = exports.unknownCommand = exports.helpMode = exports.agentTargets = exports.parsedArgs = exports.rawArgs = void 0;
-exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiVisualizeOutput = exports.wikiVisualizeMode = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexMigrateMode = exports.codeIndexIncrementalMode = exports.codeIndexEngineMode = exports.codeIndexEngine = void 0;
+exports.issueDraftTitle = exports.issueBodyFile = exports.captureCategory = exports.captureContent = exports.captureTitle = exports.codeIndexScopes = exports.codeParser = exports.codeIndexOutput = exports.codeSearchSymbol = exports.codeReportSection = exports.codeQuerySql = exports.codeImpactTarget = exports.codeContextPackTarget = exports.wikiImpactTarget = exports.wikiImpactMode = exports.queryTerm = exports.codeSearchSymbolMode = exports.codeQueryMode = exports.codeImpactMode = exports.codeParserMode = exports.codeContextPackMode = exports.codeFilesMode = exports.codeStatusMode = exports.codeReportMode = exports.codeIndexHealthMode = exports.codeIndexFullMode = exports.codeIndexMigrateMode = exports.codeIndexIncrementalMode = exports.codeIndexEngineMode = exports.codeIndexEngine = void 0;
 exports.parseArgs = parseArgs;
 exports.argValue = argValue;
 exports.argValues = argValues;
@@ -72,10 +72,7 @@ const flagDefinitions = [
     { name: "--review-migration", value: "none", aliases: ["--semantic-migrate"] },
     { name: "--scope", value: "value" },
     { name: "--title", value: "value" },
-    { name: "--wiki-graph-html", value: "none" },
     { name: "--wiki-impact", value: "value" },
-    { name: "--wiki-visualize", value: "none" },
-    { name: "--wiki-visualize-out", value: "value" },
 ];
 function definitionNames(definition) {
     return [definition.name, ...(definition.aliases ?? [])];
@@ -254,8 +251,6 @@ function parseArgs(argv) {
             .filter((arg) => !knownFlags.has(arg)))),
         wikiImpactMode: hasFlag("--wiki-impact"),
         wikiImpactTarget: argValue("--wiki-impact"),
-        wikiVisualizeMode: hasFlag("--wiki-visualize") || hasFlag("--wiki-graph-html"),
-        wikiVisualizeOutput: argValue("--wiki-visualize-out"),
     };
 }
 exports.parsedArgs = parseArgs(exports.rawArgs);
@@ -330,8 +325,6 @@ function argValues(name) {
 exports.queryTerm = exports.parsedArgs.queryTerm;
 exports.wikiImpactMode = exports.parsedArgs.wikiImpactMode;
 exports.wikiImpactTarget = exports.parsedArgs.wikiImpactTarget;
-exports.wikiVisualizeMode = exports.parsedArgs.wikiVisualizeMode;
-exports.wikiVisualizeOutput = exports.parsedArgs.wikiVisualizeOutput;
 exports.codeContextPackTarget = exports.parsedArgs.codeContextPackTarget;
 exports.codeImpactTarget = exports.parsedArgs.codeImpactTarget;
 exports.codeQuerySql = exports.parsedArgs.codeQuerySql;
