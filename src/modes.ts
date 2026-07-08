@@ -24,6 +24,10 @@ interface PruneCheckOptions {
   today?: string;
 }
 
+interface QualityDiagnosticsOptions {
+  today?: string;
+}
+
 function isScopedAutoIndex(file: string): boolean {
   return /^wiki\/indexes\/auto-[a-z0-9-]+\.md$/.test(file);
 }
@@ -667,9 +671,10 @@ function migrationLegacyReferenceDiagnostics(files: string[], corpus?: WikiCorpu
     }));
 }
 
-export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): WikiDiagnostic[] {
+export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(), options: QualityDiagnosticsOptions = {}): WikiDiagnostic[] {
   const diagnostics: WikiDiagnostic[] = [];
   const files = corpus.files;
+  const currentDate = options.today ?? today;
   const titles = new Map<string, string[]>();
   for (const file of files) {
     const text = wikiCorpusText(corpus, file);
@@ -684,7 +689,7 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus())
     if (tldrExpected && !/##\s+TL;DR/.test(body)) {
       diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
     }
-    const reviewAge = updated ? staleReviewAge(updated, today) : null;
+    const reviewAge = updated ? staleReviewAge(updated, currentDate) : null;
     if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
       diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
     }

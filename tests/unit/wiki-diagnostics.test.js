@@ -64,7 +64,7 @@ test("quality diagnostics keep recent reviews quiet and flag old active canonica
     fileSet: new Set(pages.map((page) => page.path)),
     pages: pages.map((page) => ({ file: page.path, text: page.content })),
     textByFile: new Map(pages.map((page) => [page.path, page.content])),
-  });
+  }, { today: "2026-06-18" });
   const staleFiles = diagnostics
     .filter((diagnostic) => diagnostic.code === "stale-review")
     .map((diagnostic) => diagnostic.file);
