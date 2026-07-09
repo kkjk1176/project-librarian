@@ -867,8 +867,6 @@ const requiredReadmeCliReferenceOptions = [
   "--title",
   "--verification",
   "--wiki-impact",
-  "--wiki-visualize",
-  "--wiki-visualize-out",
 ];
 
 function readmeCliReferenceSection(readmeText) {

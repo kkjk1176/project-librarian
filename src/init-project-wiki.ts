@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexEngineMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMigrateMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiVisualizeMode, wikiVisualizeOutput } from "./args";
+import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexEngineMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMigrateMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode } from "./args";
 import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
 import { installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall } from "./install-skill";
@@ -9,7 +9,6 @@ import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "
 import { runHandoffClearMode, runHandoffInjectionDisableMode, runHandoffInjectionEnableMode, runHandoffInjectionStatusMode, runHandoffPromoteInboxMode, runHandoffSaveMode, runHandoffShowMode, runHandoffStatusMode } from "./session-handoff";
 import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
-import { writeWikiVisualizer } from "./wiki-visualizer";
 import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 type CodeIndexModule = typeof import("./code-index");
@@ -47,8 +46,6 @@ Options:
   --dry-run                        With install, preview copied skill files without writing them.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
   --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
-  --wiki-visualize                 Write a static wiki graph visualizer to .project-wiki/wiki-graph.html.
-  --wiki-visualize-out <path>      With --wiki-visualize, write under a custom .project-wiki/ path.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
@@ -170,11 +167,6 @@ if (codeReportSection && !codeReportMode) {
   process.exit(1);
 }
 
-if (wikiVisualizeOutput && !wikiVisualizeMode) {
-  console.error("--wiki-visualize-out is only supported with --wiki-visualize.");
-  process.exit(1);
-}
-
 if (pruneCheckStrictMode && !pruneCheckMode) {
   console.error("--prune-check-strict is only supported with --prune-check.");
   process.exit(1);
@@ -291,17 +283,6 @@ if (activeCodeMode) {
 if (wikiImpactMode) {
   runWikiImpactMode();
   exitAfterStdoutDrain(0);
-  return;
-}
-if (wikiVisualizeMode) {
-  try {
-    const output = writeWikiVisualizer(wikiVisualizeOutput);
-    console.log(`Project wiki visualizer written: ${output}`);
-    exitAfterStdoutDrain(0);
-  } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  }
   return;
 }
 if (queryTerm) {

@@ -77,7 +77,6 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 - **Small first read.** Startup hooks inject only `wiki/startup.md` and `wiki/index.md`; agents route to deeper pages on demand.
 - **One setup, four agents.** Codex, Claude Code, Cursor, and Gemini CLI share the same repo-local memory contract.
 - **Structured wiki writing.** New project content is classified before it is written or consolidated, so PRDs, policies, UX, data, APIs, QA, release, and operations notes do not collapse into one catch-all page.
-- **Inspectable wiki graph.** `--wiki-visualize` writes a static HTML graph under `.project-wiki/` without adding to startup context.
 - **Measured claims.** Benchmark wins and losses are published together, with claim boundaries attached.
 - **Local session handoff.** `--handoff-save` stores generated resume notes under `.project-wiki/session/` without turning execution memory into canonical project truth.
 - **Optional code evidence.** A SQLite index plus answer-shaped MCP tools answer expensive traversal questions on large repositories without adding an MCP SDK dependency.
