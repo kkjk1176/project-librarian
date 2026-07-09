@@ -79,6 +79,7 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 - **Structured wiki writing.** New project content is classified before it is written or consolidated, so PRDs, policies, UX, data, APIs, QA, release, and operations notes do not collapse into one catch-all page.
 - **Measured claims.** Benchmark wins and losses are published together, with claim boundaries attached.
 - **Local session handoff.** `--handoff-save` stores generated resume notes under `.project-wiki/session/` without turning execution memory into canonical project truth.
+- **Answer-shaped wiki topology.** `--wiki-impact`, `--wiki-neighborhood`, and topology diagnostics expose backlinks, decision evidence, router depth, and nearby read order without a graph visualizer.
 - **Optional code evidence.** A SQLite index plus answer-shaped MCP tools answer expensive traversal questions on large repositories without adding an MCP SDK dependency.
 - **Safe to re-run.** Bootstrap is idempotent and preservation-first.
 
@@ -93,6 +94,7 @@ Ask your agent for the outcome you want; the installed skill maps the request to
 | Migrate existing docs/wiki content | "Use Project Librarian to migrate the existing docs/wiki content." |
 | Run diagnostics | "Run Project Librarian diagnostics." |
 | Search project memory | "Search the Project Librarian wiki for authentication decisions." |
+| Find nearby wiki context | "Show Project Librarian wiki neighborhood for canonical/project-brief." |
 | Build code evidence | "Build Project Librarian code evidence for `src`." |
 | Inspect code impact | "Show Project Librarian impact evidence for `healthHandler`." |
 | Save a handoff | "Save a Project Librarian session handoff for the current work." |

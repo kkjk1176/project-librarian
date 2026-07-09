@@ -176,3 +176,118 @@ export function wikiImpactAnswer(pages: WikiPageInput[], term: string, graph: Wi
   }
   return finalizeWikiAnswer(lines.join("\n"));
 }
+
+const neighborhoodReadCap = 5;
+
+function pageClassPriority(file: string, scope: string): number {
+  if (file.startsWith("wiki/decisions/") || /decision/.test(scope)) return 90;
+  if (file.startsWith("wiki/sources/") || /source/.test(scope)) return 80;
+  if (file.startsWith("wiki/canonical/") || /canonical/.test(scope)) return 70;
+  if (file.startsWith("wiki/plans/") || /plan/.test(scope)) return 50;
+  if (file.startsWith("wiki/roadmaps/") || /roadmap/.test(scope)) return 40;
+  if (file.startsWith("wiki/meta/") || /wiki-meta/.test(scope)) return 30;
+  return 10;
+}
+
+function neighborhoodReasonRank(reason: string): number {
+  if (reason === "exact page match") return 1000;
+  if (reason === "title/path match") return 900;
+  if (reason === "decision_ref target") return 800;
+  if (reason === "decision_ref citation") return 760;
+  if (reason === "outgoing link target") return 700;
+  if (reason === "incoming link source") return 650;
+  return 0;
+}
+
+function isGeneratedScopedRouter(file: string): boolean {
+  return /^wiki\/indexes\/auto-[a-z0-9-]+(?:-\d+)?\.md$/.test(file);
+}
+
+function isRouterOnlySurface(file: string): boolean {
+  return file === wikiRouterRoot || file === "wiki/index.md" || isGeneratedScopedRouter(file);
+}
+
+interface NeighborhoodCandidate {
+  file: string;
+  reason: string;
+}
+
+function addNeighborhoodCandidate(candidates: Map<string, NeighborhoodCandidate>, file: string, reason: string, bestFile: string, graph: WikiGraph): void {
+  if (!graph.files.has(file) || (file !== bestFile && isRouterOnlySurface(file))) return;
+  const existing = candidates.get(file);
+  if (!existing || neighborhoodReasonRank(reason) > neighborhoodReasonRank(existing.reason)) {
+    candidates.set(file, { file, reason });
+  }
+}
+
+export function wikiNeighborhoodAnswer(pages: WikiPageInput[], term: string, graph: WikiGraph = buildWikiGraph(pages)): string {
+  const depths = wikiRouterDepths(graph);
+  const textByFile = new Map(pages.map((page) => [page.file, page.text]));
+  const lowered = term.toLowerCase();
+  const exactTarget = normalizeWikiLinkTarget("wiki/index.md", term.replace(/^\[\[|\]\]$/g, ""));
+  const matches = pages
+    .map((page) => ({ file: page.file, title: wikiTitleForFile(page.file, page.text), text: page.text }))
+    .filter((page) => page.file === exactTarget || page.file.toLowerCase().includes(lowered) || page.title.toLowerCase().includes(lowered))
+    .sort((a, b) => {
+      const exactDelta = Number(b.file === exactTarget) - Number(a.file === exactTarget);
+      if (exactDelta !== 0) return exactDelta;
+      const titleDelta = Number(b.title.toLowerCase().includes(lowered)) - Number(a.title.toLowerCase().includes(lowered));
+      if (titleDelta !== 0) return titleDelta;
+      const aScope = metadataValue(a.text, "scope");
+      const bScope = metadataValue(b.text, "scope");
+      return pageClassPriority(b.file, bScope) - pageClassPriority(a.file, aScope) || a.file.localeCompare(b.file);
+    });
+  if (matches.length === 0) return `Wiki neighborhood "${term}": no matching wiki pages.`;
+
+  const best = matches[0] as { file: string; title: string; text: string };
+  const candidates = new Map<string, NeighborhoodCandidate>();
+  addNeighborhoodCandidate(candidates, best.file, best.file === exactTarget ? "exact page match" : "title/path match", best.file, graph);
+  const outgoingRef = graph.outgoingDecisionRef.get(best.file);
+  if (outgoingRef) addNeighborhoodCandidate(candidates, outgoingRef, "decision_ref target", best.file, graph);
+  for (const source of graph.incomingDecisionRefs.get(best.file) ?? []) addNeighborhoodCandidate(candidates, source, "decision_ref citation", best.file, graph);
+  for (const link of graph.outgoingLinks.get(best.file) ?? []) addNeighborhoodCandidate(candidates, link.normalizedTarget, "outgoing link target", best.file, graph);
+  for (const link of graph.incomingLinks.get(best.file) ?? []) addNeighborhoodCandidate(candidates, link.file, "incoming link source", best.file, graph);
+
+  const sorted = Array.from(candidates.values()).sort((a, b) => {
+    const reasonDelta = neighborhoodReasonRank(b.reason) - neighborhoodReasonRank(a.reason);
+    if (reasonDelta !== 0) return reasonDelta;
+    const aText = textByFile.get(a.file) ?? "";
+    const bText = textByFile.get(b.file) ?? "";
+    const classDelta = pageClassPriority(b.file, metadataValue(bText, "scope")) - pageClassPriority(a.file, metadataValue(aText, "scope"));
+    if (classDelta !== 0) return classDelta;
+    const aDepth = depths.get(a.file) ?? Number.POSITIVE_INFINITY;
+    const bDepth = depths.get(b.file) ?? Number.POSITIVE_INFINITY;
+    return aDepth - bDepth || a.file.localeCompare(b.file);
+  }).slice(0, neighborhoodReadCap);
+
+  const lines = [
+    `Wiki neighborhood "${term}": best match ${best.file} — ${best.title}; read ${sorted.length} nearby page${sorted.length === 1 ? "" : "s"}.`,
+    "",
+    "Read order:",
+  ];
+  sorted.forEach((candidate, index) => {
+    const text = textByFile.get(candidate.file) ?? "";
+    const depth = depths.get(candidate.file);
+    const status = metadataValue(text, "status") || "unknown";
+    const scope = metadataValue(text, "scope") || "unknown-scope";
+    lines.push(`${index + 1}. ${candidate.file} — ${candidate.reason}; ${depth === undefined ? "router unreachable" : `router depth ${depth}`}; ${status} ${scope}`);
+  });
+
+  const incoming = uniqueSorted((graph.incomingLinks.get(best.file) ?? [])
+    .map((link) => link.file)
+    .filter((source) => source !== best.file && graph.files.has(source)));
+  const outgoing = uniqueSorted((graph.outgoingLinks.get(best.file) ?? [])
+    .map((link) => link.normalizedTarget)
+    .filter((target) => target !== best.file && graph.files.has(target)));
+  const incomingRefs = uniqueSorted((graph.incomingDecisionRefs.get(best.file) ?? [])
+    .filter((source) => source !== best.file && graph.files.has(source)));
+  const reviewTrigger = metadataValue(best.text, "review_trigger");
+  lines.push("");
+  lines.push("Why:");
+  lines.push(`- incoming links: ${sampled(incoming, impactListCap)}`);
+  lines.push(`- outgoing links: ${sampled(outgoing, impactListCap)}`);
+  lines.push(`- decision_ref: ${outgoingRef && graph.files.has(outgoingRef) ? outgoingRef : "none"}`);
+  lines.push(`- decision_ref citations: ${sampled(incomingRefs, impactListCap)}`);
+  if (reviewTrigger) lines.push(`- review_trigger: ${reviewTrigger}`);
+  return finalizeWikiAnswer(lines.join("\n"));
+}

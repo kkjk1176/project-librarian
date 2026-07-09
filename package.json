@@ -1,6 +1,6 @@
 {
   "name": "project-librarian",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "Create and maintain compact project context for humans and LLM coding agents.",
   "license": "MIT",
   "type": "commonjs",

@@ -532,6 +532,11 @@ node "$CLI" --wiki-impact canonical/project-brief > wiki-impact.log
 grep -q "Wiki impact \"canonical/project-brief\":" wiki-impact.log
 grep -q "incoming links" wiki-impact.log
 grep -q "router: reachable at depth" wiki-impact.log
+# Wiki neighborhood: bounded nearby read order without writing graph artifacts.
+node "$CLI" --wiki-neighborhood canonical/project-brief > wiki-neighborhood.log
+grep -q "Wiki neighborhood \"canonical/project-brief\":" wiki-neighborhood.log
+grep -q "Read order:" wiki-neighborhood.log
+grep -q "wiki/canonical/project-brief.md" wiki-neighborhood.log
 # Router reachability (A1 promoted to the real wiki): a linked-but-disconnected
 # island warns router-unreachable while link-check still passes (warn severity).
 cat > wiki/canonical/island-a.md <<'EOF'

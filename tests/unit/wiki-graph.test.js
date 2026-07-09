@@ -122,6 +122,63 @@ test("wikiImpactAnswer is answer-first and bounded for unknown terms", () => {
   assert.equal(answer, 'Wiki impact "no-such-page": no matching wiki pages.');
 });
 
+test("wikiNeighborhoodAnswer ranks exact page, decision, source, and adjacent canonical pages", () => {
+  const pages = [
+    { file: "wiki/startup.md", text: "- [[index]]\n" },
+    { file: "wiki/index.md", text: "- [[canonical/topic]]\n- [[indexes/auto-meta]]\n" },
+    { file: "wiki/indexes/auto-meta.md", text: "- [[meta/topic-routing]]\n" },
+    {
+      file: "wiki/canonical/topic.md",
+      text: [
+        "---",
+        "status: active",
+        "scope: project-canonical",
+        "read_budget: medium",
+        "decision_ref: wiki/decisions/topic.md",
+        "review_trigger: topic truth changes",
+        "---",
+        "",
+        "# Topic Contract",
+        "",
+        "## TL;DR",
+        "",
+        "- Topic truth summary.",
+        "",
+        "- [[sources/topic-research]]",
+        "- [[canonical/adjacent-topic]]",
+      ].join("\n"),
+    },
+    { file: "wiki/decisions/topic.md", text: "---\nstatus: active\nscope: project-decisions\n---\n\n# Topic Decision\n" },
+    { file: "wiki/sources/topic-research.md", text: "---\nstatus: active\nscope: project-sources\n---\n\n# Topic Research\n" },
+    { file: "wiki/canonical/adjacent-topic.md", text: "---\nstatus: active\nscope: project-canonical\n---\n\n# Adjacent Topic\n" },
+    { file: "wiki/plans/topic-plan.md", text: "---\nstatus: active\nscope: project-plan\n---\n\n# Topic Plan\n\n- [[canonical/topic]]\n" },
+    { file: "wiki/meta/topic-routing.md", text: "---\nstatus: active\nscope: wiki-meta\n---\n\n# Topic Routing\n" },
+  ];
+  const answer = wikiGraph.wikiNeighborhoodAnswer(pages, "canonical/topic");
+  assert.match(answer.split(/\r?\n/)[0], /^Wiki neighborhood "canonical\/topic": best match wiki\/canonical\/topic\.md — Topic Contract; read 5 nearby pages\./);
+  assert.match(answer, /1\. wiki\/canonical\/topic\.md — exact page match; router depth 2; active project-canonical/);
+  assert.match(answer, /2\. wiki\/decisions\/topic\.md — decision_ref target; router unreachable; active project-decisions/);
+  assert.match(answer, /3\. wiki\/sources\/topic-research\.md — outgoing link target; router depth 3; active project-sources/);
+  assert.match(answer, /4\. wiki\/canonical\/adjacent-topic\.md — outgoing link target; router depth 3; active project-canonical/);
+  assert.match(answer, /5\. wiki\/plans\/topic-plan\.md — incoming link source; router unreachable; active project-plan/);
+  assert.doesNotMatch(answer, /wiki\/indexes\/auto-meta\.md/);
+  assert.match(answer, /Why:/);
+  assert.match(answer, /review_trigger: topic truth changes/);
+});
+
+test("wikiNeighborhoodAnswer uses title matches and stays bounded for no-match terms", () => {
+  const pages = [
+    { file: "wiki/startup.md", text: "- [[index]]\n" },
+    { file: "wiki/index.md", text: "- [[canonical/topic]]\n" },
+    { file: "wiki/canonical/topic.md", text: "# Topic Contract\n" },
+  ];
+  const titleAnswer = wikiGraph.wikiNeighborhoodAnswer(pages, "Topic Contract");
+  assert.match(titleAnswer, /^Wiki neighborhood "Topic Contract": best match wiki\/canonical\/topic\.md/);
+
+  const missing = wikiGraph.wikiNeighborhoodAnswer(pages, "no-such-topic");
+  assert.equal(missing, 'Wiki neighborhood "no-such-topic": no matching wiki pages.');
+});
+
 test("firstTldrBullet extracts the first TL;DR bullet and stays empty without one", () => {
   const withTldr = "---\nstatus: active\n---\n\n# Page\n\n## TL;DR\n\n- First summary bullet.\n- Second bullet.\n\n## Next\n";
   assert.equal(wikiFiles.firstTldrBullet(withTldr), "First summary bullet.");
@@ -313,6 +370,72 @@ test("wiki-impact without a value fails before writing anything", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing value for option: --wiki-impact/);
     assert.equal(fs.existsSync(path.join(root, "wiki")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// --wiki-neighborhood read-order envelope
+// ---------------------------------------------------------------------------
+
+test("wiki-neighborhood reports read order and stays read-only", () => {
+  const root = makeTmpDir("wg-neighborhood-");
+  try {
+    runCli(root);
+    fs.appendFileSync(path.join(root, "wiki", "index.md"), "\n- [[canonical/neighborhood-target]]\n");
+    writePage(root, "wiki/canonical/neighborhood-target.md", [
+      "---",
+      "status: active",
+      "scope: project-canonical",
+      "read_budget: medium",
+      "decision_ref: wiki/decisions/neighborhood-choice.md",
+      "review_trigger: neighborhood fixture changes",
+      "---",
+      "",
+      "# Neighborhood Target",
+      "",
+      "## TL;DR",
+      "",
+      "- Neighborhood fixture summary.",
+      "",
+      "- [[sources/neighborhood-source]]",
+      "",
+    ].join("\n"));
+    writePage(root, "wiki/decisions/neighborhood-choice.md", "# Neighborhood Choice\n");
+    writePage(root, "wiki/sources/neighborhood-source.md", "# Neighborhood Source\n");
+    const before = fs.readdirSync(root).sort();
+    const output = runCli(root, ["--wiki-neighborhood", "canonical/neighborhood-target"]);
+    const after = fs.readdirSync(root).sort();
+    assert.deepEqual(after, before);
+    assert.match(output.split(/\r?\n/)[0], /^Wiki neighborhood "canonical\/neighborhood-target": best match wiki\/canonical\/neighborhood-target\.md/);
+    assert.match(output, /Read order:/);
+    assert.match(output, /wiki\/decisions\/neighborhood-choice\.md — decision_ref target/);
+    assert.match(output, /wiki\/sources\/neighborhood-source\.md — outgoing link target/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("wiki-neighborhood without a value fails before writing anything", () => {
+  const root = makeTmpDir("wg-neighborhood-missing-");
+  try {
+    const result = runCliResult(root, ["--wiki-neighborhood"]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing value for option: --wiki-neighborhood/);
+    assert.equal(fs.existsSync(path.join(root, "wiki")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("wiki-neighborhood no-match terms answer-first and exit 0", () => {
+  const root = makeTmpDir("wg-neighborhood-none-");
+  try {
+    runCli(root);
+    const result = runCliResult(root, ["--wiki-neighborhood", "zzz-not-a-page"]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /^Wiki neighborhood "zzz-not-a-page": no matching wiki pages\./);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

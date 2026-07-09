@@ -150,6 +150,23 @@ test("parseArgs handles strict prune-check mode", () => {
   assert.equal(parsed.pruneCheckStrictMode, true);
 });
 
+test("parseArgs treats removed wiki visualizer flags as unknown", () => {
+  const visualize = parseArgs(["--wiki-visualize"]);
+  assert.deepEqual(visualize.unknownOptions, ["--wiki-visualize"]);
+
+  const graphHtml = parseArgs(["--wiki-graph-html"]);
+  assert.deepEqual(graphHtml.unknownOptions, ["--wiki-graph-html"]);
+
+  const output = parseArgs(["--wiki-visualize-out", ".project-wiki/graph.html"]);
+  assert.deepEqual(output.unknownOptions, ["--wiki-visualize-out"]);
+});
+
+test("parseArgs handles wiki neighborhood mode", () => {
+  const parsed = parseArgs(["--wiki-neighborhood", "canonical/project-brief"]);
+  assert.equal(parsed.wikiNeighborhoodMode, true);
+  assert.equal(parsed.wikiNeighborhoodTarget, "canonical/project-brief");
+});
+
 test("parseArgs handles session handoff modes and fields", () => {
   const parsed = parseArgs([
     "--handoff-save",
