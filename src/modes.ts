@@ -4,15 +4,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentSurface } from "./agent-surfaces";
 import { agentSurfaceRequiredFiles } from "./agent-surfaces";
-import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm, wikiImpactTarget } from "./args";
+import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraftTitle, noGitConfigMode, queryTerm, wikiImpactTarget, wikiNeighborhoodTarget } from "./args";
 import type { CursorHookConfig, FileStatus, HookConfig, MetadataSummary, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
 import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
-import { finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
+import { finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
-import { staleReviewAge } from "./wiki-diagnostics";
+import { collectTopologyDiagnostics, staleReviewAge } from "./wiki-diagnostics";
 
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
@@ -278,6 +278,15 @@ export function runWikiImpactMode(): void {
   }
   const corpus = loadWikiCorpus();
   console.log(wikiImpactAnswer(corpus.pages, wikiImpactTarget.trim(), wikiCorpusGraph(corpus)));
+}
+
+export function runWikiNeighborhoodMode(): void {
+  if (!wikiNeighborhoodTarget.trim()) {
+    console.error("missing wiki neighborhood target: use --wiki-neighborhood \"page-or-term\"");
+    process.exit(1);
+  }
+  const corpus = loadWikiCorpus();
+  console.log(wikiNeighborhoodAnswer(corpus.pages, wikiNeighborhoodTarget.trim(), wikiCorpusGraph(corpus)));
 }
 
 export function projectCandidatesContent(): string {
@@ -643,6 +652,7 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
       }
     }
   }
+  diagnostics.push(...collectTopologyDiagnostics(corpus));
   return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 

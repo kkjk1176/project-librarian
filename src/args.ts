@@ -81,6 +81,8 @@ export interface ParsedArgs {
   unknownOptions: string[];
   wikiImpactMode: boolean;
   wikiImpactTarget: string;
+  wikiNeighborhoodMode: boolean;
+  wikiNeighborhoodTarget: string;
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
@@ -159,6 +161,7 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--scope", value: "value" },
   { name: "--title", value: "value" },
   { name: "--wiki-impact", value: "value" },
+  { name: "--wiki-neighborhood", value: "value" },
 ];
 
 function definitionNames(definition: FlagDefinition): string[] {
@@ -245,6 +248,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const codeContextPackTarget = argValueFromAny("--code-context-pack");
   const codeQuerySql = argValueFromAny("--code-query");
   const codeSearchSymbol = argValueFromAny("--code-search-symbol");
+  const wikiNeighborhoodTarget = argValue("--wiki-neighborhood");
   const parsedAgentTargets = parseAgentSurfaceValues(argValues("--agents"));
   const handoffInputMode = [
     "--blocked",
@@ -343,6 +347,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       .filter((arg) => !knownFlags.has(arg)))),
     wikiImpactMode: hasFlag("--wiki-impact"),
     wikiImpactTarget: argValue("--wiki-impact"),
+    wikiNeighborhoodMode: hasFlag("--wiki-neighborhood"),
+    wikiNeighborhoodTarget,
   };
 }
 
@@ -421,6 +427,8 @@ export function argValues(name: string): string[] {
 export const queryTerm = parsedArgs.queryTerm;
 export const wikiImpactMode = parsedArgs.wikiImpactMode;
 export const wikiImpactTarget = parsedArgs.wikiImpactTarget;
+export const wikiNeighborhoodMode = parsedArgs.wikiNeighborhoodMode;
+export const wikiNeighborhoodTarget = parsedArgs.wikiNeighborhoodTarget;
 export const codeContextPackTarget = parsedArgs.codeContextPackTarget;
 export const codeImpactTarget = parsedArgs.codeImpactTarget;
 export const codeQuerySql = parsedArgs.codeQuerySql;

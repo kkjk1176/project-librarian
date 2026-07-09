@@ -36,6 +36,8 @@ Options:
   --dry-run                        With install, preview copied skill files without writing them.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
   --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
+  --wiki-neighborhood <page-or-term>
+                                    Show a bounded read order for nearby wiki pages.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
   --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
@@ -256,6 +258,11 @@ function runInitCommand() {
     }
     if (args_1.wikiImpactMode) {
         (0, modes_1.runWikiImpactMode)();
+        exitAfterStdoutDrain(0);
+        return;
+    }
+    if (args_1.wikiNeighborhoodMode) {
+        (0, modes_1.runWikiNeighborhoodMode)();
         exitAfterStdoutDrain(0);
         return;
     }

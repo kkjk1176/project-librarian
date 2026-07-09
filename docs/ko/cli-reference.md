@@ -19,7 +19,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `update --agents <list>` | 기존 설정과 기존 프로젝트 범위 스킬 복사본을 갱신합니다. 표면은 `codex`, `claude`, `cursor`, `gemini`, `all` 중 하나입니다. |
 | `--migrate`, `--adopt-existing` | 기존 위키를 `wiki_legacy*`로 보존하고 migration inbox, unit-map, split-plan, coverage 검토 파일을 만듭니다. |
 | `--lint` | 파일을 수정하지 않고 생성된 설정을 검증합니다. |
-| `--link-check` | 깨진 위키 링크, 중복 route, orphan page, 시작 라우터 depth 예산 안에서 닿지 않는 페이지를 보고합니다. |
+| `--link-check` | 깨진 위키 링크, 중복 route, orphan page, router reachability, warning-only topology 신호를 보고합니다. |
 | `--quality-check` | 오래되었거나 충돌하거나 품질이 낮은 위키 문서 신호를 보고합니다. |
 | `--doctor` | lint, link-check, quality-check를 함께 실행합니다. |
 | `--doctor --fix` | 진단 전에 생성된 index routing을 안전하게 갱신합니다. `--fix`는 `--doctor`의 modifier입니다. |
@@ -28,6 +28,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--migration-doctor` | migration-lint와 migration-quality-check를 함께 실행합니다. |
 | `--query <terms>` | 위키 경로, 메타데이터, 제목, 본문을 검색하고 크기 제한이 있는 answer-first 출력을 제공합니다. |
 | `--wiki-impact <page-or-term>` | 일치하는 페이지의 backlinks, `decision_ref` 인용, outgoing link, router depth를 보여줍니다. |
+| `--wiki-neighborhood <page-or-term>` | link, `decision_ref`, metadata, page class, router depth를 사용해 가까운 위키 페이지의 제한된 읽기 순서를 보여줍니다. |
 | `--refresh-index` | 자동 발견된 위키 routing을 갱신합니다. |
 | `--capture-inbox --title <title> --content <content> --category <category>` | 후보 메모를 위키 inbox에 추가합니다. category 기본값은 `project-candidate`입니다. |
 | `--handoff-save --goal <goal> --state <state> --next <action>` | `.project-wiki/session/` 아래에 생성형 로컬 세션 핸드오프를 저장합니다. 필요하면 `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, `--last-failure-command`를 반복합니다. |
@@ -57,3 +58,14 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--code-context-pack <term>` | 구조 파일, 심볼, route, import, edge, 소유권 근거를 담은 예산 제한 first-pass context pack을 출력합니다. |
 | `--code-search-symbol <term>` | 인덱싱된 심볼을 검색합니다. |
 | `--code-query <sql>` | 근거 인덱스에서 보수적 읽기 전용 SQL을 실행합니다. |
+
+### Topology Warnings
+
+`--link-check`의 topology finding은 warning-only입니다. 그래서 bootstrap, update, release 흐름을 막지 않으면서 정리 방향을 알려줍니다.
+
+| 코드 | 의미 |
+| --- | --- |
+| `hub-overload` | 사람이 관리하는 router 또는 meta 페이지가 너무 많은 위키 페이지를 링크하므로 분리하거나 범위를 좁혀야 합니다. |
+| `weak-authority-route` | decision 또는 evidence 권위 신호가 있는 active canonical page가 generated auto-index routing으로만 도달 가능합니다. |
+| `missing-evidence-link` | active canonical page가 source-backed claim을 하지만 source link 또는 `decision_ref`가 없습니다. |
+| `stale-fanout` | 많이 링크된 active page가 topology-sensitive edit에 비해 너무 넓은 review trigger를 갖고 있습니다. |

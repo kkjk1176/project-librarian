@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildRefreshIndexBlock = buildRefreshIndexBlock;
 exports.runQueryMode = runQueryMode;
 exports.runWikiImpactMode = runWikiImpactMode;
+exports.runWikiNeighborhoodMode = runWikiNeighborhoodMode;
 exports.projectCandidatesContent = projectCandidatesContent;
 exports.appendProjectCandidate = appendProjectCandidate;
 exports.appendCaptureInbox = appendCaptureInbox;
@@ -324,6 +325,14 @@ function runWikiImpactMode() {
     }
     const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
     console.log((0, wiki_graph_1.wikiImpactAnswer)(corpus.pages, args_1.wikiImpactTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
+}
+function runWikiNeighborhoodMode() {
+    if (!args_1.wikiNeighborhoodTarget.trim()) {
+        console.error("missing wiki neighborhood target: use --wiki-neighborhood \"page-or-term\"");
+        process.exit(1);
+    }
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    console.log((0, wiki_graph_1.wikiNeighborhoodAnswer)(corpus.pages, args_1.wikiNeighborhoodTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
 }
 function projectCandidatesContent() {
     return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
@@ -699,6 +708,7 @@ function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
             }
         }
     }
+    diagnostics.push(...(0, wiki_diagnostics_1.collectTopologyDiagnostics)(corpus));
     return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 function legacyWikiRoots() {

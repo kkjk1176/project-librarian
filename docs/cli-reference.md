@@ -19,7 +19,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `update --agents <list>` | Refresh an existing setup and existing project-scoped skill copies; selected surfaces can be `codex`, `claude`, `cursor`, `gemini`, or `all`. |
 | `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*`, create migration inboxes, and generate unit-map/split-plan/coverage review files. |
 | `--lint` | Validate generated setup without editing files. |
-| `--link-check` | Report broken wiki links, duplicate routes, orphan pages, and pages the startup router cannot reach within the depth budget. |
+| `--link-check` | Report broken wiki links, duplicate routes, orphan pages, router reachability, and warning-only topology signals. |
 | `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |
 | `--doctor` | Run lint, link-check, and quality-check together. |
 | `--doctor --fix` | Safely refresh generated index routing before diagnostics. `--fix` is only a modifier for `--doctor`. |
@@ -28,6 +28,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--migration-doctor` | Run migration-lint and migration-quality-check together. |
 | `--query <terms>` | Search wiki paths, metadata, titles, and bodies; answer-first output with per-page TL;DR lines under a hard size cap. |
 | `--wiki-impact <page-or-term>` | Show wiki backlinks, `decision_ref` citations, outgoing links, and router depth for matching pages. |
+| `--wiki-neighborhood <page-or-term>` | Show a bounded read order for nearby wiki pages using links, `decision_ref`, metadata, page class, and router depth. |
 | `--refresh-index` | Update generated auto-discovered wiki routing. |
 | `--capture-inbox --title <title> --content <content> --category <category>` | Append a candidate note to the wiki inbox; category defaults to `project-candidate`. |
 | `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, and `--last-failure-command` as needed. |
@@ -57,3 +58,14 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--code-context-pack <term>` | Print a budgeted first-pass context pack with structural file, symbol, route, import, edge, and ownership evidence. |
 | `--code-search-symbol <term>` | Search indexed symbols. |
 | `--code-query <sql>` | Run conservative read-only SQL over the evidence index. |
+
+### Topology Warnings
+
+`--link-check` keeps topology findings warning-only so they can guide cleanup without blocking bootstrap, update, or release flows.
+
+| Code | Meaning |
+| --- | --- |
+| `hub-overload` | A hand-maintained router or meta page links to too many wiki pages and should be split or scoped. |
+| `weak-authority-route` | An active canonical page with decision or evidence authority signals is reachable only through generated auto-index routing. |
+| `missing-evidence-link` | An active canonical page makes a source-backed claim without a source link or `decision_ref`. |
+| `stale-fanout` | A heavily linked active page has a broad review trigger that is too weak for topology-sensitive edits. |
