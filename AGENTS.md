@@ -13,8 +13,8 @@ At the start of every session:
 
 ### Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)
 
-- Current release: `project-librarian@0.6.1`, shipped from PR #90 / tag `v0.6.1`.
-- Updater fix: existing shared `.agents/skills/project-librarian/` installs are refreshed without implying agent-specific setup surfaces.
+- Current release: `project-librarian@0.6.2`, shipped from PR #92 / tag `v0.6.2`.
+- Updater fix: `update` now limits implicit targets to managed or already-present agent surfaces; a bare `.codex/` updates Codex only, and an undetectable target fails before writes.
 - Current direction: keep `wiki/index.md` as the writable router/source of truth; derive topology from links, `decision_ref`, metadata, page class, and router depth.
 - Do not revive the graph visualizer as primary UX. The accepted path is bounded, answer-shaped retrieval plus warning-only topology diagnostics.
 - New surface: `--wiki-neighborhood <target>` returns relevant wiki pages, backlinks, decision citations, and read order without mutating files.
