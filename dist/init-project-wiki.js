@@ -51,7 +51,7 @@ Options:
   --goal, --state, --blocked       With --handoff-save, provide resume context fields.
   --next, --decision               With --handoff-save, repeat for next actions and decisions.
   --glossary-init                  Create and route the optional glossary page.
-  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing project skill/setup surfaces are preserved by default.
+  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Update preserves managed surfaces or existing agent roots by default.
   --prune-check                    Report active pages with stale or unresolved signals.
   --prune-check-strict             With --prune-check, omit age-only candidates and show only higher-signal lifecycle items.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
@@ -75,7 +75,7 @@ Options:
 Commands:
   install                          Install the reusable Project Librarian skill files for selected agents.
   install-skill                    Compatibility alias for install.
-  update                           Run the idempotent wiki/setup update path, sync existing project-scoped skill installs, and reject migration flags.
+  update                           Update an existing install or detected agent root without creating unrelated agent surfaces; reject migration flags.
   mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
@@ -320,11 +320,14 @@ function runInitCommand() {
         runRefreshIndexOnlyMode();
         process.exit(0);
     }
-    const selectedAgentSurfaces = args_1.agentTargets.length > 0
-        ? args_1.agentTargets
-        : args_1.migrateMode
-            ? Array.from(agent_surfaces_1.allAgentSurfaces)
-            : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    const agentSurfaceResolution = args_1.migrateMode
+        ? { source: "explicit", surfaces: Array.from(agent_surfaces_1.allAgentSurfaces) }
+        : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.command === "update" ? "update" : "init", args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    if (agentSurfaceResolution.source === "missing-update-target") {
+        console.error("update cannot detect an existing Project Librarian install or agent surface; use init for a fresh project or pass --agents explicitly.");
+        process.exit(1);
+    }
+    const selectedAgentSurfaces = agentSurfaceResolution.surfaces;
     const projectSkillSyncSurfaces = args_1.command === "update"
         ? (0, install_skill_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
         : [];

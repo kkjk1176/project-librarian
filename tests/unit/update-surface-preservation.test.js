@@ -89,6 +89,29 @@ function assertCodexClaudeOnly(root) {
   assert.equal(exists(root, "GEMINI.md"), false, "Gemini instructions should not be created");
 }
 
+const bareSurfaceCases = {
+  codex: {
+    root: ".codex",
+    expected: [".codex/hooks.json", ".codex/hooks/wiki-session-start.js"],
+    absent: [".claude", ".cursor", ".gemini", "CLAUDE.md", "GEMINI.md"],
+  },
+  claude: {
+    root: ".claude",
+    expected: ["CLAUDE.md", ".claude/settings.json", ".claude/hooks/wiki-session-start.js"],
+    absent: [".codex", ".cursor", ".gemini", "GEMINI.md"],
+  },
+  cursor: {
+    root: ".cursor",
+    expected: [".cursor/hooks.json", ".cursor/hooks/wiki-session-start.js", ".cursor/rules/project-librarian.mdc"],
+    absent: [".codex", ".claude", ".gemini", "CLAUDE.md", "GEMINI.md"],
+  },
+  gemini: {
+    root: ".gemini",
+    expected: ["GEMINI.md", ".gemini/settings.json", ".gemini/hooks/wiki-session-start.js"],
+    absent: [".codex", ".claude", ".cursor", "CLAUDE.md"],
+  },
+};
+
 test("fresh bootstrap without --agents still installs all supported agent surfaces", () => {
   const root = makeTmpDir("surface-default-");
   try {
@@ -109,6 +132,78 @@ test("fresh bootstrap with --agents codex,claude creates only Codex and Claude s
   try {
     runCli(root, ["--agents", "codex,claude"]);
     assertCodexClaudeOnly(root);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const [surface, fixture] of Object.entries(bareSurfaceCases)) {
+  test(`explicit update recognizes a bare ${surface} root without creating other agent surfaces`, () => {
+    const root = makeTmpDir(`surface-bare-${surface}-`);
+    try {
+      fs.mkdirSync(path.join(root, fixture.root), { recursive: true });
+
+      runCommand(root, ["update", "--no-git-config"]);
+
+      for (const relativePath of fixture.expected) {
+        assert.equal(exists(root, relativePath), true, `${relativePath} should be created`);
+      }
+      for (const relativePath of fixture.absent) {
+        assert.equal(exists(root, relativePath), false, `${relativePath} should not be created`);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("explicit update preserves the detected set of multiple bare agent roots", () => {
+  const root = makeTmpDir("surface-bare-multiple-");
+  try {
+    fs.mkdirSync(path.join(root, ".codex"), { recursive: true });
+    fs.mkdirSync(path.join(root, ".cursor"), { recursive: true });
+
+    runCommand(root, ["update", "--no-git-config"]);
+
+    assert.equal(exists(root, ".codex/hooks.json"), true);
+    assert.equal(exists(root, ".cursor/hooks.json"), true);
+    assert.equal(exists(root, ".claude"), false);
+    assert.equal(exists(root, ".gemini"), false);
+    assert.equal(exists(root, "CLAUDE.md"), false);
+    assert.equal(exists(root, "GEMINI.md"), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit update without an install or agent root fails before writing files", () => {
+  const root = makeTmpDir("surface-empty-update-");
+  try {
+    const result = runCommandResult(root, ["update", "--no-git-config"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /cannot detect an existing Project Librarian install or agent surface/);
+    assert.equal(exists(root, "AGENTS.md"), false);
+    assert.equal(exists(root, "wiki"), false);
+    assert.equal(exists(root, ".githooks"), false);
+    assert.equal(exists(root, ".codex"), false);
+    assert.equal(exists(root, ".claude"), false);
+    assert.equal(exists(root, ".cursor"), false);
+    assert.equal(exists(root, ".gemini"), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit update agent selection remains authoritative on an empty project", () => {
+  const root = makeTmpDir("surface-explicit-update-");
+  try {
+    runCommand(root, ["update", "--no-git-config", "--agents", "codex"]);
+
+    assert.equal(exists(root, ".codex/hooks.json"), true);
+    assert.equal(exists(root, ".claude"), false);
+    assert.equal(exists(root, ".cursor"), false);
+    assert.equal(exists(root, ".gemini"), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

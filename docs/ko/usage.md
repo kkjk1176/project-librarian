@@ -32,7 +32,7 @@ npx project-librarian@latest install --scope project --agents all
 
 프로젝트 설정/갱신 실행기도 `--agents`를 받습니다. 새 설정은 프로젝트 범위 Project Librarian 스킬 설치가 없을 때만 지원하는 모든 에이전트 표면을 기본으로 만듭니다. 저장소에 이미 `.codex/skills/project-librarian/`, `.claude/skills/project-librarian/` 같은 프로젝트 범위 스킬이 있으면 첫 설정도 그 설치된 에이전트 집합을 기본값으로 사용합니다.
 
-마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
+마이그레이션 없는 기존 설정 갱신은 Project Librarian이 관리 중인 에이전트 표면을 보존해서 갱신합니다. 아직 관리 표면이 없으면 저장소에 이미 있는 에이전트 루트만 선택하므로, 설정 파일이 아직 없는 `.codex/` 저장소에는 Codex 설정만 추가되고 Claude, Cursor, Gemini 파일은 생기지 않습니다. 감지 가능한 설치나 에이전트 루트가 하나도 없는 업데이트는 파일을 쓰기 전에 종료합니다. 새 프로젝트에는 `init`을 사용하고, 대상을 직접 정하려면 `--agents`를 전달합니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
 
 `project-librarian update`는 선택된 표면에 이미 프로젝트 범위 Project Librarian 스킬 설치가 있으면 현재 실행 중인 패키지의 재사용 가능한 스킬 파일과 프로젝트 로컬 실행기에 필요한 런타임 의존성을 그 프로젝트 스킬 디렉터리로 동기화합니다. 기존 공유 `.agents/skills/project-librarian/` 설치는 별도로 동기화하며 Codex, Claude, Cursor, Gemini 설정 표면을 암묵적으로 추가하지 않습니다. 기본적으로 새 프로젝트 범위 스킬 설치를 만들지는 않고, 사용자 범위 스킬 설치도 갱신하지 않습니다. 사용자 범위 스킬은 `install --scope user`로 명시적으로 갱신합니다.
 

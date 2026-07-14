@@ -70,7 +70,7 @@ $PROJECT_LIBRARIAN
 Use the command variants as follows:
 
 - New project wiki or normal update: `$PROJECT_LIBRARIAN`.
-- Explicit existing-project update without migration: `$PROJECT_LIBRARIAN update` (rejects `--migrate` and `--adopt-existing`).
+- Explicit existing-project update without migration: `$PROJECT_LIBRARIAN update` (rejects `--migrate` and `--adopt-existing`). Without `--agents`, it preserves managed agent surfaces or detects existing agent roots; it never creates unrelated agent surfaces. If neither an existing Project Librarian install nor an agent root is detectable, use `init` for a fresh project or select `--agents` explicitly.
 - Existing wiki/docs need migration: `$PROJECT_LIBRARIAN --migrate`.
 - Install hook files without changing git config: `$PROJECT_LIBRARIAN --no-git-config`.
 - Install reusable Project Librarian skill files: `$PROJECT_LIBRARIAN install --scope user|project --agents codex|claude|cursor|gemini|all`. `install-skill` remains a compatibility alias, but prefer `install` in new guidance.

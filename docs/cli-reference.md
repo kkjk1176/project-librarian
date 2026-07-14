@@ -9,7 +9,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 
 `install-skill` remains a compatibility alias for `install`.
 
-`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files and required local-runner runtime dependencies into those project skill directories before refreshing the managed setup. An existing shared `.agents/skills/project-librarian/` install is synchronized independently without selecting agent-specific setup surfaces.
+`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. Without `--agents`, it first preserves Project Librarian-managed surfaces, then falls back to agent roots already present in the repository. It never falls back to all agents during update. If no install or agent root is detectable, it exits before writing and requires `init` or `--agents`. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files and required local-runner runtime dependencies into those project skill directories before refreshing the managed setup. An existing shared `.agents/skills/project-librarian/` install is synchronized independently without selecting agent-specific setup surfaces.
 
 ### Important Options
 
