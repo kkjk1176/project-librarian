@@ -11,6 +11,7 @@ type InstallStatus = "created" | "updated" | "exists" | "dry-run";
 type InstallRow = [label: string, status: InstallStatus];
 
 const skillName = "project-librarian";
+const sharedProjectSkillRelativeRoot = path.join(".agents", "skills", skillName);
 const packageFiles = [
   "SKILL.md",
   "dist",
@@ -87,6 +88,10 @@ function projectSkillRelativeRoot(agent: AgentSurface): string {
 
 export function projectSkillTarget(agent: AgentSurface): string {
   return path.join(process.cwd(), projectSkillRelativeRoot(agent));
+}
+
+export function sharedProjectSkillTarget(): string {
+  return path.join(process.cwd(), sharedProjectSkillRelativeRoot);
 }
 
 function installTarget(agent: AgentSurface, scope: InstallScope): string {
@@ -215,6 +220,10 @@ export function installedProjectSkillSurfaces(): AgentSurface[] {
   return allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
 }
 
+export function hasSharedProjectSkillInstall(): boolean {
+  return fs.existsSync(path.join(sharedProjectSkillTarget(), "SKILL.md"));
+}
+
 function copyPackageFiles(targetRoot: string, dryRun: boolean, labelRoot = targetRoot): InstallRow[] {
   const root = packageRoot();
   const packageRows: InstallRow[] = packageFiles.map((relativePath) => {
@@ -234,6 +243,13 @@ function copyPackageFiles(targetRoot: string, dryRun: boolean, labelRoot = targe
 export function syncProjectSkillInstall(agent: AgentSurface): ResultRow[] {
   return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
     if (status === "dry-run") throw new Error("project skill sync does not support dry-run status");
+    return [label, status];
+  });
+}
+
+export function syncSharedProjectSkillInstall(): ResultRow[] {
+  return copyPackageFiles(sharedProjectSkillTarget(), false, sharedProjectSkillRelativeRoot).map(([label, status]) => {
+    if (status === "dry-run") throw new Error("shared project skill sync does not support dry-run status");
     return [label, status];
   });
 }

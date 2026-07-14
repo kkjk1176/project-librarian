@@ -34,7 +34,7 @@ npx project-librarian@latest install --scope project --agents all
 
 마이그레이션 없는 기존 설정 갱신은 저장소에 이미 있는 에이전트 표면만 보존해서 갱신합니다. 따라서 Codex와 Claude 파일만 있던 저장소는 일반 갱신만으로 Cursor나 Gemini 파일이 새로 생기지 않습니다. 새 표면을 의도적으로 추가하려면 `project-librarian update --agents cursor` 또는 `project-librarian update --agents all`처럼 명시합니다. 목록에 없는 표면을 삭제하지는 않습니다.
 
-`project-librarian update`는 선택된 표면에 이미 프로젝트 범위 Project Librarian 스킬 설치가 있으면 현재 실행 중인 패키지의 재사용 가능한 스킬 파일과 프로젝트 로컬 실행기에 필요한 런타임 의존성을 그 프로젝트 스킬 디렉터리로 동기화합니다. 기본적으로 새 프로젝트 범위 스킬 설치를 만들지는 않고, 사용자 범위 스킬 설치도 갱신하지 않습니다. 사용자 범위 스킬은 `install --scope user`로 명시적으로 갱신합니다.
+`project-librarian update`는 선택된 표면에 이미 프로젝트 범위 Project Librarian 스킬 설치가 있으면 현재 실행 중인 패키지의 재사용 가능한 스킬 파일과 프로젝트 로컬 실행기에 필요한 런타임 의존성을 그 프로젝트 스킬 디렉터리로 동기화합니다. 기존 공유 `.agents/skills/project-librarian/` 설치는 별도로 동기화하며 Codex, Claude, Cursor, Gemini 설정 표면을 암묵적으로 추가하지 않습니다. 기본적으로 새 프로젝트 범위 스킬 설치를 만들지는 않고, 사용자 범위 스킬 설치도 갱신하지 않습니다. 사용자 범위 스킬은 `install --scope user`로 명시적으로 갱신합니다.
 
 ## 실행 경로
 
@@ -42,6 +42,7 @@ npx project-librarian@latest install --scope project --agents all
 
 | 설치 위치 | 실행 경로 |
 | --- | --- |
+| 공유 프로젝트 범위 스킬 | `node .agents/skills/project-librarian/dist/init-project-wiki.js` |
 | 프로젝트 범위 Codex 스킬 | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
 | 프로젝트 범위 Claude 스킬 | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
 | 프로젝트 범위 Cursor 스킬 | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |

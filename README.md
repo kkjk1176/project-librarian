@@ -41,7 +41,7 @@ To refresh an existing setup without migrating the wiki, run:
 npx project-librarian@latest update
 ```
 
-That updates managed setup files, agent hooks, wiki operating/meta files, and existing project-scoped skill copies. It preserves the current `wiki/` and rejects migration flags, so it will not rename the wiki to `wiki_legacy*`.
+That updates managed setup files, agent hooks, wiki operating/meta files, and existing project-scoped skill copies. Existing shared `.agents/skills/project-librarian/` copies are refreshed without implying any agent-specific setup surface. It preserves the current `wiki/` and rejects migration flags, so it will not rename the wiki to `wiki_legacy*`.
 
 Use `--agents` when you intentionally want to add or refresh a specific project surface:
 

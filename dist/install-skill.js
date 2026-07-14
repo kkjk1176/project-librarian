@@ -34,8 +34,11 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.projectSkillTarget = projectSkillTarget;
+exports.sharedProjectSkillTarget = sharedProjectSkillTarget;
 exports.installedProjectSkillSurfaces = installedProjectSkillSurfaces;
+exports.hasSharedProjectSkillInstall = hasSharedProjectSkillInstall;
 exports.syncProjectSkillInstall = syncProjectSkillInstall;
+exports.syncSharedProjectSkillInstall = syncSharedProjectSkillInstall;
 exports.runInstallSkillMode = runInstallSkillMode;
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
@@ -43,6 +46,7 @@ const path = __importStar(require("node:path"));
 const agent_surfaces_1 = require("./agent-surfaces");
 const args_1 = require("./args");
 const skillName = "project-librarian";
+const sharedProjectSkillRelativeRoot = path.join(".agents", "skills", skillName);
 const packageFiles = [
     "SKILL.md",
     "dist",
@@ -120,6 +124,9 @@ function projectSkillRelativeRoot(agent) {
 }
 function projectSkillTarget(agent) {
     return path.join(process.cwd(), projectSkillRelativeRoot(agent));
+}
+function sharedProjectSkillTarget() {
+    return path.join(process.cwd(), sharedProjectSkillRelativeRoot);
 }
 function installTarget(agent, scope) {
     const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
@@ -247,6 +254,9 @@ function copyPath(source, target, targetRoot, dryRun) {
 function installedProjectSkillSurfaces() {
     return agent_surfaces_1.allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
 }
+function hasSharedProjectSkillInstall() {
+    return fs.existsSync(path.join(sharedProjectSkillTarget(), "SKILL.md"));
+}
 function copyPackageFiles(targetRoot, dryRun, labelRoot = targetRoot) {
     const root = packageRoot();
     const packageRows = packageFiles.map((relativePath) => {
@@ -266,6 +276,13 @@ function syncProjectSkillInstall(agent) {
     return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
         if (status === "dry-run")
             throw new Error("project skill sync does not support dry-run status");
+        return [label, status];
+    });
+}
+function syncSharedProjectSkillInstall() {
+    return copyPackageFiles(sharedProjectSkillTarget(), false, sharedProjectSkillRelativeRoot).map(([label, status]) => {
+        if (status === "dry-run")
+            throw new Error("shared project skill sync does not support dry-run status");
         return [label, status];
     });
 }

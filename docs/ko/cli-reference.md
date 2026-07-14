@@ -9,7 +9,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 
 `install-skill`은 `install`의 호환성 별칭으로 계속 지원됩니다.
 
-`update`는 기존 프로젝트 갱신을 명시하는 명령입니다. `--migrate`와 `--adopt-existing`를 거부합니다. 기존 문서나 위키 내용을 `wiki_legacy*`로 보존하고 검토해야 한다면 top-level `--migrate`를 사용합니다. 선택된 에이전트 표면에 프로젝트 범위 Project Librarian 스킬 설치가 이미 있으면 `update`는 현재 패키지의 재사용 가능한 스킬 파일과 로컬 실행기에 필요한 필수 런타임 의존성을 해당 프로젝트 스킬 디렉터리에 복사한 뒤 관리 설정을 갱신합니다.
+`update`는 기존 프로젝트 갱신을 명시하는 명령입니다. `--migrate`와 `--adopt-existing`를 거부합니다. 기존 문서나 위키 내용을 `wiki_legacy*`로 보존하고 검토해야 한다면 top-level `--migrate`를 사용합니다. 선택된 에이전트 표면에 프로젝트 범위 Project Librarian 스킬 설치가 이미 있으면 `update`는 현재 패키지의 재사용 가능한 스킬 파일과 로컬 실행기에 필요한 필수 런타임 의존성을 해당 프로젝트 스킬 디렉터리에 복사한 뒤 관리 설정을 갱신합니다. 기존 공유 `.agents/skills/project-librarian/` 설치는 에이전트별 설정 표면을 선택하지 않고 별도로 동기화합니다.
 
 ### 주요 옵션
 
