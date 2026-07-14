@@ -1,0 +1,82 @@
+{
+  "name": "project-librarian",
+  "version": "0.4.1",
+  "description": "Create and maintain compact project context for humans and LLM coding agents.",
+  "license": "MIT",
+  "type": "commonjs",
+  "keywords": [
+    "agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini",
+    "llm",
+    "project-planning",
+    "wiki"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkjk1176/project-librarian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kkjk1176/project-librarian/issues"
+  },
+  "homepage": "https://github.com/kkjk1176/project-librarian#readme",
+  "files": [
+    "agents/",
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "README.ko.md",
+    "SKILL.md"
+  ],
+  "bin": {
+    "project-librarian": "dist/init-project-wiki.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "benchmark": "npm run benchmark:llm:dry-run",
+    "benchmark:ci": "npm run benchmark:ci-smoke",
+    "benchmark:ci-smoke": "npm run benchmark:llm:parse-smoke && npm run benchmark:llm:dry-run",
+    "benchmark:llm": "npm run build && node benchmarks/codex-llm-metrics.js",
+    "benchmark:llm:dry-run": "npm run build && node benchmarks/codex-llm-metrics.js --dry-run",
+    "benchmark:llm:parse-smoke": "node tests/validators/codex-llm-benchmark-smoke.js",
+    "benchmark:llm:prune-raw": "node benchmarks/tools/prune-llm-raw.js",
+    "benchmark:injection-sentinel": "node benchmarks/tools/injection-sentinel.js",
+    "benchmark:agent-surface-smoke": "node benchmarks/tools/agent-surface-smoke.js",
+    "benchmark:claim-ledger": "node benchmarks/tools/benchmark-claim-ledger.js benchmarks/llm/samples/codex-measured-report.json benchmarks/reports/llm/payload-preview.json",
+    "benchmark:real-corpus:demo": "npm run build && node benchmarks/tools/real-corpus-offline-demo.js",
+    "benchmark:release:preview": "npm run benchmark:llm -- --payload-preview benchmarks/reports/llm/payload-preview.json --sanitized-pack --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5",
+    "benchmark:release": "npm run benchmark:llm -- --sanitized-pack --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md",
+    "build": "tsc && chmod +x dist/init-project-wiki.js",
+    "perf:code-efficiency": "node benchmarks/tools/code-performance-efficiency.js --full",
+    "release:check": "node benchmarks/tools/release-readiness.js",
+    "typecheck": "tsc --noEmit",
+    "unit": "node --test tests/unit/*.test.js",
+    "test": "npm run build && npm run typecheck && npm run unit && bash tests/smoke.sh",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "typescript": "^6.0.3"
+  },
+  "optionalDependencies": {
+    "@sengac/tree-sitter": "^0.25.15",
+    "@sengac/tree-sitter-c": "^0.25.15",
+    "@sengac/tree-sitter-c-sharp": "^0.25.15",
+    "@sengac/tree-sitter-cpp": "^0.25.15",
+    "@sengac/tree-sitter-go": "^0.25.15",
+    "@sengac/tree-sitter-java": "^0.25.15",
+    "@sengac/tree-sitter-javascript": "^0.25.15",
+    "@sengac/tree-sitter-kotlin": "^0.4.6",
+    "@sengac/tree-sitter-php": "^0.25.15",
+    "@sengac/tree-sitter-python": "^0.25.15",
+    "@sengac/tree-sitter-rust": "^0.25.15",
+    "@sengac/tree-sitter-swift": "^0.25.15",
+    "@sengac/tree-sitter-typescript": "^0.25.15"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2"
+  }
+}
