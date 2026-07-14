@@ -7,8 +7,8 @@ const hooks_1 = require("./hooks");
 const install_skill_1 = require("./install-skill");
 const modes_1 = require("./modes");
 const migration_1 = require("./migration");
+const session_handoff_1 = require("./session-handoff");
 const templates_1 = require("./templates");
-const wiki_visualizer_1 = require("./wiki-visualizer");
 const workspace_1 = require("./workspace");
 function codeIndex() {
     return require("./code-index");
@@ -16,7 +16,7 @@ function codeIndex() {
 function printUsage() {
     console.log(`Usage:
   project-librarian [init|update] [options]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+  project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
   project-librarian mcp
 
 Options:
@@ -33,15 +33,27 @@ Options:
   --issue-draft                    Print a problem/side-effect GitHub issue body draft.
   --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
   --issue-title <title>            Override the generated issue draft title.
+  --dry-run                        With install, preview copied skill files without writing them.
   --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
   --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
-  --wiki-visualize                 Write a static wiki graph visualizer to .project-wiki/wiki-graph.html.
-  --wiki-visualize-out <path>      With --wiki-visualize, write under a custom .project-wiki/ path.
+  --wiki-neighborhood <page-or-term>
+                                    Show a bounded read order for nearby wiki pages.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
+  --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
+  --handoff-show                   Print the current local session handoff.
+  --handoff-status                 Print JSON status for the local session handoff.
+  --handoff-clear                  Remove generated session handoff files.
+  --handoff-promote-inbox          Promote selected generated handoff facts into wiki/inbox/project-candidates.md.
+  --handoff-injection-enable       Opt in to capped full handoff injection in startup hooks.
+  --handoff-injection-disable      Remove the generated full handoff injection opt-in.
+  --handoff-injection-status       Print JSON status for the full handoff injection experiment.
+  --goal, --state, --blocked       With --handoff-save, provide resume context fields.
+  --next, --decision               With --handoff-save, repeat for next actions and decisions.
   --glossary-init                  Create and route the optional glossary page.
   --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Existing project skill/setup surfaces are preserved by default.
   --prune-check                    Report active pages with stale or unresolved signals.
+  --prune-check-strict             With --prune-check, omit age-only candidates and show only higher-signal lifecycle items.
   --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --code-index                     Build the disposable .project-wiki code evidence index.
@@ -49,6 +61,8 @@ Options:
   --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
   --incremental                    With --code-index, require an existing compatible index and update only changes.
   --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
+  --code-index-migrate             With --code-index, approve replacing an incompatible schema-version index.
+  --code-index-engine <engine>     With --code-index, override default auto engine: typescript or native-rust.
   --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
   --code-query <sql>               Run conservative read-only SQL over the code evidence index.
   --code-status, --code-files      Inspect the code evidence index.
@@ -59,7 +73,9 @@ Options:
   --code-search-symbol <term>      Search indexed symbols.
 
 Commands:
-  update                           Run the idempotent wiki/setup update path; rejects migration flags.
+  install                          Install the reusable Project Librarian skill files for selected agents.
+  install-skill                    Compatibility alias for install.
+  update                           Run the idempotent wiki/setup update path, sync existing project-scoped skill installs, and reject migration flags.
   mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
 
   --help                           Show this help.`);
@@ -130,8 +146,8 @@ if (args_1.codeReportSection && !args_1.codeReportMode) {
     console.error("--code-report-section is only supported with --code-report.");
     process.exit(1);
 }
-if (args_1.wikiVisualizeOutput && !args_1.wikiVisualizeMode) {
-    console.error("--wiki-visualize-out is only supported with --wiki-visualize.");
+if (args_1.pruneCheckStrictMode && !args_1.pruneCheckMode) {
+    console.error("--prune-check-strict is only supported with --prune-check.");
     process.exit(1);
 }
 if (args_1.codeIndexIncrementalMode && !args_1.codeIndexMode) {
@@ -146,6 +162,14 @@ if (args_1.codeIndexFullMode && !args_1.codeIndexMode) {
     console.error("--code-index-full is only supported with --code-index.");
     process.exit(1);
 }
+if (args_1.codeIndexMigrateMode && !args_1.codeIndexMode) {
+    console.error("--code-index-migrate is only supported with --code-index.");
+    process.exit(1);
+}
+if (args_1.codeIndexEngineMode && !args_1.codeIndexMode) {
+    console.error("--code-index-engine is only supported with --code-index.");
+    process.exit(1);
+}
 if (args_1.codeParserMode && !args_1.codeIndexMode) {
     console.error("--code-parser is only supported with --code-index.");
     process.exit(1);
@@ -154,7 +178,29 @@ if (args_1.codeIndexIncrementalMode && args_1.codeIndexFullMode) {
     console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
     process.exit(1);
 }
-if (args_1.command === "install-skill") {
+if (args_1.codeIndexIncrementalMode && args_1.codeIndexMigrateMode) {
+    console.error("Use one code index update mode at a time: --incremental or --code-index-migrate.");
+    process.exit(1);
+}
+const activeHandoffModes = [
+    args_1.handoffSaveMode ? "--handoff-save" : "",
+    args_1.handoffShowMode ? "--handoff-show" : "",
+    args_1.handoffStatusMode ? "--handoff-status" : "",
+    args_1.handoffClearMode ? "--handoff-clear" : "",
+    args_1.handoffPromoteInboxMode ? "--handoff-promote-inbox" : "",
+    args_1.handoffInjectionEnableMode ? "--handoff-injection-enable" : "",
+    args_1.handoffInjectionDisableMode ? "--handoff-injection-disable" : "",
+    args_1.handoffInjectionStatusMode ? "--handoff-injection-status" : "",
+].filter(Boolean);
+if (activeHandoffModes.length > 1) {
+    console.error(`Use one session handoff mode at a time: ${activeHandoffModes.join(", ")}.`);
+    process.exit(1);
+}
+if (args_1.handoffInputMode && !args_1.handoffSaveMode) {
+    console.error("--goal, --state, --blocked, --next, --decision, --open-question, --last-success-command, --last-failure-command, and --verification are only supported with --handoff-save.");
+    process.exit(1);
+}
+if (args_1.command === "install" || args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);
 }
@@ -169,6 +215,33 @@ else {
     runInitCommand();
 }
 function runInitCommand() {
+    const activeHandoffMode = activeHandoffModes[0];
+    if (activeHandoffMode) {
+        try {
+            if (args_1.handoffSaveMode)
+                (0, session_handoff_1.runHandoffSaveMode)();
+            else if (args_1.handoffShowMode)
+                (0, session_handoff_1.runHandoffShowMode)();
+            else if (args_1.handoffStatusMode)
+                (0, session_handoff_1.runHandoffStatusMode)();
+            else if (args_1.handoffClearMode)
+                (0, session_handoff_1.runHandoffClearMode)();
+            else if (args_1.handoffPromoteInboxMode)
+                (0, session_handoff_1.runHandoffPromoteInboxMode)();
+            else if (args_1.handoffInjectionEnableMode)
+                (0, session_handoff_1.runHandoffInjectionEnableMode)();
+            else if (args_1.handoffInjectionDisableMode)
+                (0, session_handoff_1.runHandoffInjectionDisableMode)();
+            else if (args_1.handoffInjectionStatusMode)
+                (0, session_handoff_1.runHandoffInjectionStatusMode)();
+            exitAfterStdoutDrain(0);
+        }
+        catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+        }
+        return;
+    }
     const activeCodeModes = activeCodeEvidenceCliModes();
     if (activeCodeModes.length > 1) {
         console.error("Use one code evidence mode at a time: --code-index, --code-index-health, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
@@ -188,16 +261,9 @@ function runInitCommand() {
         exitAfterStdoutDrain(0);
         return;
     }
-    if (args_1.wikiVisualizeMode) {
-        try {
-            const output = (0, wiki_visualizer_1.writeWikiVisualizer)(args_1.wikiVisualizeOutput);
-            console.log(`Project wiki visualizer written: ${output}`);
-            exitAfterStdoutDrain(0);
-        }
-        catch (error) {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(1);
-        }
+    if (args_1.wikiNeighborhoodMode) {
+        (0, modes_1.runWikiNeighborhoodMode)();
+        exitAfterStdoutDrain(0);
         return;
     }
     if (args_1.queryTerm) {
@@ -215,7 +281,7 @@ function runInitCommand() {
         return;
     }
     if (args_1.pruneCheckMode) {
-        (0, modes_1.runPruneCheckMode)();
+        (0, modes_1.runPruneCheckMode)({ strict: args_1.pruneCheckStrictMode });
         process.exit(0);
     }
     if (args_1.reviewMigrationMode) {
@@ -259,6 +325,9 @@ function runInitCommand() {
         : args_1.migrateMode
             ? Array.from(agent_surfaces_1.allAgentSurfaces)
             : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    const projectSkillSyncSurfaces = args_1.command === "update"
+        ? (0, install_skill_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
+        : [];
     const shouldWriteSurface = (surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface);
     const writeCodexSurface = shouldWriteSurface("codex");
     const writeClaudeSurface = shouldWriteSurface("claude");
@@ -284,6 +353,10 @@ function runInitCommand() {
     if (writeGeminiSurface)
         (0, workspace_1.mkdirp)(".gemini/hooks");
     (0, workspace_1.mkdirp)(".githooks");
+    for (const surface of projectSkillSyncSurfaces) {
+        for (const result of (0, install_skill_1.syncProjectSkillInstall)(surface))
+            results.push(result);
+    }
     // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
     // so non-interactive `codex exec` (which does not run SessionStart hooks) still
     // gets compact startup context. Routers are starter files written later in this

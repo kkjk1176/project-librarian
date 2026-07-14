@@ -81,10 +81,15 @@ function extractionProfile(relativePath, language, parserMode) {
         return "python-light";
     if (language === "go")
         return "go-light";
+    if (isGenericLightLanguage(language))
+        return light_languages_1.genericLightProfileByLanguage[language];
     return "inventory-only";
 }
 function isJavaScriptLikeProfileInput(language) {
     return language === "javascript" || language === "typescript";
+}
+function isGenericLightLanguage(language) {
+    return ["c", "cpp", "csharp", "java", "kotlin", "php", "rust", "swift"].includes(language);
 }
 function createExtractionBackendRegistry(fail) {
     const extractionBackends = [
@@ -109,6 +114,13 @@ function createExtractionBackendRegistry(fail) {
             profile: "go-light",
             strength: "light",
         },
+        ...Object.entries(light_languages_1.genericLightProfileByLanguage).map(([language, profile]) => ({
+            id: "regex-light",
+            index: (file, statements) => (0, light_languages_1.indexGenericLight)(file, statements, language),
+            label: `${language} lightweight regex`,
+            profile,
+            strength: "light",
+        })),
         ...(0, tree_sitter_1.treeSitterBackends)(fail),
         {
             id: "config-key-value",

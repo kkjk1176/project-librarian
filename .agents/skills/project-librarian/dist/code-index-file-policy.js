@@ -38,6 +38,7 @@ exports.fileLanguage = fileLanguage;
 exports.isJavaScriptLike = isJavaScriptLike;
 exports.shouldIndexFile = shouldIndexFile;
 exports.isIgnoredCodePath = isIgnoredCodePath;
+exports.cachedDiscoveredCodeFileStat = cachedDiscoveredCodeFileStat;
 exports.discoverCodeFiles = discoverCodeFiles;
 exports.smallRepoCodeIndexGate = smallRepoCodeIndexGate;
 const childProcess = __importStar(require("node:child_process"));
@@ -76,6 +77,7 @@ const languageByExtension = {
 };
 const configExtensions = new Set([".json", ".yaml", ".yml", ".toml"]);
 exports.maxIndexedBytes = 1024 * 1024;
+const discoveredCodeFileStats = new Map();
 function fileLanguage(relativePath) {
     if (path.basename(relativePath) === ".env.example")
         return "config";
@@ -92,6 +94,8 @@ function isBlockedSensitiveConfigFile(relativePath) {
     const base = path.basename(relativePath).toLowerCase();
     if (base === ".env.example")
         return false;
+    if (base.startsWith("."))
+        return true;
     return /(^|[._-])(secret|secrets|credential|credentials|token|tokens|private|key|keys)([._-]|$)/i.test(base);
 }
 function isJavaScriptLike(relativePath) {
@@ -130,7 +134,9 @@ function walkCodeFiles(relativePath, files = []) {
     const target = (0, workspace_1.abs)(relativePath);
     if (!fs.existsSync(target))
         return files;
-    const stat = fs.statSync(target);
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink())
+        return files.sort();
     if (stat.isFile()) {
         if (stat.size <= exports.maxIndexedBytes && shouldIndexFile(relativePath))
             files.push(relativePath);
@@ -143,8 +149,8 @@ function walkCodeFiles(relativePath, files = []) {
                 walkCodeFiles(child, files);
         }
         else if (entry.isFile() && shouldIndexFile(child)) {
-            const childStat = fs.statSync((0, workspace_1.abs)(child));
-            if (childStat.size <= exports.maxIndexedBytes)
+            const childStat = (0, workspace_1.containedProjectFileStat)(child);
+            if (childStat && childStat.size <= exports.maxIndexedBytes)
                 files.push(child);
         }
     }
@@ -164,15 +170,13 @@ function gitTrackedAndUnignoredFiles(scopes) {
     }
 }
 function indexableFileStat(file) {
-    try {
-        const stat = fs.statSync((0, workspace_1.abs)(file));
-        return stat.isFile() ? stat : null;
-    }
-    catch {
-        return null;
-    }
+    return (0, workspace_1.containedProjectFileStat)(file);
+}
+function cachedDiscoveredCodeFileStat(relativePath) {
+    return discoveredCodeFileStats.get(relativePath);
 }
 function discoverCodeFiles(scopes) {
+    discoveredCodeFileStats.clear();
     const gitFiles = gitTrackedAndUnignoredFiles(scopes);
     const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
     const files = [];
@@ -180,8 +184,10 @@ function discoverCodeFiles(scopes) {
         if (isIgnoredCodePath(file) || !shouldIndexFile(file))
             continue;
         const stat = indexableFileStat(file);
-        if (stat && stat.size <= exports.maxIndexedBytes)
+        if (stat && stat.size <= exports.maxIndexedBytes) {
+            discoveredCodeFileStats.set(file, { absolutePath: (0, workspace_1.abs)(file), stat });
             files.push(file);
+        }
     }
     return files.sort();
 }

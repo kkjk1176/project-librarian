@@ -6,6 +6,7 @@ exports.buildWikiGraph = buildWikiGraph;
 exports.wikiRouterDepths = wikiRouterDepths;
 exports.wikiQueryGraphEvidence = wikiQueryGraphEvidence;
 exports.wikiImpactAnswer = wikiImpactAnswer;
+exports.wikiNeighborhoodAnswer = wikiNeighborhoodAnswer;
 const wiki_files_1 = require("./wiki-files");
 const workspace_1 = require("./workspace");
 // Router reachability budget. The benchmark fixture A1 assert guarantees
@@ -161,5 +162,127 @@ function wikiImpactAnswer(pages, term, graph = buildWikiGraph(pages)) {
             ? `  router: unreachable from ${exports.wikiRouterRoot}`
             : `  router: reachable at depth ${depth} (budget ${exports.wikiRouterDepthBudget})`);
     }
+    return finalizeWikiAnswer(lines.join("\n"));
+}
+const neighborhoodReadCap = 5;
+function pageClassPriority(file, scope) {
+    if (file.startsWith("wiki/decisions/") || /decision/.test(scope))
+        return 90;
+    if (file.startsWith("wiki/sources/") || /source/.test(scope))
+        return 80;
+    if (file.startsWith("wiki/canonical/") || /canonical/.test(scope))
+        return 70;
+    if (file.startsWith("wiki/plans/") || /plan/.test(scope))
+        return 50;
+    if (file.startsWith("wiki/roadmaps/") || /roadmap/.test(scope))
+        return 40;
+    if (file.startsWith("wiki/meta/") || /wiki-meta/.test(scope))
+        return 30;
+    return 10;
+}
+function neighborhoodReasonRank(reason) {
+    if (reason === "exact page match")
+        return 1000;
+    if (reason === "title/path match")
+        return 900;
+    if (reason === "decision_ref target")
+        return 800;
+    if (reason === "decision_ref citation")
+        return 760;
+    if (reason === "outgoing link target")
+        return 700;
+    if (reason === "incoming link source")
+        return 650;
+    return 0;
+}
+function isGeneratedScopedRouter(file) {
+    return /^wiki\/indexes\/auto-[a-z0-9-]+(?:-\d+)?\.md$/.test(file);
+}
+function isRouterOnlySurface(file) {
+    return file === exports.wikiRouterRoot || file === "wiki/index.md" || isGeneratedScopedRouter(file);
+}
+function addNeighborhoodCandidate(candidates, file, reason, bestFile, graph) {
+    if (!graph.files.has(file) || (file !== bestFile && isRouterOnlySurface(file)))
+        return;
+    const existing = candidates.get(file);
+    if (!existing || neighborhoodReasonRank(reason) > neighborhoodReasonRank(existing.reason)) {
+        candidates.set(file, { file, reason });
+    }
+}
+function wikiNeighborhoodAnswer(pages, term, graph = buildWikiGraph(pages)) {
+    const depths = wikiRouterDepths(graph);
+    const textByFile = new Map(pages.map((page) => [page.file, page.text]));
+    const lowered = term.toLowerCase();
+    const exactTarget = (0, wiki_files_1.normalizeWikiLinkTarget)("wiki/index.md", term.replace(/^\[\[|\]\]$/g, ""));
+    const matches = pages
+        .map((page) => ({ file: page.file, title: (0, wiki_files_1.wikiTitleForFile)(page.file, page.text), text: page.text }))
+        .filter((page) => page.file === exactTarget || page.file.toLowerCase().includes(lowered) || page.title.toLowerCase().includes(lowered))
+        .sort((a, b) => {
+        const exactDelta = Number(b.file === exactTarget) - Number(a.file === exactTarget);
+        if (exactDelta !== 0)
+            return exactDelta;
+        const titleDelta = Number(b.title.toLowerCase().includes(lowered)) - Number(a.title.toLowerCase().includes(lowered));
+        if (titleDelta !== 0)
+            return titleDelta;
+        const aScope = (0, workspace_1.metadataValue)(a.text, "scope");
+        const bScope = (0, workspace_1.metadataValue)(b.text, "scope");
+        return pageClassPriority(b.file, bScope) - pageClassPriority(a.file, aScope) || a.file.localeCompare(b.file);
+    });
+    if (matches.length === 0)
+        return `Wiki neighborhood "${term}": no matching wiki pages.`;
+    const best = matches[0];
+    const candidates = new Map();
+    addNeighborhoodCandidate(candidates, best.file, best.file === exactTarget ? "exact page match" : "title/path match", best.file, graph);
+    const outgoingRef = graph.outgoingDecisionRef.get(best.file);
+    if (outgoingRef)
+        addNeighborhoodCandidate(candidates, outgoingRef, "decision_ref target", best.file, graph);
+    for (const source of graph.incomingDecisionRefs.get(best.file) ?? [])
+        addNeighborhoodCandidate(candidates, source, "decision_ref citation", best.file, graph);
+    for (const link of graph.outgoingLinks.get(best.file) ?? [])
+        addNeighborhoodCandidate(candidates, link.normalizedTarget, "outgoing link target", best.file, graph);
+    for (const link of graph.incomingLinks.get(best.file) ?? [])
+        addNeighborhoodCandidate(candidates, link.file, "incoming link source", best.file, graph);
+    const sorted = Array.from(candidates.values()).sort((a, b) => {
+        const reasonDelta = neighborhoodReasonRank(b.reason) - neighborhoodReasonRank(a.reason);
+        if (reasonDelta !== 0)
+            return reasonDelta;
+        const aText = textByFile.get(a.file) ?? "";
+        const bText = textByFile.get(b.file) ?? "";
+        const classDelta = pageClassPriority(b.file, (0, workspace_1.metadataValue)(bText, "scope")) - pageClassPriority(a.file, (0, workspace_1.metadataValue)(aText, "scope"));
+        if (classDelta !== 0)
+            return classDelta;
+        const aDepth = depths.get(a.file) ?? Number.POSITIVE_INFINITY;
+        const bDepth = depths.get(b.file) ?? Number.POSITIVE_INFINITY;
+        return aDepth - bDepth || a.file.localeCompare(b.file);
+    }).slice(0, neighborhoodReadCap);
+    const lines = [
+        `Wiki neighborhood "${term}": best match ${best.file} — ${best.title}; read ${sorted.length} nearby page${sorted.length === 1 ? "" : "s"}.`,
+        "",
+        "Read order:",
+    ];
+    sorted.forEach((candidate, index) => {
+        const text = textByFile.get(candidate.file) ?? "";
+        const depth = depths.get(candidate.file);
+        const status = (0, workspace_1.metadataValue)(text, "status") || "unknown";
+        const scope = (0, workspace_1.metadataValue)(text, "scope") || "unknown-scope";
+        lines.push(`${index + 1}. ${candidate.file} — ${candidate.reason}; ${depth === undefined ? "router unreachable" : `router depth ${depth}`}; ${status} ${scope}`);
+    });
+    const incoming = uniqueSorted((graph.incomingLinks.get(best.file) ?? [])
+        .map((link) => link.file)
+        .filter((source) => source !== best.file && graph.files.has(source)));
+    const outgoing = uniqueSorted((graph.outgoingLinks.get(best.file) ?? [])
+        .map((link) => link.normalizedTarget)
+        .filter((target) => target !== best.file && graph.files.has(target)));
+    const incomingRefs = uniqueSorted((graph.incomingDecisionRefs.get(best.file) ?? [])
+        .filter((source) => source !== best.file && graph.files.has(source)));
+    const reviewTrigger = (0, workspace_1.metadataValue)(best.text, "review_trigger");
+    lines.push("");
+    lines.push("Why:");
+    lines.push(`- incoming links: ${sampled(incoming, impactListCap)}`);
+    lines.push(`- outgoing links: ${sampled(outgoing, impactListCap)}`);
+    lines.push(`- decision_ref: ${outgoingRef && graph.files.has(outgoingRef) ? outgoingRef : "none"}`);
+    lines.push(`- decision_ref citations: ${sampled(incomingRefs, impactListCap)}`);
+    if (reviewTrigger)
+        lines.push(`- review_trigger: ${reviewTrigger}`);
     return finalizeWikiAnswer(lines.join("\n"));
 }

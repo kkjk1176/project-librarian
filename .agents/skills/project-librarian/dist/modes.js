@@ -36,10 +36,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildRefreshIndexBlock = buildRefreshIndexBlock;
 exports.runQueryMode = runQueryMode;
 exports.runWikiImpactMode = runWikiImpactMode;
+exports.runWikiNeighborhoodMode = runWikiNeighborhoodMode;
 exports.projectCandidatesContent = projectCandidatesContent;
+exports.appendProjectCandidate = appendProjectCandidate;
 exports.appendCaptureInbox = appendCaptureInbox;
 exports.runIssueDraftMode = runIssueDraftMode;
 exports.runIssueCreateMode = runIssueCreateMode;
+exports.buildPruneCandidate = buildPruneCandidate;
 exports.runPruneCheckMode = runPruneCheckMode;
 exports.collectLinkDiagnostics = collectLinkDiagnostics;
 exports.collectQualityDiagnostics = collectQualityDiagnostics;
@@ -69,6 +72,7 @@ const wiki_diagnostics_1 = require("./wiki-diagnostics");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
+const pruneCheckAgeReasonPrefix = "updated before today:";
 function isScopedAutoIndex(file) {
     return /^wiki\/indexes\/auto-[a-z0-9-]+\.md$/.test(file);
 }
@@ -218,6 +222,10 @@ function scoreQueryBlock(block, terms) {
 function hasMigrationQueryIntent(terms) {
     return terms.some((term) => /^(migrat|legacy|coverage|unit|ledger|review)/.test(term));
 }
+function hasDeepReferenceQueryIntent(terms) {
+    return hasMigrationQueryIntent(terms)
+        || terms.some((term) => /^(archive|audit|decision|detail|history|ledger|raw|record|source|trace|verification)/.test(term));
+}
 function isMigrationSurface(file, meta) {
     return file.startsWith("wiki/migration/")
         || /(?:^|-)migration(?:-|$)/.test(file)
@@ -230,6 +238,9 @@ function querySurfaceScore(file, meta, rawScore, terms) {
         return Math.max(1, Math.floor(rawScore * 0.25) - 20);
     }
     let score = rawScore;
+    if (meta.budget === "on-demand" && !hasDeepReferenceQueryIntent(terms)) {
+        score = Math.max(1, Math.min(Math.floor(score * 0.5), 24));
+    }
     if (file.startsWith("wiki/canonical/") && meta.status === "active")
         score += 12;
     else if (meta.status === "active")
@@ -315,6 +326,14 @@ function runWikiImpactMode() {
     const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
     console.log((0, wiki_graph_1.wikiImpactAnswer)(corpus.pages, args_1.wikiImpactTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
 }
+function runWikiNeighborhoodMode() {
+    if (!args_1.wikiNeighborhoodTarget.trim()) {
+        console.error("missing wiki neighborhood target: use --wiki-neighborhood \"page-or-term\"");
+        process.exit(1);
+    }
+    const corpus = (0, wiki_corpus_1.loadWikiCorpus)();
+    console.log((0, wiki_graph_1.wikiNeighborhoodAnswer)(corpus.pages, args_1.wikiNeighborhoodTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
+}
 function projectCandidatesContent() {
     return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
 # Project Candidates Inbox
@@ -329,22 +348,28 @@ function projectCandidatesContent() {
 | --- | --- | --- | --- | --- |
 `;
 }
-function appendCaptureInbox() {
+function appendProjectCandidate(input = {}) {
     (0, workspace_1.mkdirp)("wiki/inbox");
     const relativePath = "wiki/inbox/project-candidates.md";
     const existed = (0, workspace_1.exists)(relativePath);
     if (!existed)
         (0, workspace_1.write)(relativePath, projectCandidatesContent());
-    if (!args_1.captureTitle && !args_1.captureContent)
+    const candidateTitle = input.title ?? args_1.captureTitle;
+    const candidateContent = input.content ?? args_1.captureContent;
+    const candidateCategory = input.category ?? args_1.captureCategory;
+    if (!candidateTitle && !candidateContent)
         return existed ? "exists" : "created";
-    const title = (args_1.captureTitle || "Untitled candidate").replace(/\|/g, "/");
-    const content = (args_1.captureContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
-    const row = `| ${workspace_1.today} | ${title} | ${args_1.captureCategory.replace(/\|/g, "/")} | ${content} | pending |`;
+    const title = (candidateTitle || "Untitled candidate").replace(/\|/g, "/");
+    const content = (candidateContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
+    const row = `| ${workspace_1.today} | ${title} | ${candidateCategory.replace(/\|/g, "/")} | ${content} | pending |`;
     const current = (0, workspace_1.read)(relativePath);
     if (current.includes(row))
         return "exists";
     (0, workspace_1.write)(relativePath, `${current.trimEnd()}\n${row}\n`);
     return "updated";
+}
+function appendCaptureInbox() {
+    return appendProjectCandidate();
 }
 function gitOutput(args) {
     try {
@@ -540,27 +565,32 @@ function runIssueCreateMode() {
             fs.rmSync(body.cleanupDir, { recursive: true, force: true });
     }
 }
-function runPruneCheckMode() {
+function buildPruneCandidate(file, text, options = {}) {
+    const status = (0, workspace_1.metadataValue)(text, "status");
+    const updated = (0, workspace_1.metadataValue)(text, "updated");
+    const trigger = (0, workspace_1.metadataValue)(text, "review_trigger");
+    const scope = (0, workspace_1.metadataValue)(text, "scope");
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const reasons = [];
+    const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
+    if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body))
+        reasons.push("contains pending/proposed/undecided signal");
+    if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger))
+        reasons.push(`review trigger: ${trigger}`);
+    if (updated && updated < (options.today ?? workspace_1.today) && status === "active")
+        reasons.push(`${pruneCheckAgeReasonPrefix} ${updated}`);
+    if (options.strict && !reasons.some((reason) => !reason.startsWith(pruneCheckAgeReasonPrefix)))
+        return null;
+    return reasons.length > 0 ? { file, status, updated, reasons } : null;
+}
+function runPruneCheckMode(options = {}) {
     const candidates = [];
     for (const file of (0, wiki_files_1.wikiMarkdownFiles)()) {
-        const text = (0, workspace_1.read)(file);
-        const status = (0, workspace_1.metadataValue)(text, "status");
-        const updated = (0, workspace_1.metadataValue)(text, "updated");
-        const trigger = (0, workspace_1.metadataValue)(text, "review_trigger");
-        const scope = (0, workspace_1.metadataValue)(text, "scope");
-        const body = (0, workspace_1.stripMetadataHeader)(text);
-        const reasons = [];
-        const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
-        if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body))
-            reasons.push("contains pending/proposed/undecided signal");
-        if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger))
-            reasons.push(`review trigger: ${trigger}`);
-        if (updated && updated < workspace_1.today && status === "active")
-            reasons.push(`updated before today: ${updated}`);
-        if (reasons.length > 0)
-            candidates.push({ file, status, updated, reasons });
+        const candidate = buildPruneCandidate(file, (0, workspace_1.read)(file), options);
+        if (candidate)
+            candidates.push(candidate);
     }
-    console.log("Project wiki prune-check");
+    console.log(options.strict ? "Project wiki prune-check (strict)" : "Project wiki prune-check");
     if (candidates.length === 0)
         console.log("no candidates");
     for (const item of candidates) {
@@ -678,6 +708,7 @@ function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
             }
         }
     }
+    diagnostics.push(...(0, wiki_diagnostics_1.collectTopologyDiagnostics)(corpus));
     return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 function legacyWikiRoots() {
@@ -704,9 +735,10 @@ function migrationLegacyReferenceDiagnostics(files, corpus) {
         message: "new project truth must not link to or cite wiki_legacy*; migrate the meaning or keep unresolved material in migration inboxes",
     }));
 }
-function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
+function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)(), options = {}) {
     const diagnostics = [];
     const files = corpus.files;
+    const currentDate = options.today ?? workspace_1.today;
     const titles = new Map();
     for (const file of files) {
         const text = (0, wiki_corpus_1.wikiCorpusText)(corpus, file);
@@ -721,7 +753,7 @@ function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)())
         if (tldrExpected && !/##\s+TL;DR/.test(body)) {
             diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
         }
-        const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, workspace_1.today) : null;
+        const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, currentDate) : null;
         if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
             diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
         }

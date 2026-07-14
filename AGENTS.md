@@ -1,7 +1,6 @@
 # Codex Project Instructions
 
 <!-- PROJECT-WIKI-FIRST:START -->
-
 ## Wiki-First Planning
 
 This project uses `./wiki` as the durable project-planning source of truth.
@@ -14,14 +13,15 @@ At the start of every session:
 
 ### Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)
 
-- Initial planning state unless canonical wiki says otherwise.
-- Project truth: `wiki/canonical/`; future work: `wiki/roadmaps/` and `wiki/plans/`; decisions: `wiki/decisions/`; sources: `wiki/sources/`.
-- Wiki operating rules and decisions live in `wiki/meta/`.
-- At session start, read only this file and `wiki/index.md`; read details on demand.
-- Project canonical language follows user/project context.
-- Completed roadmaps/plans are removed after truth/rationale/evidence capture.
-- Update the wiki in the same turn when project-planning content changes.
-- Classify new project-planning content with `wiki/meta/document-taxonomy.md` before writing or consolidating it.
+- Current release: `project-librarian@0.6.0`, shipped from PR #83 / tag `v0.6.0`.
+- Current direction: keep `wiki/index.md` as the writable router/source of truth; derive topology from links, `decision_ref`, metadata, page class, and router depth.
+- Do not revive the graph visualizer as primary UX. The accepted path is bounded, answer-shaped retrieval plus warning-only topology diagnostics.
+- New surface: `--wiki-neighborhood <target>` returns relevant wiki pages, backlinks, decision citations, and read order without mutating files.
+- New topology warnings: `hub-overload`, `weak-authority-route`, `missing-evidence-link`, `stale-fanout`.
+- Release evidence: local release:check, PR checks, post-merge main checks, native helper publish workflow, protected approval, trusted npm publish, and npm latest verification all passed.
+- Benchmark claims remain evidence-scoped; latest public wiki-routing claim is the 2026-06-29 run on `ae79390`.
+- Project truth: `wiki/canonical/`; future work: `wiki/roadmaps/` and `wiki/plans/`; decisions: `wiki/decisions/`; sources: `wiki/sources/`; wiki ops: `wiki/meta/`.
+- Session start reads only this file and `wiki/index.md`; route into details on demand.
 
 During conversation:
 

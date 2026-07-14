@@ -82,7 +82,7 @@ function searchFiles(database, term, limit = 25) {
         const ftsRows = database.prepare(`
       SELECT files.path, files.language, files.profile, files.lines, files.bytes
       FROM files_fts
-      JOIN files ON files.path = files_fts.path
+      JOIN files ON files.fts_rowid = files_fts.rowid
       WHERE files_fts MATCH ?
       ORDER BY bm25(files_fts, 8.0, 1.0, 1.0, 0.25), files.path
       LIMIT ?
@@ -130,11 +130,7 @@ function searchSymbols(database, term, limit = 50) {
         const ftsRows = database.prepare(`
       SELECT symbols.name, symbols.kind, symbols.file_path, symbols.line, symbols.signature
       FROM symbols_fts
-      JOIN symbols
-        ON symbols.name = symbols_fts.name
-       AND symbols.kind = symbols_fts.kind
-       AND symbols.file_path = symbols_fts.file_path
-       AND symbols.signature = symbols_fts.signature
+      JOIN symbols ON symbols.id = symbols_fts.rowid
       WHERE symbols_fts MATCH ?
       ORDER BY bm25(symbols_fts, 8.0, 1.0, 4.0, 2.0), symbols.file_path, symbols.line
       LIMIT ?

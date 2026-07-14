@@ -9,7 +9,7 @@ metadata:
 
 Use this skill to install, update, validate, search, migrate, or code-canonicalize a token-efficient planning wiki in the current project.
 
-Users should normally interact with this skill through natural language, or through `/project-librarian` in Codex. Do not ask users to run lifecycle flags directly unless they explicitly want shell commands; resolve a local project-librarian runner and execute the matching operation yourself from the project root.
+Users should normally interact with this skill through natural language, or through `/project-librarian` in Claude Code. Do not ask users to run lifecycle flags directly unless they explicitly want shell commands; resolve a local project-librarian runner and execute the matching operation yourself from the project root.
 
 Supported actions:
 
@@ -19,9 +19,11 @@ Supported actions:
 - Search project wiki content.
 - Refresh the wiki index.
 - Capture a candidate note into the wiki inbox.
+- Save, show, inspect, promote, inject, or clear generated local session handoff state under `.project-wiki/session/`.
 - Check for pending, stale, proposed, or undecided wiki pages.
 - Draft a GitHub issue body for problems or side effects found while using the skill.
 - Initialize a project glossary.
+- Turn broad maintenance, automation, efficiency, or "improve this project" requests into an analyze-first backlog and execution plan before editing.
 - Analyze existing code and canonicalize code-backed project behavior, features, policies, constraints, terminology, domain rules, and open questions into the wiki.
 - Build and query an optional SQLite code evidence index for large repositories.
 - Migrate an existing wiki/docs structure.
@@ -36,17 +38,27 @@ Prefer an already installed local runner over network package execution:
 
 - In the project-librarian source repository, use `node dist/init-project-wiki.js` when `dist/init-project-wiki.js` exists.
 - In a target repository with a project-scoped Codex skill install, use `node .codex/skills/project-librarian/dist/init-project-wiki.js`.
-- In a target repository with a project-scoped Codex skill install, use `node .Codex/skills/project-librarian/dist/init-project-wiki.js`.
+- In a target repository with a project-scoped Claude skill install, use `node .claude/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Cursor skill install, use `node .cursor/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Gemini skill install, use `node .gemini/skills/project-librarian/dist/init-project-wiki.js`.
 - In a user-scoped Codex skill install, use `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js`.
-- In a user-scoped Codex skill install, use `node ~/.Codex/skills/project-librarian/dist/init-project-wiki.js`.
+- In a user-scoped Claude skill install, use `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js`.
 - In a user-scoped Cursor skill install, use `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js`.
 - In a user-scoped Gemini skill install, use `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js`.
 
 Use `npx` or `npm exec` only when no local runner exists and registry access is explicitly acceptable for the environment. When using npm package execution, pin the package version instead of running an unpinned public package.
 
 If the resolved runner fails, report the real error and stop or fix the cause. Do not manually recreate bootstrap or migration output as a fallback.
+
+Broad improvement automation requests are discovery-and-execution work, not routine bootstrap updates. When the user says something like "improve this project", "start improvement automation", "개선 자동화 시작해", or asks for maintainability/automation/efficiency improvements without naming a concrete lifecycle flag:
+
+- Do not map the request directly to `$PROJECT_LIBRARIAN update` or a single diagnostic command.
+- Inspect the repo's wiki contract, code structure, package scripts, CI, tests, release gates, generated surfaces, dependency posture, and obvious maintenance bottlenecks.
+- Use code-evidence tools or reports when the repo is large or the question is structural; use direct targeted reads for small repos and simple lookups.
+- Produce a ranked backlog with file/command evidence, confidence, expected verification, and risk.
+- Persist durable planning output under `wiki/plans/` when the request changes project-planning state, then refresh the index and run lint when practical.
+- If the user asked to start or continue work, implement safe high-priority items in a branch, update generated outputs, and verify with targeted tests plus the smallest broad gate that proves the claim.
+- Keep unresolved, high-risk, or dependency-changing candidates in the backlog instead of silently skipping them.
 
 2. For project bootstrap requests, choose the matching command and run it from the project root. The examples below use `$PROJECT_LIBRARIAN` to mean the resolved runner from step 1:
 
@@ -60,6 +72,7 @@ Use the command variants as follows:
 - Explicit existing-project update without migration: `$PROJECT_LIBRARIAN update` (rejects `--migrate` and `--adopt-existing`).
 - Existing wiki/docs need migration: `$PROJECT_LIBRARIAN --migrate`.
 - Install hook files without changing git config: `$PROJECT_LIBRARIAN --no-git-config`.
+- Install reusable Project Librarian skill files: `$PROJECT_LIBRARIAN install --scope user|project --agents codex|claude|cursor|gemini|all`. `install-skill` remains a compatibility alias, but prefer `install` in new guidance.
 
 When project terminology becomes important, initialize the optional glossary:
 
@@ -78,6 +91,12 @@ Map lifecycle requests to these internal operations:
 - Search the wiki: `$PROJECT_LIBRARIAN --query "search terms"`.
 - Refresh wiki routing/index: `$PROJECT_LIBRARIAN --refresh-index`.
 - Capture a project candidate: `$PROJECT_LIBRARIAN --capture-inbox --title "Candidate title" --content "Candidate content"`.
+- Save generated session handoff state: `$PROJECT_LIBRARIAN --handoff-save --goal "Goal" --state "Current state" --next "Next action"`.
+- Show the last generated session handoff: `$PROJECT_LIBRARIAN --handoff-show`.
+- Inspect generated session handoff status: `$PROJECT_LIBRARIAN --handoff-status`.
+- Clear generated session handoff state: `$PROJECT_LIBRARIAN --handoff-clear`.
+- Promote selected generated handoff facts to the wiki inbox: `$PROJECT_LIBRARIAN --handoff-promote-inbox`.
+- Enable, disable, or inspect the capped full handoff injection experiment: `$PROJECT_LIBRARIAN --handoff-injection-enable`, `$PROJECT_LIBRARIAN --handoff-injection-disable`, or `$PROJECT_LIBRARIAN --handoff-injection-status`.
 - Check stale/pending pages: `$PROJECT_LIBRARIAN --prune-check`.
 - Draft a GitHub issue body for a skill problem or side effect: `$PROJECT_LIBRARIAN --issue-draft --issue-title "Issue title"`.
 - After explicit user approval in a GitHub-backed repository, create the issue through GitHub CLI: `$PROJECT_LIBRARIAN --issue-create --issue-title "Issue title"`.
@@ -94,12 +113,12 @@ Skill problem reporting contract:
 
 ```bash
 node .codex/hooks/wiki-session-start.js
-node .Codex/hooks/wiki-session-start.js
+node .claude/hooks/wiki-session-start.js
 node .cursor/hooks/wiki-session-start.js
 GEMINI_PROJECT_DIR="$PWD" node .gemini/hooks/wiki-session-start.js
 $PROJECT_LIBRARIAN --lint
 $PROJECT_LIBRARIAN --doctor
-node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(".codex/hooks.json","utf8")); JSON.parse(fs.readFileSync(".Codex/settings.json","utf8")); JSON.parse(fs.readFileSync(".cursor/hooks.json","utf8")); JSON.parse(fs.readFileSync(".gemini/settings.json","utf8")); if (!fs.readFileSync("GEMINI.md","utf8").includes("@AGENTS.md")) process.exit(1); if (!fs.readFileSync(".cursor/rules/project-librarian.mdc","utf8").includes("@AGENTS.md")) process.exit(1); console.log("project librarian ok")'
+node -e 'const fs=require("fs"); JSON.parse(fs.readFileSync(".codex/hooks.json","utf8")); JSON.parse(fs.readFileSync(".claude/settings.json","utf8")); JSON.parse(fs.readFileSync(".cursor/hooks.json","utf8")); JSON.parse(fs.readFileSync(".gemini/settings.json","utf8")); if (!fs.readFileSync("GEMINI.md","utf8").includes("@AGENTS.md")) process.exit(1); if (!fs.readFileSync(".cursor/rules/project-librarian.mdc","utf8").includes("@AGENTS.md")) process.exit(1); console.log("project librarian ok")'
 ```
 
 4. Report the files created or updated.
@@ -110,7 +129,7 @@ The script is idempotent. It creates missing files, updates the managed startup/
 
 Existing root instruction files are preservation-first:
 
-- Existing `AGENTS.md`, `AGENTS.md`, `GEMINI.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
+- Existing `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and `wiki/AGENTS.md` files are not overwritten wholesale.
 - If no managed project-wiki section exists, bootstrap appends its marker-bounded section to the existing file.
 - On rerun, bootstrap replaces only content between its own `PROJECT-WIKI-*` markers and preserves surrounding project-specific content.
 
@@ -120,7 +139,9 @@ Use `--lint` for read-only validation:
 $PROJECT_LIBRARIAN --lint
 ```
 
-Use `--query`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--glossary-init`, and `--migrate` only when updating wiki files is intended.
+Use `--query`, `--handoff-show`, `--handoff-status`, `--prune-check`, `--issue-draft`, `--link-check`, `--quality-check`, `--doctor`, `--migration-lint`, `--migration-quality-check`, and `--migration-doctor` for read-only inspection/output through the resolved runner. Use `--doctor --fix` when safe generated routing refresh is intended. Use `--refresh-index`, `--capture-inbox`, `--handoff-save`, `--handoff-clear`, `--glossary-init`, and `--migrate` only when updating local project-librarian files is intended.
+
+Session handoff files are generated local reference data, not canonical wiki truth. Do not promote handoff content into `wiki/canonical/`, `wiki/plans/`, or `wiki/decisions/` automatically; capture stable project-planning facts through the inbox/taxonomy workflow first.
 
 Use `--review-migration` or `--semantic-migrate` after migration coverage or compatible inbox rows are processed. It syncs unit coverage and safe file-level inbox statuses into `wiki/migration/review.md` and `wiki/migration/verification.md`.
 
@@ -152,6 +173,13 @@ Require a compatible existing cache for changed-file-only updates with `--increm
 
 ```bash
 $PROJECT_LIBRARIAN --code-index --incremental --code-scope src
+```
+
+If the cache schema version differs from the current runner, inspect it and require explicit replacement approval before rebuilding:
+
+```bash
+$PROJECT_LIBRARIAN --code-index-health
+$PROJECT_LIBRARIAN --code-index --code-index-migrate --code-scope src
 ```
 
 Run read-only SQL over the cache with `--code-query`:
@@ -200,6 +228,7 @@ Execution contract:
 3. Separate evidence mapping from canonical truth:
    - Code structure, entrypoints, module relationships, execution flows, read-on-demand routes, and evidence paths belong under `wiki/meta/` with descriptive project-specific filenames chosen by the LLM.
    - Code-backed current project behavior, features, policies, constraints, terminology, domain rules, and operational facts belong under `wiki/canonical/`.
+   - Broad future work belongs under `wiki/roadmaps/`; detailed execution plans belong under `wiki/plans/`. After completion, update canonical truth and remove completed roadmap/plan content after rationale and evidence are preserved.
    - Important design rationale or tradeoffs inferred from code may belong under `wiki/decisions/` when they meet the decision policy.
    - Unclear, conflicting, or low-confidence interpretations belong in `wiki/inbox/` or a focused canonical questions page created for the topic, not directly in canonical truth.
 4. Do not use fixed canonical filenames. Choose or create files from topic boundaries, expected read frequency, and token budget.
@@ -211,7 +240,7 @@ Execution contract:
 It installs:
 
 - `AGENTS.md` compact project-wide wiki-first planning instructions.
-- `AGENTS.md` compact Codex compatibility file that imports `AGENTS.md`.
+- `CLAUDE.md` compact Claude Code compatibility file that imports `AGENTS.md`.
 - `GEMINI.md` compact Gemini CLI compatibility file that imports `AGENTS.md`.
 - `wiki/AGENTS.md` detailed wiki-internal editing and boundary rules.
 - `.cursor/rules/project-librarian.mdc` compact always-applied Cursor rule that references `AGENTS.md`.
@@ -219,8 +248,8 @@ It installs:
 - `.githooks/wiki-commit-trailers.js` staged-file based trailer generator.
 - `.codex/hooks.json` `SessionStart` hook.
 - `.codex/hooks/wiki-session-start.js` compact startup context injector.
-- `.Codex/settings.json` Codex `SessionStart` hook.
-- `.Codex/hooks/wiki-session-start.js` compact startup context injector for Codex.
+- `.claude/settings.json` Claude Code `SessionStart` hook.
+- `.claude/hooks/wiki-session-start.js` compact startup context injector for Claude Code.
 - `.cursor/hooks.json` Cursor `sessionStart` hook.
 - `.cursor/hooks/wiki-session-start.js` compact startup context injector for Cursor.
 - `.gemini/settings.json` Gemini CLI `SessionStart` hook.
@@ -228,12 +257,14 @@ It installs:
 - `wiki/startup.md` compact session-start context.
 - `wiki/index.md` router with read/update/token-budget hints.
 - `wiki/canonical/` directory for project-current-truth documents, created only when real content exists.
+- `wiki/roadmaps/` for broad future scope and priority queues, created only when real content exists.
+- `wiki/plans/` for detailed future execution plans, created only when real content exists.
 - Optional `wiki/canonical/glossary.md` project terminology contract when `--glossary-init` is used.
 - `wiki/decisions/` project-decision directory and lightweight decision ledgers.
 - `wiki/meta/` wiki operating rules, project decision policy, and wiki-operations Decision Pack.
 - `wiki/sources/` source summary documents.
 
-The Codex, Codex, Cursor, and Gemini CLI startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Codex uses `.Codex/settings.json` plus `.Codex/hooks/wiki-session-start.js`; Cursor uses `.cursor/hooks.json` plus `.cursor/hooks/wiki-session-start.js`; Gemini CLI uses `.gemini/settings.json` plus `.gemini/hooks/wiki-session-start.js`. `AGENTS.md` and `GEMINI.md` import `AGENTS.md`, and `.cursor/rules/project-librarian.mdc` references `AGENTS.md`, so Codex, Gemini CLI, and Cursor share the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
+The Codex, Claude Code, Cursor, and Gemini CLI startup hooks inject only `wiki/startup.md` and `wiki/index.md`. Codex uses `.codex/hooks.json` plus `.codex/hooks/wiki-session-start.js`; Claude Code uses `.claude/settings.json` plus `.claude/hooks/wiki-session-start.js`; Cursor uses `.cursor/hooks.json` plus `.cursor/hooks/wiki-session-start.js`; Gemini CLI uses `.gemini/settings.json` plus `.gemini/hooks/wiki-session-start.js`. `CLAUDE.md` and `GEMINI.md` import `AGENTS.md`, and `.cursor/rules/project-librarian.mdc` references `AGENTS.md`, so Claude Code, Gemini CLI, and Cursor share the same compact wiki-first instruction contract without duplicating the rules. `AGENTS.md` should stay compact and project-wide; `wiki/AGENTS.md` should carry detailed wiki editing rules. `wiki/startup.md` should route detailed canonical and decision files as Read On Demand, not Always Read First, so detailed files are read only when the current question needs them.
 
 When the project is a git repository, the script configures `git config core.hooksPath .githooks` by default only when `core.hooksPath` is unset, so wiki commit trailers are generated automatically without replacing an existing hook chain. Use `--no-git-config` to install hook files without changing git config. If the project is not a git repository yet, the hook files are still installed and will work after `core.hooksPath` is set.
 
@@ -247,7 +278,7 @@ Project canonical wiki content should not default to Korean or English. Choose t
 
 ## Boundary Rule
 
-`wiki/canonical/` and `wiki/decisions/` are for project planning only. Do not store wiki operating decisions, hook/bootstrap/lint/migration details, LLM collaboration preferences, assistant reminders, or non-project workflow memory there.
+`wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, and `wiki/decisions/` are for project planning only. Do not store wiki operating decisions, hook/bootstrap/lint/migration details, LLM collaboration preferences, assistant reminders, or non-project workflow memory there.
 
 Use:
 
@@ -255,6 +286,8 @@ Use:
 - Root `AGENTS.md`, hooks, or skills for durable project-wide LLM instructions and collaboration memory.
 - `wiki/AGENTS.md` for wiki-internal editing rules that should apply only under `wiki/`.
 - `wiki/canonical/` only for current project truth.
+- `wiki/roadmaps/` only for broad future scope, priority queues, and milestone sequences.
+- `wiki/plans/` only for detailed future execution plans.
 - `wiki/decisions/` only for project decision history.
 
 Every wiki markdown file should include a compact metadata header with `status`, `updated`, `scope`, `read_budget`, `decision_ref`, and `review_trigger`.
@@ -263,7 +296,7 @@ Every wiki markdown file should include a compact metadata header with `status`,
 
 Wiki-specific commit trailers are automated through `.githooks/prepare-commit-msg`.
 
-The hook runs when staged files include `wiki/`, `AGENTS.md`, `AGENTS.md`, `GEMINI.md`, `.cursor/rules/`, `.cursor/hooks.json`, `.cursor/hooks/`, `.gemini/settings.json`, `.gemini/hooks/`, `.codex/hooks.json`, `.codex/hooks/`, `.Codex/settings.json`, `.Codex/hooks/`, `.githooks/`, or `tools/project-librarian/`.
+The hook runs when staged files include `wiki/`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursor/rules/`, `.cursor/hooks.json`, `.cursor/hooks/`, `.gemini/settings.json`, `.gemini/hooks/`, `.codex/hooks.json`, `.codex/hooks/`, `.claude/settings.json`, `.claude/hooks/`, `.githooks/`, or `tools/project-librarian/`.
 
 It appends these trailers when they are missing:
 
@@ -303,6 +336,10 @@ These modes preserve this project's stricter source-of-truth boundaries:
 - `--issue-draft --issue-title "..."`: read-only Markdown problem-report draft for skill failures, side effects, confusing behavior, or generated-file surprises. It does not create a GitHub issue or require network access.
 - `--refresh-index`: updates a managed auto-discovered block in `wiki/index.md` for wiki files not routed by the hand-written index.
 - `--capture-inbox --title "..." --content "..."`: appends a project-candidate row to `wiki/inbox/project-candidates.md` and routes the inbox from `wiki/index.md`.
+- `--handoff-save --goal "..." --state "..." --next "..."`: writes generated local resume context under `.project-wiki/session/`; repeat `--next`, `--decision`, `--blocked`, `--open-question`, and `--verification` as needed.
+- `--handoff-show`, `--handoff-status`, `--handoff-clear`: print, inspect, or remove generated handoff state. Startup hooks only mention that a handoff exists; they do not inject the full handoff by default.
+- `--handoff-promote-inbox`: appends selected generated handoff facts to `wiki/inbox/project-candidates.md` as pending candidate material. It does not write canonical, plan, or decision pages.
+- `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status`: opt in, opt out, or inspect the capped full handoff injection experiment. Keep it off by default unless measured resume behavior justifies the added startup context.
 - `--prune-check`: read-only report of active wiki pages with pending/proposed/stale review signals.
 
 Captured inbox entries are not canonical. Fold them into `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, or `wiki/meta/` only after review.

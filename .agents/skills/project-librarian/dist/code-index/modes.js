@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveCodeIndexEngine = resolveCodeIndexEngine;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
@@ -60,54 +61,200 @@ function printJson(value) {
 function requireCompatibleDatabase(database, runtime) {
     const schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
     if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
+        const health = runtime.codeIndexHealth();
         const databasePath = runtime.codeEvidenceDatabasePath();
         runtime.fail([
-            `code evidence index schema version ${schemaVersion || "(missing)"} is incompatible with ${schema_1.codeIndexSchemaVersion}`,
+            health.message,
             `inspect: project-librarian --code-index-health`,
-            `rebuild: project-librarian --code-index --code-index-full`,
+            `rebuild: ${health.recommended_rebuild_command}`,
             `database: ${databasePath.relativePath}`,
         ].join("\n"));
     }
 }
+function schemaMigrationRequired(reason) {
+    return reason.startsWith("existing schema version ") && !reason.includes("(missing)");
+}
+function shellQuote(value) {
+    if (/^[A-Za-z0-9_./:=@+-]+$/.test(value))
+        return value;
+    return `'${value.replace(/'/g, "'\\''")}'`;
+}
+function schemaMigrationApprovalCommand(options) {
+    const parts = ["project-librarian", "--code-index", "--code-index-migrate"];
+    for (const scope of options.scopes) {
+        if (scope !== ".")
+            parts.push("--code-scope", scope);
+    }
+    if (args_1.codeIndexOutput !== ".project-wiki/code-evidence.sqlite")
+        parts.push("--code-index-out", args_1.codeIndexOutput);
+    if (args_1.acknowledgeSmallRepoMode)
+        parts.push("--acknowledge-small-repo");
+    if (options.requestedEngine !== "auto")
+        parts.push("--code-index-engine", options.requestedEngine);
+    if (options.parserMode !== "default")
+        parts.push("--code-parser", options.parserMode);
+    return parts.map(shellQuote).join(" ");
+}
+function schemaMigrationRequiredMessage(runtime, reason, options) {
+    const databasePath = runtime.codeEvidenceDatabasePath();
+    return [
+        `code evidence index schema migration required: ${reason}`,
+        "The existing disposable code evidence index must be replaced before this version can write it.",
+        `approve: ${schemaMigrationApprovalCommand(options)}`,
+        "inspect: project-librarian --code-index-health",
+        `database: ${databasePath.relativePath}`,
+    ].join("\n");
+}
+function unreadableIndexMessage(runtime) {
+    const health = runtime.codeIndexHealth();
+    return [
+        health.message,
+        "inspect: project-librarian --code-index-health",
+        `rebuild: ${health.recommended_rebuild_command}`,
+        `database: ${health.database_path}`,
+    ].join("\n");
+}
+function elapsedMs(started) {
+    return Number(process.hrtime.bigint() - started) / 1_000_000;
+}
+function measurePhase(timings, key, fn) {
+    const started = process.hrtime.bigint();
+    try {
+        return fn();
+    }
+    finally {
+        timings[key] = Number(((timings[key] ?? 0) + elapsedMs(started)).toFixed(3));
+    }
+}
+function emitCodeIndexPhaseTimings(timings) {
+    if (process.env.PROJECT_LIBRARIAN_CODE_INDEX_TIMINGS !== "1")
+        return;
+    console.error(`code_index_phase_timings ${JSON.stringify(timings)}`);
+}
+function finishCodeEvidencePhaseTimings(started, timings) {
+    timings.total_ms = Number(elapsedMs(started).toFixed(3));
+    emitCodeIndexPhaseTimings(timings);
+}
+function runWithCodeEvidenceDatabase(runtime, operation, options = {}) {
+    const totalStarted = process.hrtime.bigint();
+    const phaseTimings = {};
+    let database;
+    try {
+        measurePhase(phaseTimings, "require_existing_index_ms", () => runtime.requireExistingIndex());
+        options.beforeOpen?.();
+        database = measurePhase(phaseTimings, "open_database_ms", () => runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath));
+        operation(database, phaseTimings);
+    }
+    finally {
+        if (database) {
+            const openedDatabase = database;
+            measurePhase(phaseTimings, "close_database_ms", () => openedDatabase.close());
+        }
+        finishCodeEvidencePhaseTimings(totalStarted, phaseTimings);
+    }
+}
+function requireCompatibleDatabaseTimed(database, runtime, timings) {
+    measurePhase(timings, "compatibility_ms", () => requireCompatibleDatabase(database, runtime));
+}
+function checkedCodeIndexStaleness(database, runtime, timings) {
+    const staleness = measurePhase(timings, "staleness_ms", () => runtime.codeIndexStaleness(database));
+    runtime.warnIfCodeIndexStale(database, staleness);
+    return staleness;
+}
+function configureBulkWriteConnection(database) {
+    database.exec(`
+    PRAGMA synchronous = OFF;
+    PRAGMA temp_store = MEMORY;
+    PRAGMA cache_size = -20000;
+  `);
+}
+function shouldUseNativeIncrementalForAuto(requestedEngine, runtime, staleFileCount) {
+    if (requestedEngine !== "auto" || !args_1.codeIndexIncrementalMode)
+        return false;
+    if (staleFileCount <= 0 || !runtime.nativeCodeIndexAvailable())
+        return false;
+    return true;
+}
+function resolveCodeIndexEngine(requestedEngine, context, shouldUseNativeAuto, incrementalMode = args_1.codeIndexIncrementalMode) {
+    if (requestedEngine !== "auto")
+        return requestedEngine;
+    if (incrementalMode)
+        return "typescript";
+    return shouldUseNativeAuto(context) ? "native-rust" : "typescript";
+}
 function runCodeIndexMode(runtime) {
+    const totalStarted = process.hrtime.bigint();
+    const phaseTimings = {};
     const databasePath = runtime.codeEvidenceDatabasePath();
     const scopes = runtime.codeScopes();
     const parserMode = runtime.selectedCodeParserMode();
+    const requestedEngine = runtime.selectedCodeIndexEngine();
     // Scale gate before ANY write or database work: below the measured threshold
     // the build halts with the evidence-citing warning unless --acknowledge-small-repo
     // was passed (2026-06-12 scale-aware guidance decision).
-    const discoveredFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes);
+    const discoveredFiles = measurePhase(phaseTimings, "discover_files_ms", () => (0, code_index_file_policy_1.discoverCodeFiles)(scopes));
     const scaleGate = (0, code_index_file_policy_1.smallRepoCodeIndexGate)(discoveredFiles.length, args_1.acknowledgeSmallRepoMode);
     if (!scaleGate.proceed)
         runtime.fail(scaleGate.warning);
+    const engineSelectionContext = runtime.codeIndexEngineSelectionContext(discoveredFiles, parserMode);
+    const engine = resolveCodeIndexEngine(requestedEngine, engineSelectionContext, runtime.shouldUseNativeCodeIndexAuto);
     const existingIndex = fs.existsSync(databasePath.absolutePath);
     if (args_1.codeIndexIncrementalMode && !existingIndex) {
         runtime.fail(`--incremental requires an existing compatible code evidence index: ${databasePath.relativePath}`);
     }
-    let incremental = false;
-    if (existingIndex && !args_1.codeIndexFullMode) {
-        let compatibility = { compatible: false, reason: "compatibility was not checked" };
-        const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
+    let compatibility = { compatible: false, reason: "compatibility was not checked" };
+    let checkedCompatibility = false;
+    if (existingIndex) {
         try {
-            compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
+            measurePhase(phaseTimings, "compatibility_ms", () => {
+                const existingDatabase = runtime.openDatabase(databasePath.absolutePath);
+                try {
+                    compatibility = (0, schema_1.incrementalCompatibility)(existingDatabase, scopes, parserMode);
+                    checkedCompatibility = true;
+                }
+                finally {
+                    existingDatabase.close();
+                }
+            });
         }
-        finally {
-            existingDatabase.close();
+        catch {
+            if (!args_1.codeIndexFullMode && !args_1.codeIndexMigrateMode)
+                runtime.fail(unreadableIndexMessage(runtime));
         }
-        incremental = !args_1.codeIndexFullMode && compatibility.compatible;
+        if (!compatibility.compatible && schemaMigrationRequired(compatibility.reason) && !args_1.codeIndexMigrateMode) {
+            runtime.fail(schemaMigrationRequiredMessage(runtime, compatibility.reason, { parserMode, requestedEngine, scopes }));
+        }
+    }
+    if (engine === "native-rust") {
+        if (!args_1.codeIndexIncrementalMode) {
+            try {
+                measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexMode({ databasePath, discoveredFiles, parserMode, requestedEngine, scopes }));
+                finishCodeEvidencePhaseTimings(totalStarted, phaseTimings);
+                return;
+            }
+            catch (error) {
+                finishCodeEvidencePhaseTimings(totalStarted, phaseTimings);
+                throw error;
+            }
+        }
+    }
+    let incremental = false;
+    if (existingIndex && checkedCompatibility && !args_1.codeIndexFullMode && !args_1.codeIndexMigrateMode) {
+        incremental = compatibility.compatible;
         if (args_1.codeIndexIncrementalMode && !compatibility.compatible)
             runtime.fail(`--incremental cannot update ${databasePath.relativePath}: ${compatibility.reason}`);
     }
-    runtime.prepareOutputPath();
-    if (!incremental)
-        runtime.removeDatabaseFiles(databasePath.absolutePath);
-    const database = runtime.openDatabase(databasePath.absolutePath);
+    measurePhase(phaseTimings, "prepare_output_ms", () => {
+        runtime.prepareOutputPath();
+        if (!incremental)
+            runtime.removeDatabaseFiles(databasePath.absolutePath);
+    });
+    let database = runtime.openDatabase(databasePath.absolutePath);
     try {
         if (!incremental)
-            (0, schema_1.setupDatabase)(database);
-        const statements = (0, schema_1.createIndexStatements)(database);
-        const currentFingerprints = discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath));
-        let reindexedFiles;
+            (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
+        const currentFingerprints = measurePhase(phaseTimings, "fingerprints_ms", () => discoveredFiles.map((filePath) => runtime.readCodeFileFingerprint(filePath)));
+        let reindexedFingerprints;
         let deletedPaths;
         let indexedPaths = new Set();
         let unchangedFiles = 0;
@@ -121,45 +268,85 @@ function runCodeIndexMode(runtime) {
                 }]));
             const currentPaths = new Set(currentFingerprints.map((file) => file.path));
             deletedPaths = indexedRows.map((row) => String(row.path)).filter((filePath) => !currentPaths.has(filePath));
-            reindexedFiles = [];
+            reindexedFingerprints = [];
             for (const file of currentFingerprints) {
                 const existing = indexed.get(file.path);
                 if (existing && existing.mtimeMs === file.mtimeMs && existing.size === file.size) {
                     unchangedFiles += 1;
                     continue;
                 }
-                reindexedFiles.push(runtime.readCodeFile(file.path, parserMode));
+                reindexedFingerprints.push(file);
             }
         }
         else {
             deletedPaths = [];
-            reindexedFiles = discoveredFiles.map((filePath) => runtime.readCodeFile(filePath, parserMode));
+            reindexedFingerprints = currentFingerprints;
         }
-        database.exec("BEGIN");
-        if (!incremental)
-            statements.insertMeta.run("created_at", new Date().toISOString());
-        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
-        for (const filePath of deletedPaths)
-            (0, schema_1.removeIndexedFile)(filePath, statements);
-        for (const file of reindexedFiles) {
-            if (incremental && indexedPaths.has(file.path))
-                (0, schema_1.removeIndexedFile)(file.path, statements);
-            runtime.indexCodeFile(file, statements);
+        const nativeIncrementalRequested = engine === "native-rust"
+            || shouldUseNativeIncrementalForAuto(requestedEngine, runtime, reindexedFingerprints.length + deletedPaths.length);
+        if (nativeIncrementalRequested) {
+            if (!runtime.nativeCodeIndexAvailable()) {
+                runtime.fail("--code-index-engine native-rust --incremental requires PROJECT_LIBRARIAN_NATIVE_INDEXER or a packaged native helper.");
+            }
+            if (!runtime.nativeCodeIndexIncrementalEligible(reindexedFingerprints, parserMode)) {
+                if (engine === "native-rust") {
+                    runtime.fail("--code-index-engine native-rust --incremental only supports native-eligible parser profiles; use --code-index-engine typescript for this incremental update.");
+                }
+            }
+            else {
+                database.close();
+                database = undefined;
+                measurePhase(phaseTimings, "native_helper_ms", () => runtime.runNativeCodeIndexIncrementalMode({
+                    databasePath,
+                    deletedPaths,
+                    discoveredFiles,
+                    parserMode,
+                    requestedEngine,
+                    reindexedFiles: reindexedFingerprints,
+                    scopes,
+                    unchangedFiles,
+                }));
+                finishCodeEvidencePhaseTimings(totalStarted, phaseTimings);
+                return;
+            }
         }
-        database.exec("COMMIT");
+        const reindexedFiles = measurePhase(phaseTimings, "read_files_ms", () => reindexedFingerprints.map((file) => runtime.readCodeFile(file.path, parserMode, file)));
+        const activeDatabase = database;
+        const statements = (0, schema_1.createIndexStatements)(activeDatabase);
+        measurePhase(phaseTimings, "sqlite_write_ms", () => {
+            configureBulkWriteConnection(activeDatabase);
+            activeDatabase.exec("BEGIN");
+            if (!incremental)
+                statements.insertMeta.run("created_at", new Date().toISOString());
+            (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
+            for (const filePath of deletedPaths)
+                (0, schema_1.removeIndexedFile)(filePath, statements);
+            for (const file of reindexedFiles) {
+                if (incremental && indexedPaths.has(file.path))
+                    (0, schema_1.removeIndexedFile)(file.path, statements);
+                runtime.indexCodeFile(file, statements);
+            }
+            if (!incremental)
+                (0, schema_1.createSecondaryIndexes)(activeDatabase);
+            activeDatabase.exec("COMMIT");
+        });
         console.log("Project wiki code evidence index complete.");
         console.log(`database: ${databasePath.relativePath}`);
         console.log(`mode: ${incremental ? "incremental" : "full"}`);
+        console.log(`engine: ${engine}`);
+        if (requestedEngine === "auto")
+            console.log("engine_selection: auto");
         console.log(`parser_mode: ${parserMode}`);
         console.log(`scopes: ${scopes.join(", ")}`);
         console.log(`files: ${currentFingerprints.length}`);
         console.log(`reindexed_files: ${reindexedFiles.length}`);
         console.log(`deleted_files: ${deletedPaths.length}`);
         console.log(`unchanged_files: ${unchangedFiles}`);
+        finishCodeEvidencePhaseTimings(totalStarted, phaseTimings);
     }
     catch (error) {
         try {
-            database.exec("ROLLBACK");
+            database?.exec("ROLLBACK");
         }
         catch {
             // Ignore rollback failures after setup errors.
@@ -167,7 +354,7 @@ function runCodeIndexMode(runtime) {
         throw error;
     }
     finally {
-        database.close();
+        database?.close();
     }
 }
 function runCodeQueryMode(runtime) {
@@ -175,123 +362,93 @@ function runCodeQueryMode(runtime) {
         console.error("missing SQL: use --code-query \"select ...\"");
         process.exit(1);
     }
-    runtime.requireExistingIndex();
-    if (!(0, code_index_sql_1.isReadOnlySql)(args_1.codeQuerySql)) {
-        console.error("code queries must be read-only SQL starting with SELECT or WITH");
-        process.exit(1);
-    }
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
         database.exec("PRAGMA query_only = ON");
-        requireCompatibleDatabase(database, runtime);
-        runtime.warnIfCodeIndexStale(database);
-        printRows(database.prepare(args_1.codeQuerySql).all());
-    }
-    finally {
-        database.close();
-    }
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const rows = measurePhase(phaseTimings, "query_ms", () => database.prepare(args_1.codeQuerySql).all());
+        measurePhase(phaseTimings, "render_ms", () => printRows(rows));
+    }, {
+        beforeOpen() {
+            if (!(0, code_index_sql_1.isReadOnlySql)(args_1.codeQuerySql)) {
+                console.error("code queries must be read-only SQL starting with SELECT or WITH");
+                process.exit(1);
+            }
+        },
+    });
 }
 function runCodeReportMode(runtime) {
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        const staleness = runtime.codeIndexStaleness(database);
-        runtime.warnIfCodeIndexStale(database, staleness);
-        const report = runtime.codeReportForRequestedSection(database, args_1.codeReportSection, { staleness });
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        const staleness = checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const report = measurePhase(phaseTimings, "query_ms", () => runtime.codeReportForRequestedSection(database, args_1.codeReportSection, { staleness }));
         if (!report)
             runtime.fail((0, reports_1.invalidCodeReportSectionMessage)(args_1.codeReportSection));
-        printJson(report);
-    }
-    finally {
-        database.close();
-    }
+        measurePhase(phaseTimings, "render_ms", () => printJson(report));
+    });
 }
 function runCodeStatusMode(runtime) {
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        const rows = database.prepare(`
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        const rows = measurePhase(phaseTimings, "query_ms", () => database.prepare(`
       SELECT 'files' AS metric, count(*) AS value FROM files
       UNION ALL SELECT 'symbols', count(*) FROM symbols
       UNION ALL SELECT 'imports', count(*) FROM imports
       UNION ALL SELECT 'routes', count(*) FROM routes
       UNION ALL SELECT 'edges', count(*) FROM edges
       UNION ALL SELECT 'configs', count(*) FROM configs
-    `).all();
-        const staleness = runtime.codeIndexStaleness(database);
+    `).all());
+        const staleness = measurePhase(phaseTimings, "staleness_ms", () => runtime.codeIndexStaleness(database));
         rows.push({ metric: "stale_files", value: staleness.added + staleness.changed + staleness.deleted }, { metric: "stale_changed_files", value: staleness.changed }, { metric: "stale_added_files", value: staleness.added }, { metric: "stale_deleted_files", value: staleness.deleted });
-        printRows(rows);
-    }
-    finally {
-        database.close();
-    }
+        measurePhase(phaseTimings, "render_ms", () => printRows(rows));
+    });
 }
 function runCodeIndexHealthMode(runtime) {
     printJson(runtime.codeIndexHealth());
 }
 function runCodeFilesMode(runtime) {
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        runtime.warnIfCodeIndexStale(database);
-        printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
-    }
-    finally {
-        database.close();
-    }
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const rows = measurePhase(phaseTimings, "query_ms", () => database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
+        measurePhase(phaseTimings, "render_ms", () => printRows(rows));
+    });
 }
 function runCodeImpactMode(runtime) {
     if (!args_1.codeImpactTarget.trim()) {
         console.error("missing impact target: use --code-impact \"path-or-symbol-or-module\"");
         process.exit(1);
     }
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        const staleness = runtime.codeIndexStaleness(database);
-        runtime.warnIfCodeIndexStale(database, staleness);
-        printJson(runtime.codeImpact(database, args_1.codeImpactTarget.trim(), { staleness }));
-    }
-    finally {
-        database.close();
-    }
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        const staleness = checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const impact = measurePhase(phaseTimings, "query_ms", () => runtime.codeImpact(database, args_1.codeImpactTarget.trim(), { staleness }));
+        measurePhase(phaseTimings, "render_ms", () => printJson(impact));
+    });
 }
 function runCodeContextPackMode(runtime) {
     if (!args_1.codeContextPackTarget.trim()) {
         console.error("missing context pack query: use --code-context-pack \"path-or-symbol-or-route\"");
         process.exit(1);
     }
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        const staleness = runtime.codeIndexStaleness(database);
-        runtime.warnIfCodeIndexStale(database, staleness);
-        console.log(runtime.codeContextPack(database, args_1.codeContextPackTarget.trim(), { staleness }));
-    }
-    finally {
-        database.close();
-    }
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        const staleness = checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const pack = measurePhase(phaseTimings, "query_ms", () => runtime.codeContextPack(database, args_1.codeContextPackTarget.trim(), { staleness }));
+        measurePhase(phaseTimings, "render_ms", () => console.log(pack));
+    });
 }
 function runCodeSearchSymbolMode(runtime) {
     if (!args_1.codeSearchSymbol.trim()) {
         console.error("missing symbol search term: use --code-search-symbol \"term\"");
         process.exit(1);
     }
-    runtime.requireExistingIndex();
-    const database = runtime.openDatabase(runtime.codeEvidenceDatabasePath().absolutePath);
-    try {
-        requireCompatibleDatabase(database, runtime);
-        runtime.warnIfCodeIndexStale(database);
-        printRows((0, search_1.searchSymbols)(database, args_1.codeSearchSymbol.trim()));
-    }
-    finally {
-        database.close();
-    }
+    runWithCodeEvidenceDatabase(runtime, (database, phaseTimings) => {
+        requireCompatibleDatabaseTimed(database, runtime, phaseTimings);
+        checkedCodeIndexStaleness(database, runtime, phaseTimings);
+        const rows = measurePhase(phaseTimings, "query_ms", () => (0, search_1.searchSymbols)(database, args_1.codeSearchSymbol.trim()));
+        measurePhase(phaseTimings, "render_ms", () => printRows(rows));
+    });
 }
 function isCodeEvidenceModeFor(flags) {
     return Boolean(flags.codeContextPackTarget)
