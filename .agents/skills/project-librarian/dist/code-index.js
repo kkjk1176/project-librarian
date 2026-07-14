@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CodeEvidenceIndexUnavailableError = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
+exports.CodeEvidenceIndexUnavailableError = exports.nativeCodeIndexAutoFileThreshold = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
 exports.codeIndexStaleness = codeIndexStaleness;
 exports.codeIndexHealth = codeIndexHealth;
 exports.codeImpact = codeImpact;
@@ -61,6 +61,7 @@ const registry_1 = require("./code-index/extractors/registry");
 const shared_1 = require("./code-index/extractors/shared");
 const index_health_1 = require("./code-index/index-health");
 const modes_1 = require("./code-index/modes");
+const native_helper_1 = require("./code-index/native-helper");
 const ownership_1 = require("./code-index/ownership");
 Object.defineProperty(exports, "codeownerRules", { enumerable: true, get: function () { return ownership_1.codeownerRules; } });
 Object.defineProperty(exports, "matchedCodeownerRules", { enumerable: true, get: function () { return ownership_1.matchedCodeownerRules; } });
@@ -77,6 +78,8 @@ Object.defineProperty(exports, "searchSymbols", { enumerable: true, get: functio
 const workspace_1 = require("./workspace");
 exports.codeContextPackCharCap = 4000;
 exports.codeContextPackTruncationNotice = "[truncated - refine the query]";
+exports.nativeCodeIndexAutoFileThreshold = 1;
+const codeFileFingerprintPaths = new Map();
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -110,30 +113,82 @@ function selectedCodeParserMode() {
         return "tree-sitter";
     fail(`invalid --code-parser: ${args_1.codeParser}; expected one of: default, tree-sitter`);
 }
+function selectedCodeIndexEngine() {
+    const requested = args_1.codeIndexEngine.trim().toLowerCase();
+    if (!requested || requested === "auto")
+        return "auto";
+    if (requested === "typescript")
+        return "typescript";
+    if (requested === "native-rust")
+        return "native-rust";
+    fail(`invalid --code-index-engine: ${args_1.codeIndexEngine}; expected one of: auto, typescript, native-rust`);
+}
+function codeIndexEngineSelectionContext(discoveredFiles, parserMode) {
+    let nativeEligibleFileCount = 0;
+    for (const filePath of discoveredFiles) {
+        const language = (0, code_index_file_policy_1.fileLanguage)(filePath) || "config";
+        if (nativeAutoEligibleProfile((0, registry_1.extractionProfile)(filePath, language, parserMode)))
+            nativeEligibleFileCount += 1;
+    }
+    return {
+        discoveredFileCount: discoveredFiles.length,
+        nativeEligibleFileCount,
+        nativeIneligibleFileCount: discoveredFiles.length - nativeEligibleFileCount,
+    };
+}
+function shouldUseNativeCodeIndexAuto(context) {
+    return context.nativeEligibleFileCount >= exports.nativeCodeIndexAutoFileThreshold
+        && (0, native_helper_1.nativeCodeIndexHelperAvailable)();
+}
+function nativeCodeIndexAvailable() {
+    return (0, native_helper_1.nativeCodeIndexHelperAvailable)();
+}
 function normalizedMtimeMs(stat) {
     return Number(stat.mtimeMs.toFixed(3));
 }
 function readCodeFileFingerprint(relativePath) {
-    const stat = fs.statSync((0, workspace_1.abs)(relativePath));
+    const discovered = (0, code_index_file_policy_1.cachedDiscoveredCodeFileStat)(relativePath);
+    const { absolutePath, stat } = discovered ?? (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    codeFileFingerprintPaths.set(relativePath, absolutePath);
     return {
         mtimeMs: normalizedMtimeMs(stat),
         path: relativePath,
         size: stat.size,
     };
 }
-function readCodeFile(relativePath, parserMode = "default") {
-    const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
-    const fingerprint = readCodeFileFingerprint(relativePath);
+function lineCount(text) {
+    if (text.length === 0)
+        return 0;
+    let lines = 1;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text.charCodeAt(index) === 10)
+            lines += 1;
+    }
+    return lines;
+}
+function readCodeFile(relativePath, parserMode = "default", fingerprint) {
+    let effectiveFingerprint = fingerprint;
+    let absolutePath = effectiveFingerprint ? codeFileFingerprintPaths.get(relativePath) : undefined;
+    if (!absolutePath || !effectiveFingerprint) {
+        const contained = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+        absolutePath = contained.absolutePath;
+        effectiveFingerprint ??= {
+            mtimeMs: normalizedMtimeMs(contained.stat),
+            path: relativePath,
+            size: contained.stat.size,
+        };
+    }
+    const text = fs.readFileSync(absolutePath, "utf8");
     const language = (0, code_index_file_policy_1.fileLanguage)(relativePath) || "config";
     return {
-        bytes: fingerprint.size,
+        bytes: effectiveFingerprint.size,
         hash: crypto.createHash("sha256").update(text).digest("hex"),
         language,
-        lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
-        mtimeMs: fingerprint.mtimeMs,
+        lines: lineCount(text),
+        mtimeMs: effectiveFingerprint.mtimeMs,
         path: relativePath,
         profile: (0, registry_1.extractionProfile)(relativePath, language, parserMode),
-        size: fingerprint.size,
+        size: effectiveFingerprint.size,
         text,
     };
 }
@@ -142,8 +197,9 @@ function extractionBackendForProfile(profile) {
     return extractionBackendRegistry.backendForProfile(profile);
 }
 function indexCodeFile(file, statements) {
-    statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
-    statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
+    const ftsRowid = (0, schema_1.fileFtsRowid)(file.path);
+    statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
+    statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.text);
     extractionBackendForProfile(file.profile).index(file, statements);
 }
 function printRows(rows) {
@@ -172,6 +228,295 @@ function removeDatabaseFiles(databasePath) {
             fs.unlinkSync(filePath);
     }
 }
+function moveDatabaseFiles(sourcePath, targetPath) {
+    const backupPath = `${targetPath}.backup-${process.pid}-${Date.now()}`;
+    removeDatabaseFiles(backupPath);
+    for (const suffix of ["", "-wal", "-shm"]) {
+        const target = `${targetPath}${suffix}`;
+        if (fs.existsSync(target))
+            fs.renameSync(target, `${backupPath}${suffix}`);
+    }
+    try {
+        for (const suffix of ["", "-wal", "-shm"]) {
+            const source = `${sourcePath}${suffix}`;
+            if (fs.existsSync(source))
+                fs.renameSync(source, `${targetPath}${suffix}`);
+        }
+        removeDatabaseFiles(backupPath);
+    }
+    catch (error) {
+        removeDatabaseFiles(targetPath);
+        for (const suffix of ["", "-wal", "-shm"]) {
+            const backup = `${backupPath}${suffix}`;
+            if (fs.existsSync(backup))
+                fs.renameSync(backup, `${targetPath}${suffix}`);
+        }
+        throw error;
+    }
+}
+function removeTemporaryDatabaseFiles(databasePath) {
+    for (const suffix of ["", "-wal", "-shm"]) {
+        const filePath = `${databasePath}${suffix}`;
+        if (fs.existsSync(filePath))
+            fs.unlinkSync(filePath);
+    }
+}
+function nativeCodeIndexFileFor(filePath, parserMode) {
+    const fingerprint = readCodeFileFingerprint(filePath);
+    const language = (0, code_index_file_policy_1.fileLanguage)(filePath) || "config";
+    return {
+        ...fingerprint,
+        language,
+        profile: (0, registry_1.extractionProfile)(filePath, language, parserMode),
+    };
+}
+function nativeCodeIndexFileFromCodeFile(file) {
+    return {
+        language: file.language,
+        mtimeMs: file.mtimeMs,
+        path: file.path,
+        profile: file.profile,
+        size: file.size,
+    };
+}
+function nativeCodeIndexFileFromFingerprint(file, parserMode) {
+    const language = (0, code_index_file_policy_1.fileLanguage)(file.path) || "config";
+    return {
+        language,
+        mtimeMs: file.mtimeMs,
+        path: file.path,
+        profile: (0, registry_1.extractionProfile)(file.path, language, parserMode),
+        size: file.size,
+    };
+}
+function nativeEligibleProfile(profile) {
+    return nativeAutoEligibleProfile(profile) || profile === "config" || profile === "inventory-only";
+}
+function nativeCodeIndexIncrementalEligible(files, parserMode) {
+    return files.every((file) => nativeEligibleProfile(nativeCodeIndexFileFromFingerprint(file, parserMode).profile));
+}
+function nativeAutoEligibleProfile(profile) {
+    return [
+        "typescript-ast",
+        "python-light",
+        "go-light",
+        "c-light",
+        "cpp-light",
+        "csharp-light",
+        "java-light",
+        "kotlin-light",
+        "php-light",
+        "rust-light",
+        "swift-light",
+    ].includes(profile);
+}
+function nativeCodeIndexOutputMode() {
+    const requested = (process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY ?? "sqlite-direct").trim();
+    if (requested === "row-stream" || requested === "sqlite-bridge" || requested === "sqlite-direct")
+        return requested;
+    fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
+}
+function appendTypeScriptPartitionToNativeDatabase(databasePath, files, parserMode) {
+    if (files.length === 0)
+        return 0;
+    const database = openDatabase(databasePath);
+    try {
+        const statements = (0, schema_1.createIndexStatements)(database);
+        database.exec("BEGIN");
+        for (const file of files)
+            indexCodeFile(readCodeFile(file.path, parserMode, file), statements);
+        database.exec("COMMIT");
+        return files.length;
+    }
+    catch (error) {
+        try {
+            database.exec("ROLLBACK");
+        }
+        catch {
+            // Ignore rollback failures after helper-created database errors.
+        }
+        throw error;
+    }
+    finally {
+        database.close();
+    }
+}
+function writeNativeRowsToDatabase(databasePath, rows, scopes, parserMode) {
+    removeDatabaseFiles(databasePath);
+    const database = openDatabase(databasePath);
+    try {
+        (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
+        const statements = (0, schema_1.createIndexStatements)(database);
+        database.exec("BEGIN");
+        statements.insertMeta.run("created_at", new Date().toISOString());
+        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
+        for (const file of rows.files) {
+            const ftsRowid = (0, schema_1.fileFtsRowid)(file.path);
+            statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.kind, file.bytes, file.lines, file.hash, file.mtime_ms, file.size);
+            statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.content);
+        }
+        for (const symbol of rows.symbols) {
+            statements.insertSymbol.run(symbol.name, symbol.kind, symbol.file_path, symbol.line, symbol.signature);
+            statements.insertSymbolFts.run(symbol.name, symbol.kind, symbol.file_path, symbol.signature);
+        }
+        for (const imported of rows.imports) {
+            statements.insertImport.run(imported.from_file, imported.to_ref, imported.imported, imported.line, imported.raw);
+        }
+        for (const route of rows.routes) {
+            statements.insertRoute.run(route.method, route.route, route.file_path, route.line, route.handler);
+        }
+        for (const config of rows.configs) {
+            statements.insertConfig.run(config.key, config.value, config.file_path, config.line);
+        }
+        for (const edge of rows.edges) {
+            statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
+        }
+        (0, schema_1.createSecondaryIndexes)(database);
+        database.exec("COMMIT");
+    }
+    catch (error) {
+        try {
+            database.exec("ROLLBACK");
+        }
+        catch {
+            // Ignore rollback failures after row-stream setup errors.
+        }
+        throw error;
+    }
+    finally {
+        database.close();
+    }
+}
+function runNativeCodeIndexMode(request) {
+    let helperPath = "";
+    try {
+        helperPath = (0, native_helper_1.requireNativeCodeIndexHelperPath)();
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    prepareOutputPath();
+    const tempDatabasePath = `${request.databasePath.absolutePath}.native-${process.pid}-${Date.now()}.tmp`;
+    removeDatabaseFiles(tempDatabasePath);
+    const manifestFiles = [];
+    const nativeFiles = [];
+    const typescriptFiles = [];
+    for (const filePath of request.discoveredFiles) {
+        const file = nativeCodeIndexFileFor(filePath, request.parserMode);
+        manifestFiles.push(file);
+        if (nativeEligibleProfile(file.profile))
+            nativeFiles.push(file);
+        else
+            typescriptFiles.push(file);
+    }
+    const typescriptProfiles = [...new Set(typescriptFiles.map((file) => file.profile))].sort();
+    const outputMode = nativeCodeIndexOutputMode();
+    const rowsPath = `${tempDatabasePath}.rows.json`;
+    const job = (0, native_helper_1.buildNativeCodeIndexJob)({
+        database_path: tempDatabasePath,
+        files: nativeFiles,
+        output_mode: outputMode,
+        parser_mode: request.parserMode,
+        schema_version: schema_1.codeIndexSchemaVersion,
+        scopes: request.scopes,
+        ...(outputMode === "row-stream" ? { rows_path: rowsPath } : {}),
+    });
+    let summary;
+    let typescriptIndexedFiles = 0;
+    try {
+        if (outputMode === "row-stream") {
+            const result = (0, native_helper_1.runNativeCodeIndexRowsHelper)(job, { helperPath });
+            summary = result.summary;
+            writeNativeRowsToDatabase(tempDatabasePath, result.rows, request.scopes, request.parserMode);
+        }
+        else {
+            summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        }
+        if (!fs.existsSync(tempDatabasePath)) {
+            fail(`native code index helper did not create database: ${tempDatabasePath}`);
+        }
+        typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles, request.parserMode);
+        moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
+    }
+    catch (error) {
+        removeTemporaryDatabaseFiles(tempDatabasePath);
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    finally {
+        if (fs.existsSync(rowsPath))
+            fs.unlinkSync(rowsPath);
+    }
+    console.log("Project wiki code evidence index complete.");
+    console.log(`database: ${request.databasePath.relativePath}`);
+    console.log("mode: full");
+    console.log(`parser_mode: ${request.parserMode}`);
+    console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+    if (request.requestedEngine === "auto")
+        console.log("engine_selection: auto");
+    console.log(`native_strategy: ${outputMode}`);
+    console.log(`scopes: ${request.scopes.join(", ")}`);
+    console.log(`files: ${manifestFiles.length}`);
+    console.log(`native_files: ${nativeFiles.length}`);
+    console.log(`typescript_files: ${typescriptIndexedFiles}`);
+    if (typescriptProfiles.length > 0)
+        console.log(`typescript_profiles: ${typescriptProfiles.join(", ")}`);
+    console.log(`reindexed_files: ${manifestFiles.length}`);
+    console.log(`deleted_files: ${summary.deleted_files ?? 0}`);
+    console.log(`unchanged_files: ${summary.unchanged_files ?? 0}`);
+}
+function runNativeCodeIndexIncrementalMode(request) {
+    let helperPath = "";
+    try {
+        helperPath = (0, native_helper_1.requireNativeCodeIndexHelperPath)();
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    const nativeFiles = request.reindexedFiles.map((file) => nativeCodeIndexFileFromFingerprint(file, request.parserMode));
+    const ineligibleProfiles = [...new Set(nativeFiles
+            .filter((file) => !nativeEligibleProfile(file.profile))
+            .map((file) => file.profile))].sort();
+    if (ineligibleProfiles.length > 0) {
+        fail(`native incremental writer does not support parser profiles: ${ineligibleProfiles.join(", ")}`);
+    }
+    prepareOutputPath();
+    const outputMode = "sqlite-direct";
+    const job = (0, native_helper_1.buildNativeCodeIndexJob)({
+        database_path: request.databasePath.absolutePath,
+        deleted_paths: request.deletedPaths,
+        files: nativeFiles,
+        mode: "incremental",
+        output_mode: outputMode,
+        parser_mode: request.parserMode,
+        schema_version: schema_1.codeIndexSchemaVersion,
+        scopes: request.scopes,
+    });
+    let summary;
+    try {
+        summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        if (!fs.existsSync(request.databasePath.absolutePath)) {
+            fail(`native incremental writer did not preserve database: ${request.databasePath.absolutePath}`);
+        }
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    console.log("Project wiki code evidence index complete.");
+    console.log(`database: ${request.databasePath.relativePath}`);
+    console.log("mode: incremental");
+    console.log(`parser_mode: ${request.parserMode}`);
+    console.log("engine: native-rust");
+    if (request.requestedEngine === "auto")
+        console.log("engine_selection: auto");
+    console.log(`native_strategy: ${outputMode}`);
+    console.log(`scopes: ${request.scopes.join(", ")}`);
+    console.log(`files: ${request.discoveredFiles.length}`);
+    console.log(`native_files: ${nativeFiles.length}`);
+    console.log("typescript_files: 0");
+    console.log(`reindexed_files: ${summary.reindexed_files ?? nativeFiles.length}`);
+    console.log(`deleted_files: ${summary.deleted_files ?? request.deletedPaths.length}`);
+    console.log(`unchanged_files: ${request.unchangedFiles}`);
+}
 function codeIndexStaleness(database) {
     const scopes = (0, schema_1.indexedScopes)(database);
     const parserMode = (0, schema_1.indexedParserMode)(database);
@@ -193,7 +538,7 @@ function codeIndexStaleness(database) {
         }
         if (existing.mtimeMs === file.mtimeMs && existing.size === file.size)
             continue;
-        if (readCodeFile(file.path, parserMode).hash !== existing.hash)
+        if (readCodeFile(file.path, parserMode, file).hash !== existing.hash)
             changed += 1;
     }
     const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
@@ -303,16 +648,22 @@ function codeContextScaleLine(fileCount) {
         ? `scale small (${fileCount} indexed files < ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); direct reads are usually cheaper for simple lookups`
         : `scale large (${fileCount} indexed files >= ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); indexed traversal is useful for impact-style context`;
 }
-function structuralSignature(value) {
-    const signature = (0, shared_1.oneLine)(String(value ?? ""));
-    const bodyStart = signature.indexOf("{");
-    return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
-}
-function codeContextPack(database, query, options = {}) {
-    const normalized = query.trim();
-    if (!normalized)
-        return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
-    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, {
+function codeContextCollectorOptions(fileCount) {
+    if (fileCount < code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD) {
+        return {
+            edgeLimit: 8,
+            fileLimit: 8,
+            includeEdgeEvidenceMatches: false,
+            includeOwnerCodeowners: false,
+            includeRouteEdges: false,
+            importLimit: 12,
+            ownerSampleLimit: 3,
+            routeEdgeLimit: 0,
+            routeLimit: 8,
+            symbolLimit: 12,
+        };
+    }
+    return {
         edgeLimit: 30,
         fileLimit: 12,
         includeEdgeEvidenceMatches: true,
@@ -323,14 +674,26 @@ function codeContextPack(database, query, options = {}) {
         routeEdgeLimit: 0,
         routeLimit: 20,
         symbolLimit: 20,
-    });
-    const staleness = options.staleness ?? codeIndexStaleness(database);
+    };
+}
+function structuralSignature(value) {
+    const signature = (0, shared_1.oneLine)(String(value ?? ""));
+    const bodyStart = signature.indexOf("{");
+    return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
+}
+function codeContextPack(database, query, options = {}) {
+    const normalized = query.trim();
+    if (!normalized)
+        return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
     const coverage = (0, reports_1.evidenceCoverage)(database);
+    const indexedFileCount = Number(coverage.files ?? 0);
+    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, codeContextCollectorOptions(indexedFileCount));
+    const staleness = options.staleness ?? codeIndexStaleness(database);
     const staleLabel = staleness.stale
         ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`
         : "fresh";
     const lines = [
-        `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(Number(coverage.files ?? 0))}.`,
+        `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(indexedFileCount)}.`,
         "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
     ];
     pushBudgetedSection(lines, "Files:", evidence.files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
@@ -383,7 +746,7 @@ function prepareOutputPath() {
     const databasePath = codeEvidenceDatabasePath();
     (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
     (0, workspace_1.mkdirp)(code_index_file_policy_1.codeEvidenceDirectory);
-    fs.writeFileSync((0, workspace_1.abs)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
+    (0, workspace_1.write)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`, "*\n!.gitignore\n");
 }
 function codeIndexModeRuntime() {
     return {
@@ -396,13 +759,20 @@ function codeIndexModeRuntime() {
         codeScopes,
         fail,
         indexCodeFile,
+        nativeCodeIndexAvailable,
+        nativeCodeIndexIncrementalEligible,
         openDatabase,
         prepareOutputPath,
         readCodeFileFingerprint,
         readCodeFile,
         removeDatabaseFiles,
         requireExistingIndex,
+        runNativeCodeIndexIncrementalMode,
+        runNativeCodeIndexMode,
+        selectedCodeIndexEngine,
         selectedCodeParserMode,
+        codeIndexEngineSelectionContext,
+        shouldUseNativeCodeIndexAuto,
         warnIfCodeIndexStale,
     };
 }

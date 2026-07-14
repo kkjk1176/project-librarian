@@ -52,8 +52,10 @@ function pathOwnerKey(filePath) {
     return parts[0] ?? ".";
 }
 function readJsonObject(relativePath) {
+    if (!(0, workspace_1.containedProjectFileStat)(relativePath))
+        return null;
     try {
-        const parsed = JSON.parse(fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8"));
+        const parsed = JSON.parse((0, workspace_1.read)(relativePath));
         return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
     }
     catch {
@@ -63,14 +65,125 @@ function readJsonObject(relativePath) {
 function workspacePatternsFromRootPackage() {
     const rootPackage = readJsonObject("package.json");
     const workspaces = rootPackage?.workspaces;
-    if (Array.isArray(workspaces))
-        return workspaces.filter((value) => typeof value === "string");
+    if (Array.isArray(workspaces)) {
+        return workspaces
+            .filter((value) => typeof value === "string")
+            .map((pattern) => ({ pattern, source: "package.json workspaces" }));
+    }
     if (workspaces && typeof workspaces === "object" && !Array.isArray(workspaces)) {
         const packages = workspaces.packages;
-        if (Array.isArray(packages))
-            return packages.filter((value) => typeof value === "string");
+        if (Array.isArray(packages)) {
+            return packages
+                .filter((value) => typeof value === "string")
+                .map((pattern) => ({ pattern, source: "package.json workspaces" }));
+        }
     }
     return [];
+}
+function trimYamlComment(value) {
+    let quote = "";
+    for (let index = 0; index < value.length; index += 1) {
+        const character = value[index] ?? "";
+        if (quote) {
+            if (character === quote)
+                quote = "";
+            continue;
+        }
+        if (character === "\"" || character === "'") {
+            quote = character;
+            continue;
+        }
+        if (character === "#" && (index === 0 || /\s/.test(value[index - 1] ?? "")))
+            return value.slice(0, index).trimEnd();
+    }
+    return value.trimEnd();
+}
+function parseYamlStringScalar(value) {
+    const trimmed = trimYamlComment(value).trim();
+    if (!trimmed)
+        return null;
+    if (trimmed.startsWith("\"")) {
+        const match = trimmed.match(/^"((?:\\.|[^"\\])*)"/);
+        if (!match)
+            return null;
+        return match[1]?.replace(/\\"/g, "\"") ?? "";
+    }
+    if (trimmed.startsWith("'")) {
+        const match = trimmed.match(/^'((?:''|[^'])*)'/);
+        if (!match)
+            return null;
+        return match[1]?.replace(/''/g, "'") ?? "";
+    }
+    return trimmed;
+}
+function splitYamlFlowArray(value) {
+    const trimmed = trimYamlComment(value).trim();
+    if (!trimmed.startsWith("[") || !trimmed.endsWith("]"))
+        return null;
+    const entries = [];
+    let quote = "";
+    let current = "";
+    for (const character of trimmed.slice(1, -1)) {
+        if (quote) {
+            current += character;
+            if (character === quote)
+                quote = "";
+            continue;
+        }
+        if (character === "\"" || character === "'") {
+            quote = character;
+            current += character;
+            continue;
+        }
+        if (character === ",") {
+            entries.push(current);
+            current = "";
+            continue;
+        }
+        current += character;
+    }
+    entries.push(current);
+    return entries;
+}
+function workspacePatternsFromPnpmWorkspace() {
+    const filePath = "pnpm-workspace.yaml";
+    if (!(0, workspace_1.containedProjectFileStat)(filePath))
+        return [];
+    const lines = (0, workspace_1.read)(filePath).split(/\r?\n/);
+    const patterns = [];
+    let packagesIndent = null;
+    for (const line of lines) {
+        if (!line.trim() || line.trimStart().startsWith("#"))
+            continue;
+        const indent = line.match(/^\s*/)?.[0].length ?? 0;
+        const packagesMatch = line.match(/^(\s*)packages\s*:\s*(.*)$/);
+        if (packagesMatch) {
+            packagesIndent = packagesMatch[1]?.length ?? 0;
+            const inlineArray = splitYamlFlowArray(packagesMatch[2] ?? "");
+            if (inlineArray) {
+                for (const entry of inlineArray) {
+                    const pattern = parseYamlStringScalar(entry);
+                    if (pattern && !pattern.startsWith("!"))
+                        patterns.push({ pattern, source: "pnpm-workspace.yaml packages" });
+                }
+            }
+            continue;
+        }
+        if (packagesIndent === null)
+            continue;
+        if (indent <= packagesIndent)
+            break;
+        const item = line.slice(indent).match(/^-\s+(.+)$/);
+        if (!item)
+            continue;
+        const pattern = parseYamlStringScalar(item[1] ?? "");
+        if (pattern && !pattern.startsWith("!"))
+            patterns.push({ pattern, source: "pnpm-workspace.yaml packages" });
+    }
+    return patterns;
+}
+function workspacePatterns() {
+    return [...workspacePatternsFromRootPackage(), ...workspacePatternsFromPnpmWorkspace()];
 }
 function workspacePatternCandidates(pattern) {
     const normalized = (0, workspace_1.normalizePath)(pattern).replace(/^\/+/, "").replace(/\/+$/, "");
@@ -83,27 +196,27 @@ function workspacePatternCandidates(pattern) {
     const suffix = normalized.slice(starIndex + 1).replace(/^\/+/, "");
     const base = prefix || ".";
     const basePath = (0, workspace_1.abs)(base);
-    if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory())
+    if (!(0, workspace_1.containedProjectDirectoryStat)(base))
         return [];
     return fs.readdirSync(basePath, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
         .map((entry) => (0, workspace_1.normalizePath)(path.join(base, entry.name, suffix)))
-        .filter((candidate) => fs.existsSync((0, workspace_1.abs)(candidate)) && fs.statSync((0, workspace_1.abs)(candidate)).isDirectory());
+        .filter((candidate) => (0, workspace_1.containedProjectDirectoryStat)(candidate));
 }
 function workspacePackages() {
     const packages = new Map();
-    for (const pattern of workspacePatternsFromRootPackage()) {
-        for (const candidate of workspacePatternCandidates(pattern)) {
+    for (const workspacePattern of workspacePatterns()) {
+        for (const candidate of workspacePatternCandidates(workspacePattern.pattern)) {
             const packageJsonPath = (0, workspace_1.normalizePath)(path.join(candidate, "package.json"));
-            if (!fs.existsSync((0, workspace_1.abs)(packageJsonPath)))
+            if (!(0, workspace_1.containedProjectFileStat)(packageJsonPath))
                 continue;
             const packageJson = readJsonObject(packageJsonPath);
             const packageName = typeof packageJson?.name === "string" ? packageJson.name : candidate;
             packages.set(candidate, {
                 name: packageName,
                 root: candidate,
-                source: "package.json workspaces",
-                workspace_pattern: pattern,
+                source: workspacePattern.source,
+                workspace_pattern: workspacePattern.pattern,
             });
         }
     }
@@ -119,9 +232,9 @@ function codeownerRules() {
     const files = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"];
     const rules = [];
     for (const filePath of files) {
-        if (!fs.existsSync((0, workspace_1.abs)(filePath)))
+        if (!(0, workspace_1.containedProjectFileStat)(filePath))
             continue;
-        const lines = fs.readFileSync((0, workspace_1.abs)(filePath), "utf8").split(/\r?\n/);
+        const lines = (0, workspace_1.read)(filePath).split(/\r?\n/);
         lines.forEach((lineText, index) => {
             const trimmed = lineText.trim();
             if (!trimmed || trimmed.startsWith("#"))

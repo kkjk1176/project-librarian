@@ -33,6 +33,9 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.projectSkillTarget = projectSkillTarget;
+exports.installedProjectSkillSurfaces = installedProjectSkillSurfaces;
+exports.syncProjectSkillInstall = syncProjectSkillInstall;
 exports.runInstallSkillMode = runInstallSkillMode;
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
@@ -49,6 +52,7 @@ const packageFiles = [
     "package.json",
     "agents",
 ];
+const runtimeDependencyPackages = ["typescript"];
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -80,6 +84,18 @@ function installAgents() {
 function packageRoot() {
     return path.resolve(__dirname, "..");
 }
+function runtimeDependencySource(packageName) {
+    try {
+        return path.dirname(require.resolve(`${packageName}/package.json`, { paths: [packageRoot()] }));
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return fail(`missing runtime dependency ${packageName}: run npm install before installing the Project Librarian skill. Error: ${message}`);
+    }
+}
+function runtimeDependencyTarget(packageName) {
+    return path.join("node_modules", ...packageName.split("/"));
+}
 function userAgentRoot(agent) {
     const home = os.homedir();
     if (agent === "codex")
@@ -99,54 +115,174 @@ function projectAgentRoot(agent) {
         return ".cursor";
     return ".gemini";
 }
+function projectSkillRelativeRoot(agent) {
+    return path.join(projectAgentRoot(agent), "skills", skillName);
+}
+function projectSkillTarget(agent) {
+    return path.join(process.cwd(), projectSkillRelativeRoot(agent));
+}
 function installTarget(agent, scope) {
     const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
     return path.join(base, "skills", skillName);
 }
+function assertNoTargetSymlink(targetRoot, target, includeLeaf) {
+    const rootResolved = path.resolve(targetRoot);
+    const targetResolved = path.resolve(target);
+    if (targetResolved !== rootResolved && !targetResolved.startsWith(`${rootResolved}${path.sep}`)) {
+        fail(`skill install target escaped target root: ${target}`);
+    }
+    if (fs.existsSync(rootResolved) && fs.lstatSync(rootResolved).isSymbolicLink()) {
+        fail("skill install refuses to follow destination symlink: .");
+    }
+    const relative = path.relative(rootResolved, targetResolved);
+    const parts = relative ? relative.split(path.sep).filter(Boolean) : [];
+    const checkedParts = includeLeaf ? parts : parts.slice(0, -1);
+    let current = rootResolved;
+    for (const part of checkedParts) {
+        current = path.join(current, part);
+        if (!fs.existsSync(current))
+            continue;
+        const stat = fs.lstatSync(current);
+        if (stat.isSymbolicLink()) {
+            fail(`skill install refuses to follow destination symlink: ${path.relative(rootResolved, current) || "."}`);
+        }
+        if (current !== targetResolved && !stat.isDirectory()) {
+            fail(`skill install target has a non-directory path component: ${path.relative(rootResolved, current)}`);
+        }
+    }
+}
+function isInsidePath(base, target) {
+    const baseResolved = path.resolve(base);
+    const targetResolved = path.resolve(target);
+    return targetResolved === baseResolved || targetResolved.startsWith(`${baseResolved}${path.sep}`);
+}
+function mkdirFromBaseNoSymlink(base, target) {
+    const baseResolved = path.resolve(base);
+    const targetResolved = path.resolve(target);
+    if (!isInsidePath(baseResolved, targetResolved)) {
+        fail(`skill install target escaped checked base: ${target}`);
+    }
+    let current = baseResolved;
+    const parts = path.relative(baseResolved, targetResolved).split(path.sep).filter(Boolean);
+    for (const part of parts) {
+        current = path.join(current, part);
+        if (fs.existsSync(current)) {
+            const stat = fs.lstatSync(current);
+            if (stat.isSymbolicLink()) {
+                fail(`skill install refuses to follow destination symlink: ${path.relative(baseResolved, current)}`);
+            }
+            if (!stat.isDirectory()) {
+                fail(`skill install target has a non-directory path component: ${path.relative(baseResolved, current)}`);
+            }
+            continue;
+        }
+        fs.mkdirSync(current);
+    }
+}
+function mkdirpNoTargetSymlink(targetRoot, target) {
+    const rootResolved = path.resolve(targetRoot);
+    const targetResolved = path.resolve(target);
+    const cwdResolved = path.resolve(process.cwd());
+    if (isInsidePath(cwdResolved, rootResolved)) {
+        mkdirFromBaseNoSymlink(cwdResolved, rootResolved);
+    }
+    else {
+        fs.mkdirSync(rootResolved, { recursive: true });
+    }
+    const relative = path.relative(rootResolved, targetResolved);
+    let current = rootResolved;
+    if (!relative) {
+        if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) {
+            fail("skill install refuses to follow destination symlink: .");
+        }
+        if (!fs.existsSync(current))
+            fs.mkdirSync(current);
+        return;
+    }
+    for (const part of relative.split(path.sep).filter(Boolean)) {
+        current = path.join(current, part);
+        if (fs.existsSync(current)) {
+            const stat = fs.lstatSync(current);
+            if (stat.isSymbolicLink()) {
+                fail(`skill install refuses to follow destination symlink: ${path.relative(rootResolved, current)}`);
+            }
+            if (!stat.isDirectory()) {
+                fail(`skill install target has a non-directory path component: ${path.relative(rootResolved, current)}`);
+            }
+            continue;
+        }
+        fs.mkdirSync(current);
+    }
+}
 function sameFile(source, target) {
-    if (!fs.existsSync(target) || !fs.statSync(target).isFile())
+    if (!fs.existsSync(target))
+        return false;
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink() || !stat.isFile())
         return false;
     return fs.readFileSync(source).equals(fs.readFileSync(target));
 }
-function copyPath(source, target, dryRun) {
+function copyPath(source, target, targetRoot, dryRun) {
     if (!fs.existsSync(source))
         fail(`missing package file: ${source}`);
     const existed = fs.existsSync(target);
     if (dryRun)
         return "dry-run";
     const sourceStat = fs.statSync(source);
+    assertNoTargetSymlink(targetRoot, target, true);
     if (sourceStat.isDirectory()) {
-        fs.mkdirSync(target, { recursive: true });
+        mkdirpNoTargetSymlink(targetRoot, target);
         for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-            copyPath(path.join(source, entry.name), path.join(target, entry.name), false);
+            copyPath(path.join(source, entry.name), path.join(target, entry.name), targetRoot, false);
         }
         return existed ? "updated" : "created";
     }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
+    mkdirpNoTargetSymlink(targetRoot, path.dirname(target));
     if (sameFile(source, target))
         return "exists";
     fs.copyFileSync(source, target);
     fs.chmodSync(target, sourceStat.mode);
     return existed ? "updated" : "created";
 }
+function installedProjectSkillSurfaces() {
+    return agent_surfaces_1.allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
+}
+function copyPackageFiles(targetRoot, dryRun, labelRoot = targetRoot) {
+    const root = packageRoot();
+    const packageRows = packageFiles.map((relativePath) => {
+        const source = path.join(root, relativePath);
+        const target = path.join(targetRoot, relativePath);
+        return [path.join(labelRoot, relativePath), copyPath(source, target, targetRoot, dryRun)];
+    });
+    const dependencyRows = runtimeDependencyPackages.map((packageName) => {
+        const relativePath = runtimeDependencyTarget(packageName);
+        const source = runtimeDependencySource(packageName);
+        const target = path.join(targetRoot, relativePath);
+        return [path.join(labelRoot, relativePath), copyPath(source, target, targetRoot, dryRun)];
+    });
+    return [...packageRows, ...dependencyRows];
+}
+function syncProjectSkillInstall(agent) {
+    return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
+        if (status === "dry-run")
+            throw new Error("project skill sync does not support dry-run status");
+        return [label, status];
+    });
+}
 function runInstallSkillMode() {
     const scope = installScope();
     const agents = installAgents();
     const dryRun = args_1.args.has("--dry-run");
-    const root = packageRoot();
     const rows = [];
     for (const agent of agents) {
         const targetRoot = installTarget(agent, scope);
-        for (const relativePath of packageFiles) {
-            const source = path.join(root, relativePath);
-            const target = path.join(targetRoot, relativePath);
-            rows.push([`${agent}:${scope}:${path.join(targetRoot, relativePath)}`, copyPath(source, target, dryRun)]);
-        }
+        rows.push(...copyPackageFiles(targetRoot, dryRun).map(([label, status]) => [`${agent}:${scope}:${label}`, status]));
     }
     console.log(`Project Librarian skill ${dryRun ? "install dry-run" : "install"} complete.`);
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
-    console.log("note: install-skill only installs the reusable skill files; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
+    console.log("note: install only installs the reusable skill files and required local-runner runtime dependencies; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
+    console.log("compatibility: install-skill remains supported as an alias for install.");
     console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);
