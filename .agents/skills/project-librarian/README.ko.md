@@ -41,7 +41,7 @@ npx project-librarian@latest install --scope project --agents all
 npx project-librarian@latest update
 ```
 
-이 명령은 관리 설정 파일, 에이전트 훅, 위키 운영/메타 파일, 기존 프로젝트 범위 스킬 복사본을 갱신합니다. 기존 공유 `.agents/skills/project-librarian/` 복사본도 특정 에이전트 설정 표면을 암묵적으로 추가하지 않고 갱신합니다. 현재 `wiki/`는 보존하고 migration flag는 거부하므로 위키를 `wiki_legacy*`로 바꾸지 않습니다.
+이 명령은 관리 설정 파일, 에이전트 훅, 위키 운영/메타 파일, 기존 프로젝트 범위 스킬 복사본을 갱신합니다. 기존 공유 `.agents/skills/project-librarian/` 복사본도 특정 에이전트 설정 표면을 암묵적으로 추가하지 않고 갱신합니다. 일반 업데이트는 관리 중인 표면을 보존하며, 아직 관리 표면이 없으면 `.codex/`나 `.cursor/`처럼 이미 존재하는 에이전트 루트만 대상으로 삼습니다. 관련 없는 에이전트 디렉터리는 만들지 않습니다. 기존 Project Librarian 설치나 에이전트 루트를 하나도 감지하지 못하면 파일을 쓰기 전에 중단하고 `init` 또는 명시적인 `--agents` 선택을 요구합니다. 현재 `wiki/`는 보존하고 migration flag는 거부하므로 위키를 `wiki_legacy*`로 바꾸지 않습니다.
 
 특정 프로젝트 표면을 의도적으로 추가하거나 갱신할 때는 `--agents`를 명시합니다.
 

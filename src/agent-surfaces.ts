@@ -1,4 +1,18 @@
 export type AgentSurface = "codex" | "claude" | "cursor" | "gemini";
+export type AgentSurfaceLifecycle = "init" | "update";
+
+export type AgentSurfaceResolutionSource =
+  | "explicit"
+  | "managed-install"
+  | "existing-agent-root"
+  | "common-install"
+  | "fresh-init"
+  | "missing-update-target";
+
+export interface AgentSurfaceResolution {
+  source: AgentSurfaceResolutionSource;
+  surfaces: AgentSurface[];
+}
 
 export const allAgentSurfaces: readonly AgentSurface[] = ["codex", "claude", "cursor", "gemini"] as const;
 
@@ -14,6 +28,13 @@ const agentSurfaceProjectSkillFiles: Record<AgentSurface, readonly string[]> = {
   claude: [".claude/skills/project-librarian/SKILL.md"],
   cursor: [".cursor/skills/project-librarian/SKILL.md"],
   gemini: [".gemini/skills/project-librarian/SKILL.md"],
+};
+
+const agentSurfaceRoots: Record<AgentSurface, string> = {
+  codex: ".codex",
+  claude: ".claude",
+  cursor: ".cursor",
+  gemini: ".gemini",
 };
 
 const projectLibrarianCommonInstallFiles = [
@@ -59,14 +80,41 @@ export function activeAgentSurfaces(fileExists: (relativePath: string) => boolea
   ));
 }
 
+export function existingAgentSurfaceRoots(fileExists: (relativePath: string) => boolean): AgentSurface[] {
+  return allAgentSurfaces.filter((surface) => fileExists(agentSurfaceRoots[surface]));
+}
+
 export function resolveBootstrapAgentSurfaces(
+  lifecycle: AgentSurfaceLifecycle,
   explicitSurfaces: readonly AgentSurface[],
   fileExists: (relativePath: string) => boolean,
   readFile: (relativePath: string) => string,
-): AgentSurface[] {
-  if (explicitSurfaces.length > 0) return Array.from(explicitSurfaces);
-  if (hasProjectLibrarianInstall(fileExists, readFile)) return activeAgentSurfaces(fileExists);
-  return Array.from(allAgentSurfaces);
+): AgentSurfaceResolution {
+  if (explicitSurfaces.length > 0) {
+    return { source: "explicit", surfaces: Array.from(explicitSurfaces) };
+  }
+
+  const managedSurfaces = activeAgentSurfaces(fileExists);
+  if (managedSurfaces.length > 0) {
+    return { source: "managed-install", surfaces: managedSurfaces };
+  }
+
+  const hasCommonInstall = hasProjectLibrarianInstall(fileExists, readFile);
+  if (lifecycle === "update") {
+    const existingRoots = existingAgentSurfaceRoots(fileExists);
+    if (existingRoots.length > 0) {
+      return { source: "existing-agent-root", surfaces: existingRoots };
+    }
+    if (hasCommonInstall) {
+      return { source: "common-install", surfaces: [] };
+    }
+    return { source: "missing-update-target", surfaces: [] };
+  }
+
+  if (hasCommonInstall) {
+    return { source: "common-install", surfaces: [] };
+  }
+  return { source: "fresh-init", surfaces: Array.from(allAgentSurfaces) };
 }
 
 export function includesAgentSurface(surfaces: readonly AgentSurface[], surface: AgentSurface): boolean {
