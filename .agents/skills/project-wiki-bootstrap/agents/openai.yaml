@@ -1,0 +1,3 @@
+display_name: Project Wiki Bootstrap
+short_description: Installs a token-efficient planning wiki, AGENTS.md rules, and compact startup hook.
+default_prompt: Initialize this project with a token-efficient planning wiki setup.

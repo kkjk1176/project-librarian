@@ -1,0 +1,55 @@
+{
+  "name": "project-wiki-bootstrap",
+  "version": "0.1.2",
+  "description": "Bootstrap a token-efficient project planning wiki for humans and LLM agents.",
+  "license": "MIT",
+  "type": "commonjs",
+  "keywords": [
+    "agents",
+    "claude-code",
+    "codex",
+    "llm",
+    "project-planning",
+    "wiki"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkjk1176/project-wiki-bootstrap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kkjk1176/project-wiki-bootstrap/issues"
+  },
+  "homepage": "https://github.com/kkjk1176/project-wiki-bootstrap#readme",
+  "files": [
+    "agents/",
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "README.ko.md",
+    "README.ja.md",
+    "README.zh.md",
+    "SKILL.md"
+  ],
+  "bin": {
+    "project-wiki-bootstrap": "dist/init-project-wiki.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "benchmark": "node benchmarks/project-metrics.js",
+    "benchmark:baseline": "npm run build && node benchmarks/project-metrics.js --sample-repo benchmarks/samples/web-service --sample-repo benchmarks/samples/python-cli --sample-repo benchmarks/samples/mixed-monorepo --require-clean --save-baseline --markdown",
+    "benchmark:ci": "npm run benchmark:ci-smoke",
+    "benchmark:ci-smoke": "npm run build && node benchmarks/project-metrics.js --quick --runs 2 --warmup-runs 1 --sample-repo benchmarks/samples/web-service --sample-repo benchmarks/samples/python-cli --sample-repo benchmarks/samples/mixed-monorepo --out benchmarks/reports/ci-current.json --markdown benchmarks/reports/ci-current.md",
+    "benchmark:release": "npm run build && node benchmarks/project-metrics.js --sample-repo benchmarks/samples/web-service --sample-repo benchmarks/samples/python-cli --sample-repo benchmarks/samples/mixed-monorepo --fail-on-regression --require-clean --markdown",
+    "benchmark:trend": "node benchmarks/project-metrics.js --trend-markdown",
+    "build": "tsc && chmod +x dist/init-project-wiki.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && npm run typecheck && bash tests/smoke.sh",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "^6.0.3"
+  }
+}
