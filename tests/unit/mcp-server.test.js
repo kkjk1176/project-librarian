@@ -907,6 +907,26 @@ test("the registered command uses the local runner when the repo contains one", 
   }
 });
 
+test("the registered command prefers an existing shared .agents runner", () => {
+  const cwd = makeTmpDir("mcp-shared-runner-");
+  try {
+    stubCodeEvidenceIndex(cwd);
+    const runner = path.join(cwd, ".agents", "skills", "project-librarian", "dist", "init-project-wiki.js");
+    fs.mkdirSync(path.dirname(runner), { recursive: true });
+    fs.writeFileSync(runner, "#!/usr/bin/env node\n");
+
+    runCli(cwd, ["--no-git-config", "--agents", "claude"]);
+
+    const config = JSON.parse(fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"));
+    const entry = config.mcpServers["project-librarian"];
+    assert.equal(entry.command, "node");
+    assert.equal(entry.args[0], ".agents/skills/project-librarian/dist/init-project-wiki.js");
+    assert.equal(entry.args[1], "mcp");
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Code-evidence trust contract in the managed AGENTS.md block (B4 analogue)
 // ---------------------------------------------------------------------------

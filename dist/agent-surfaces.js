@@ -20,6 +20,7 @@ const agentSurfaceProjectSkillFiles = {
     gemini: [".gemini/skills/project-librarian/SKILL.md"],
 };
 const projectLibrarianCommonInstallFiles = [
+    ".agents/skills/project-librarian/SKILL.md",
     "wiki/startup.md",
     "wiki/index.md",
     "wiki/AGENTS.md",

@@ -32,7 +32,7 @@ npx project-librarian@latest install --scope project --agents all
 
 The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces only when no project-scoped Project Librarian skill install is present. If the repository already has project-scoped skills such as `.codex/skills/project-librarian/` and `.claude/skills/project-librarian/`, the first setup uses that installed agent set by default. Existing non-migration updates preserve the agent surfaces already present in the repository, so a repo that has only Codex and Claude files will not gain Cursor or Gemini files on a plain update. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
 
-`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package, including the runtime dependencies needed by the project-local runner. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
+`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package, including the runtime dependencies needed by the project-local runner. An existing shared `.agents/skills/project-librarian/` install is synchronized independently and does not imply Codex, Claude, Cursor, or Gemini setup surfaces. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
 
 ## Runner Paths
 
@@ -40,6 +40,7 @@ These paths are mainly for agents and automation. After installation, agents sho
 
 | Installation | Runner |
 | --- | --- |
+| Shared project-scoped skill | `node .agents/skills/project-librarian/dist/init-project-wiki.js` |
 | Project-scoped Codex skill | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
 | Project-scoped Claude skill | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
 | Project-scoped Cursor skill | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |

@@ -150,6 +150,27 @@ test("explicit update syncs existing project-scoped skill installs from the runn
   }
 });
 
+test("explicit update syncs an existing shared .agents skill install without implying agent surfaces", () => {
+  const root = makeTmpDir("surface-shared-skill-sync-");
+  try {
+    const sharedSkillRoot = path.join(root, ".agents", "skills", "project-librarian");
+    fs.mkdirSync(sharedSkillRoot, { recursive: true });
+    fs.writeFileSync(path.join(sharedSkillRoot, "SKILL.md"), "stale shared skill copy\n");
+
+    const output = runCommand(root, ["update", "--no-git-config"]);
+
+    assert.equal(read(root, ".agents/skills/project-librarian/SKILL.md"), fs.readFileSync(path.resolve(__dirname, "..", "..", "SKILL.md"), "utf8"));
+    assert.equal(exists(root, ".agents/skills/project-librarian/node_modules/typescript/package.json"), true);
+    assert.match(output, /\.agents\/skills\/project-librarian\/SKILL\.md/);
+    assert.match(output, /\.agents\/skills\/project-librarian\/node_modules\/typescript/);
+    assert.equal(exists(root, ".codex/hooks.json"), false, "shared skills should not imply the Codex setup surface");
+    assert.equal(exists(root, ".claude/settings.json"), false, "shared skills should not imply the Claude setup surface");
+    assert.equal(exists(root, ".codex/skills/project-librarian/SKILL.md"), false, "update should not create an agent-specific skill install");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("project-scoped local runner can build a code index without parent package dependencies", () => {
   const root = makeTmpDir("surface-local-runner-code-index-");
   try {
@@ -178,6 +199,7 @@ test("plain re-run preserves existing Codex and Claude surface set", () => {
     runCommand(root, ["update", "--no-git-config"]);
     assertCodexClaudeOnly(root);
     assert.equal(exists(root, ".codex/skills/project-librarian/SKILL.md"), false, "update should not create project-scoped skills when none were installed");
+    assert.equal(exists(root, ".agents/skills/project-librarian/SKILL.md"), false, "update should not create a shared project skill when none was installed");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -244,6 +266,25 @@ test("project skill install refuses destination symlink traversal", (t) => {
     assert.notEqual(result.status, 0);
     assert.match(`${result.stderr}\n${result.stdout}`, /refuses to follow destination symlink/);
     assert.equal(fs.readFileSync(outside, "utf8"), "external skill sentinel\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { force: true });
+  }
+});
+
+test("shared project skill update refuses destination symlink traversal", (t) => {
+  const root = makeTmpDir("surface-shared-skill-symlink-");
+  const outside = path.join(os.tmpdir(), `project-librarian-shared-skill-outside-${Date.now()}.md`);
+  try {
+    fs.writeFileSync(outside, "external shared skill sentinel\n");
+    fs.mkdirSync(path.join(root, ".agents", "skills", "project-librarian"), { recursive: true });
+    if (!symlinkOrSkip(t, outside, path.join(root, ".agents", "skills", "project-librarian", "SKILL.md"))) return;
+
+    const result = runCommandResult(root, ["update", "--no-git-config"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /refuses to follow destination symlink/);
+    assert.equal(fs.readFileSync(outside, "utf8"), "external shared skill sentinel\n");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(outside, { force: true });

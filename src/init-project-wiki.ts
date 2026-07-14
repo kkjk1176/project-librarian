@@ -3,7 +3,7 @@
 import { acknowledgeSmallRepoMode, agentTargets, captureInboxMode, codeContextPackMode, codeFilesMode, codeImpactMode, codeIndexEngineMode, codeIndexFullMode, codeIndexHealthMode, codeIndexIncrementalMode, codeIndexMigrateMode, codeIndexMode, codeParserMode, codeQueryMode, codeReportMode, codeReportSection, codeSearchSymbolMode, codeStatusMode, command, doctorMode, fixMode, glossaryMode, handoffClearMode, handoffInputMode, handoffInjectionDisableMode, handoffInjectionEnableMode, handoffInjectionStatusMode, handoffPromoteInboxMode, handoffSaveMode, handoffShowMode, handoffStatusMode, helpMode, invalidAgentTargets, issueCreateMode, issueDraftMode, linkCheckMode, lintMode, migrationDoctorMode, migrationLintMode, migrationQualityCheckMode, migrateMode, missingValueOptions, noGitConfigMode, pruneCheckMode, pruneCheckStrictMode, qualityCheckMode, queryTerm, refreshIndexMode, reviewMigrationMode, unexpectedValueOptions, unknownCommand, unknownOptions, wikiImpactMode, wikiNeighborhoodMode } from "./args";
 import { allAgentSurfaces, includesAgentSurface, resolveBootstrapAgentSurfaces } from "./agent-surfaces";
 import { cursorHookScript, hookScript, gitPrepareCommitMsgHook, gitWikiCommitTrailersScript, mcpRegistrationGate, upsertClaudeHookConfig, upsertClaudeMcpConfig, upsertCursorHookConfig, upsertCursorMcpConfig, upsertGeminiHookConfig, upsertGeminiMcpConfig, upsertGitHooksPath, upsertHookConfig } from "./hooks";
-import { installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall } from "./install-skill";
+import { hasSharedProjectSkillInstall, installedProjectSkillSurfaces, runInstallSkillMode, syncProjectSkillInstall, syncSharedProjectSkillInstall } from "./install-skill";
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode, runWikiNeighborhoodMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
 import { runHandoffClearMode, runHandoffInjectionDisableMode, runHandoffInjectionEnableMode, runHandoffInjectionStatusMode, runHandoffPromoteInboxMode, runHandoffSaveMode, runHandoffShowMode, runHandoffStatusMode } from "./session-handoff";
@@ -355,6 +355,7 @@ const selectedAgentSurfaces = agentTargets.length > 0
 const projectSkillSyncSurfaces = command === "update"
   ? installedProjectSkillSurfaces().filter((surface) => includesAgentSurface(selectedAgentSurfaces, surface))
   : [];
+const syncSharedProjectSkill = command === "update" && hasSharedProjectSkillInstall();
 const shouldWriteSurface = (surface: "codex" | "claude" | "cursor" | "gemini"): boolean => includesAgentSurface(selectedAgentSurfaces, surface);
 const writeCodexSurface = shouldWriteSurface("codex");
 const writeClaudeSurface = shouldWriteSurface("claude");
@@ -380,6 +381,9 @@ if (writeGeminiSurface) mkdirp(".gemini/hooks");
 mkdirp(".githooks");
 for (const surface of projectSkillSyncSurfaces) {
   for (const result of syncProjectSkillInstall(surface)) results.push(result);
+}
+if (syncSharedProjectSkill) {
+  for (const result of syncSharedProjectSkillInstall()) results.push(result);
 }
 
 // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block

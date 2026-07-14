@@ -32,8 +32,9 @@
   },
   "mcpServers": {
     "project-librarian": {
-      "command": "project-librarian",
+      "command": "node",
       "args": [
+        ".agents/skills/project-librarian/dist/init-project-wiki.js",
         "mcp"
       ]
     }

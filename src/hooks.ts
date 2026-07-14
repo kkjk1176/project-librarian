@@ -109,6 +109,7 @@ const mcpServerName = "project-librarian";
 // runner wins; absent any local install we register the published binary.
 const localRunnerCandidates = [
   "tools/project-librarian/dist/init-project-wiki.js",
+  ".agents/skills/project-librarian/dist/init-project-wiki.js",
   ".codex/skills/project-librarian/dist/init-project-wiki.js",
   ".claude/skills/project-librarian/dist/init-project-wiki.js",
   ".cursor/skills/project-librarian/dist/init-project-wiki.js",
@@ -436,7 +437,7 @@ function wikiScope(files) {
     else if (file.startsWith(".gemini/hooks/") || file === ".gemini/settings.json") add("gemini-hooks");
     else if (file === "AGENTS.md" || file === "CLAUDE.md" || file === "GEMINI.md") add("agents");
     else if (file.startsWith(".githooks/")) add("git-hooks");
-    else if (file.startsWith("tools/project-librarian/")) add("skill");
+    else if (file.startsWith("tools/project-librarian/") || file.startsWith(".agents/skills/project-librarian/")) add("skill");
   }
   return scopes.length === 0 ? "none" : scopes.join(", ");
 }
@@ -445,6 +446,7 @@ function validationTrailers() {
   const home = process.env.HOME || "";
   const lintScript = [
     "tools/project-librarian/dist/init-project-wiki.js",
+    ".agents/skills/project-librarian/dist/init-project-wiki.js",
     path.join(home, ".codex/skills/project-librarian/dist/init-project-wiki.js"),
     path.join(home, ".claude/skills/project-librarian/dist/init-project-wiki.js"),
     path.join(home, ".cursor/skills/project-librarian/dist/init-project-wiki.js"),
@@ -495,7 +497,8 @@ const wikiFiles = staged.filter((file) => {
     || file === ".gemini/settings.json"
     || file.startsWith(".gemini/hooks/")
     || file.startsWith(".githooks/")
-    || file.startsWith("tools/project-librarian/");
+    || file.startsWith("tools/project-librarian/")
+    || file.startsWith(".agents/skills/project-librarian/");
 });
 
 if (wikiFiles.length === 0) process.exit(0);

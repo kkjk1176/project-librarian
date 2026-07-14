@@ -37,6 +37,7 @@ Supported actions:
 Prefer an already installed local runner over network package execution:
 
 - In the project-librarian source repository, use `node dist/init-project-wiki.js` when `dist/init-project-wiki.js` exists.
+- In a target repository with a shared project-scoped skill install, use `node .agents/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Codex skill install, use `node .codex/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Claude skill install, use `node .claude/skills/project-librarian/dist/init-project-wiki.js`.
 - In a target repository with a project-scoped Cursor skill install, use `node .cursor/skills/project-librarian/dist/init-project-wiki.js`.

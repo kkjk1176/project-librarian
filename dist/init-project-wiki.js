@@ -328,6 +328,7 @@ function runInitCommand() {
     const projectSkillSyncSurfaces = args_1.command === "update"
         ? (0, install_skill_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
         : [];
+    const syncSharedProjectSkill = args_1.command === "update" && (0, install_skill_1.hasSharedProjectSkillInstall)();
     const shouldWriteSurface = (surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface);
     const writeCodexSurface = shouldWriteSurface("codex");
     const writeClaudeSurface = shouldWriteSurface("claude");
@@ -355,6 +356,10 @@ function runInitCommand() {
     (0, workspace_1.mkdirp)(".githooks");
     for (const surface of projectSkillSyncSurfaces) {
         for (const result of (0, install_skill_1.syncProjectSkillInstall)(surface))
+            results.push(result);
+    }
+    if (syncSharedProjectSkill) {
+        for (const result of (0, install_skill_1.syncSharedProjectSkillInstall)())
             results.push(result);
     }
     // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
