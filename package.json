@@ -79,7 +79,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "optionalDependencies": {
     "@sengac/tree-sitter": "^0.25.15",
