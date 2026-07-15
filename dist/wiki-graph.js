@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.wikiAnswerTruncationNotice = exports.wikiAnswerCharCap = exports.wikiRouterExemptPages = exports.wikiRouterDepthBudget = exports.wikiRouterRoot = void 0;
 exports.finalizeWikiAnswer = finalizeWikiAnswer;
 exports.buildWikiGraph = buildWikiGraph;
+exports.wikiReachableDepths = wikiReachableDepths;
 exports.wikiRouterDepths = wikiRouterDepths;
 exports.wikiQueryGraphEvidence = wikiQueryGraphEvidence;
 exports.wikiImpactAnswer = wikiImpactAnswer;
@@ -61,15 +62,15 @@ function buildWikiGraph(pages) {
     }
     return { files, links, incomingLinks, outgoingLinks, incomingDecisionRefs, outgoingDecisionRef };
 }
-// BFS depths over existing pages from wiki/startup.md (depth 0). Pages absent
-// from the result are unreachable through the router chain. Only links whose
-// target exists are traversed; broken links are the broken-link rule's job.
-function wikiRouterDepths(graph) {
+// BFS depths over existing pages from a caller-selected root (depth 0). Pages
+// absent from the result are unreachable through that link chain. Only links
+// whose target exists are traversed; broken links are the broken-link rule's job.
+function wikiReachableDepths(graph, root) {
     const depths = new Map();
-    if (!graph.files.has(exports.wikiRouterRoot))
+    if (!graph.files.has(root))
         return depths;
-    depths.set(exports.wikiRouterRoot, 0);
-    const queue = [exports.wikiRouterRoot];
+    depths.set(root, 0);
+    const queue = [root];
     while (queue.length > 0) {
         const current = queue.shift();
         const depth = depths.get(current) ?? 0;
@@ -82,6 +83,9 @@ function wikiRouterDepths(graph) {
         }
     }
     return depths;
+}
+function wikiRouterDepths(graph) {
+    return wikiReachableDepths(graph, exports.wikiRouterRoot);
 }
 // Wiki impact: the --code-impact envelope shape applied to wiki maintenance.
 // Given a page or term, report which pages link to it (review candidates when it

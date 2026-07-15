@@ -143,6 +143,52 @@ test("--refresh-index preserves customized routers while updating the auto-index
   }
 });
 
+test("--refresh-index does not duplicate pages reached through a scoped router", () => {
+  const root = makeTmpDir("router-indirect-refresh-");
+  try {
+    runCli(root);
+    appendLine(root, "wiki/decisions/README.md", "- Routed ADR: [[decisions/adr-001-routed-decision]].");
+    fs.writeFileSync(path.join(root, "wiki", "decisions", "adr-001-routed-decision.md"), [
+      "---",
+      "status: accepted",
+      "updated: 2026-07-15",
+      "scope: project-decisions",
+      "read_budget: medium",
+      "decision_ref: none",
+      "review_trigger: regression fixture",
+      "---",
+      "",
+      "# ADR 001: Routed Decision",
+      "",
+      "This page is already reachable through the hand-written decisions router.",
+      "",
+    ].join("\n"));
+    fs.writeFileSync(path.join(root, "wiki", "canonical", "unrouted-page.md"), [
+      "---",
+      "status: active",
+      "updated: 2026-07-15",
+      "scope: project-canonical",
+      "read_budget: short",
+      "decision_ref: none",
+      "review_trigger: regression fixture",
+      "---",
+      "",
+      "# Unrouted Page",
+      "",
+      "This page still needs auto-discovery.",
+      "",
+    ].join("\n"));
+
+    runCli(root, ["--refresh-index"]);
+
+    const index = readFile(root, "wiki/index.md");
+    assert.doesNotMatch(index, /decisions\/adr-001-routed-decision/);
+    assert.match(index, /canonical\/unrouted-page/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("--refresh-index splits oversized scoped auto routers", () => {
   const root = makeTmpDir("router-split-");
   try {

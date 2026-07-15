@@ -10,7 +10,7 @@ import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp,
 import { metadata } from "./templates";
 import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
-import { finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
+import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiReachableDepths, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
 import { collectTopologyDiagnostics, staleReviewAge } from "./wiki-diagnostics";
 
@@ -128,8 +128,12 @@ function syncScopedAutoIndexes(files: string[]): Array<{ area: string; count: nu
 export function buildRefreshIndexBlock(): string {
   const indexText = exists("wiki/index.md") ? read("wiki/index.md") : "";
   const comparableIndex = stripMarkedSection(indexText, "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->");
-  const files = wikiMarkdownFiles().filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
-  const missing = files.filter((file) => !comparableIndex.includes(wikiLinkForFile(file)));
+  const allFiles = wikiMarkdownFiles();
+  const files = allFiles.filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
+  const pages = allFiles.map((file) => ({ file, text: file === "wiki/index.md" ? comparableIndex : read(file) }));
+  const indexDepths = wikiReachableDepths(buildWikiGraph(pages), "wiki/index.md");
+  const indexDepthBudget = wikiRouterDepthBudget - 1;
+  const missing = files.filter((file) => (indexDepths.get(file) ?? Number.POSITIVE_INFINITY) > indexDepthBudget);
   if (missing.length > scopedAutoIndexThreshold) {
     const summaries = syncScopedAutoIndexes(missing);
     const rows = summaries.map((summary) => `| ${wikiLinkForFile(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
