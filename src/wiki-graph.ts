@@ -76,14 +76,14 @@ export function buildWikiGraph(pages: WikiPageInput[]): WikiGraph {
   return { files, links, incomingLinks, outgoingLinks, incomingDecisionRefs, outgoingDecisionRef };
 }
 
-// BFS depths over existing pages from wiki/startup.md (depth 0). Pages absent
-// from the result are unreachable through the router chain. Only links whose
-// target exists are traversed; broken links are the broken-link rule's job.
-export function wikiRouterDepths(graph: WikiGraph): Map<string, number> {
+// BFS depths over existing pages from a caller-selected root (depth 0). Pages
+// absent from the result are unreachable through that link chain. Only links
+// whose target exists are traversed; broken links are the broken-link rule's job.
+export function wikiReachableDepths(graph: WikiGraph, root: string): Map<string, number> {
   const depths = new Map<string, number>();
-  if (!graph.files.has(wikiRouterRoot)) return depths;
-  depths.set(wikiRouterRoot, 0);
-  const queue: string[] = [wikiRouterRoot];
+  if (!graph.files.has(root)) return depths;
+  depths.set(root, 0);
+  const queue: string[] = [root];
   while (queue.length > 0) {
     const current = queue.shift() as string;
     const depth = depths.get(current) ?? 0;
@@ -95,6 +95,10 @@ export function wikiRouterDepths(graph: WikiGraph): Map<string, number> {
     }
   }
   return depths;
+}
+
+export function wikiRouterDepths(graph: WikiGraph): Map<string, number> {
+  return wikiReachableDepths(graph, wikiRouterRoot);
 }
 
 // Wiki impact: the --code-impact envelope shape applied to wiki maintenance.

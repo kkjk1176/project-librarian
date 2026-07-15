@@ -173,8 +173,12 @@ function syncScopedAutoIndexes(files) {
 function buildRefreshIndexBlock() {
     const indexText = (0, workspace_1.exists)("wiki/index.md") ? (0, workspace_1.read)("wiki/index.md") : "";
     const comparableIndex = (0, wiki_files_1.stripMarkedSection)(indexText, "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->");
-    const files = (0, wiki_files_1.wikiMarkdownFiles)().filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
-    const missing = files.filter((file) => !comparableIndex.includes((0, wiki_files_1.wikiLinkForFile)(file)));
+    const allFiles = (0, wiki_files_1.wikiMarkdownFiles)();
+    const files = allFiles.filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
+    const pages = allFiles.map((file) => ({ file, text: file === "wiki/index.md" ? comparableIndex : (0, workspace_1.read)(file) }));
+    const indexDepths = (0, wiki_graph_1.wikiReachableDepths)((0, wiki_graph_1.buildWikiGraph)(pages), "wiki/index.md");
+    const indexDepthBudget = wiki_graph_1.wikiRouterDepthBudget - 1;
+    const missing = files.filter((file) => (indexDepths.get(file) ?? Number.POSITIVE_INFINITY) > indexDepthBudget);
     if (missing.length > scopedAutoIndexThreshold) {
         const summaries = syncScopedAutoIndexes(missing);
         const rows = summaries.map((summary) => `| ${(0, wiki_files_1.wikiLinkForFile)(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
