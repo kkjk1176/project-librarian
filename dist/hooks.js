@@ -216,8 +216,8 @@ function upsertGeminiMcpConfig() {
 function buildStartupHookScript(output) {
     return `#!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
+const fs = process.getBuiltinModule("node:fs");
+const path = process.getBuiltinModule("node:path");
 
 function readHookInput() {
   try {

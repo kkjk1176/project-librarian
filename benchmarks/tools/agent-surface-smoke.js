@@ -56,13 +56,14 @@ function buildFixture(root) {
   writeFile(path.join(root, "package.json"), JSON.stringify({
     name: "agent-surface-smoke",
     private: true,
+    type: "module",
     workspaces: ["apps/*", "packages/*"],
     dependencies: { express: "^4.18.0" },
   }, null, 2) + "\n");
   writeFile(path.join(root, "package-lock.json"), JSON.stringify({ name: "agent-surface-smoke", lockfileVersion: 3, packages: {} }, null, 2) + "\n");
   writeFile(path.join(root, ".github", "CODEOWNERS"), "* @org/default\nsrc/ @platform-team\nsrc/app.js @app-owners\n");
   writeFile(path.join(root, "src", "app.js"), [
-    "const express = require(\"express\");",
+    "import express from \"express\";",
     "const app = express();",
     "function healthHandler(req, res) { res.json({ ok: true }); }",
     "app.get(\"/health\", healthHandler);",
@@ -122,6 +123,7 @@ function main() {
     assertMcpRegistrations(root);
     console.log(JSON.stringify({
       ok: true,
+      target_module_type: "module",
       surfaces: ["codex", "claude", "cursor", "gemini"],
       hooks_checked: 4,
       mcp_registrations_checked: ["claude", "cursor", "gemini"],

@@ -253,6 +253,33 @@ test("every agent SessionStart hook payload carries the injected-context marker"
   }
 });
 
+test("generated SessionStart hooks execute in ESM target projects", () => {
+  const root = makeTmpDir("p5-hook-esm-");
+  try {
+    fs.writeFileSync(path.join(root, "package.json"), `${JSON.stringify({ type: "module" }, null, 2)}\n`);
+    runCli(root);
+    const hooks = [
+      ".codex/hooks/wiki-session-start.js",
+      ".claude/hooks/wiki-session-start.js",
+      ".cursor/hooks/wiki-session-start.js",
+      ".gemini/hooks/wiki-session-start.js",
+    ];
+    for (const hook of hooks) {
+      const generated = readFile(root, hook);
+      assert.match(generated, /process\.getBuiltinModule\("node:fs"\)/, `${hook} is not module-mode agnostic`);
+      assert.doesNotMatch(generated, /\brequire\s*\(/, `${hook} still depends on CommonJS require`);
+      const env = { ...process.env, GEMINI_PROJECT_DIR: root };
+      const out = childProcess.execFileSync(process.execPath, [hook], { cwd: root, encoding: "utf8", env });
+      const payload = JSON.parse(out);
+      const ctx = payload.hookSpecificOutput ? payload.hookSpecificOutput.additionalContext : payload.additional_context;
+      assert(typeof ctx === "string" && ctx.includes("ALREADY included"), `${hook} did not execute in the ESM target`);
+    }
+    assert.match(runCli(root, ["--lint"]), /passed:/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("SessionStart hooks report missing wiki startup files instead of claiming they were included", () => {
   const root = makeTmpDir("p5-hookmissing-");
   try {
