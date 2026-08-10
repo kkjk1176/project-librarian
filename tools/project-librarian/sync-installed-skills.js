@@ -8,6 +8,9 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..", "..");
 const rootDist = path.join(root, "dist");
 const rootPackagePath = path.join(root, "package.json");
+const rootReadmeNames = ["README.md", "README.ko.md"];
+const rootSkillPath = path.join(root, "SKILL.md");
+const compatibilitySkillPath = path.join(root, ".agents", "skills", "project-wiki-bootstrap", "SKILL.md");
 const skillRoots = [
   { path: ".agents/skills/project-librarian", compatibility: false },
   { path: ".claude/skills/project-librarian", compatibility: false },
@@ -61,8 +64,14 @@ function syncPackageMetadata(skillRoot, compatibility, rootPackage) {
   }
 
   const existing = JSON.parse(fs.readFileSync(target, "utf8"));
+  const {
+    scripts: _removedScripts,
+    devDependencies: _removedDevDependencies,
+    optionalDependencies: _removedOptionalDependencies,
+    ...packageIdentity
+  } = existing;
   const compatible = {
-    ...existing,
+    ...packageIdentity,
     type: rootPackage.type,
     engines: rootPackage.engines,
     dependencies: rootPackage.dependencies,
@@ -70,6 +79,18 @@ function syncPackageMetadata(skillRoot, compatibility, rootPackage) {
     projectLibrarianRuntimeVersion: rootPackage.version,
   };
   fs.writeFileSync(target, `${JSON.stringify(compatible, null, 2)}\n`);
+}
+
+function syncReadmes(skillRoot) {
+  for (const readmeName of rootReadmeNames) {
+    fs.copyFileSync(path.join(root, readmeName), path.join(skillRoot, readmeName));
+  }
+}
+
+function syncSkillContract(skillRoot, compatibility) {
+  const source = compatibility ? compatibilitySkillPath : rootSkillPath;
+  const target = path.join(skillRoot, "SKILL.md");
+  if (path.resolve(source) !== path.resolve(target)) fs.copyFileSync(source, target);
 }
 
 function main() {
@@ -85,6 +106,8 @@ function main() {
     if (!fs.statSync(skillRoot).isDirectory()) throw new Error(`missing checked-in skill root: ${skill.path}`);
     copyRuntime(rootDist, path.join(skillRoot, "dist"));
     syncPackageMetadata(skillRoot, skill.compatibility, rootPackage);
+    syncReadmes(skillRoot);
+    syncSkillContract(skillRoot, skill.compatibility);
   }
 }
 

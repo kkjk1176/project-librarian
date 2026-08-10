@@ -70,7 +70,28 @@ test("installed primary and compatibility skills keep the complete v2 runtime in
       assert.deepEqual(metadata.engines, rootPackage.engines);
       assert.deepEqual(metadata.dependencies, rootPackage.dependencies);
       assert.deepEqual(metadata.optionalDependencies, rootPackage.optionalDependencies);
+      assert.equal(metadata.scripts, undefined, "the compatibility package must not advertise removed development workflows");
     }
+  }
+});
+
+test("checked-in skill documentation exposes only the wiki product surface", () => {
+  const rootReadmes = {
+    "README.md": fs.readFileSync(path.join(root, "README.md"), "utf8"),
+    "README.ko.md": fs.readFileSync(path.join(root, "README.ko.md"), "utf8"),
+  };
+  for (const relativeSkillRoot of installedSkills) {
+    const skillRoot = path.join(root, relativeSkillRoot);
+    for (const [readme, expected] of Object.entries(rootReadmes)) {
+      assert.equal(fs.readFileSync(path.join(skillRoot, readme), "utf8"), expected, `${relativeSkillRoot}/${readme} differs from the root documentation`);
+    }
+    const canonicalSkill = fs.readFileSync(path.join(
+      root,
+      relativeSkillRoot.endsWith("project-librarian")
+        ? "SKILL.md"
+        : ".agents/skills/project-wiki-bootstrap/SKILL.md",
+    ), "utf8");
+    assert.equal(fs.readFileSync(path.join(skillRoot, "SKILL.md"), "utf8"), canonicalSkill, `${relativeSkillRoot}/SKILL.md differs from its canonical contract`);
   }
 });
 

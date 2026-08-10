@@ -1,10 +1,7 @@
 import * as childProcess from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { noGitConfigMode } from "./args";
-import { codeEvidenceDirectory, discoverCodeFiles, SMALL_REPO_FILE_THRESHOLD } from "./code-index-file-policy";
-import type { CursorHookCommand, CursorHookConfig, FileStatus, HookCommand, HookConfig, McpServerEntry, McpServersConfig, SessionStartHook } from "./types";
-import { abs, exists, isGitRepository, parseJson, read, root, walkFilesUnder, write } from "./workspace";
+import type { CursorHookCommand, CursorHookConfig, FileStatus, HookCommand, HookConfig, SessionStartHook } from "./types";
+import { exists, isGitRepository, parseJson, read, root, write } from "./workspace";
 
 export function upsertGitHooksPath(): FileStatus {
   if (noGitConfigMode) return "skipped-no-git-config";
@@ -100,91 +97,6 @@ export function upsertCursorHookConfig(): FileStatus {
   const previous = exists(relativePath) ? read(relativePath) : "";
   write(relativePath, next);
   return previous === next ? "exists" : previous ? "updated" : "created";
-}
-
-const mcpServerName = "project-librarian";
-
-// Candidate local-runner paths, project root relative, in the recorded
-// local-runner-first order (mirrors validationTrailers()). The first existing
-// runner wins; absent any local install we register the published binary.
-const localRunnerCandidates = [
-  "tools/project-librarian/dist/init-project-wiki.js",
-  ".agents/skills/project-librarian/dist/init-project-wiki.js",
-  ".codex/skills/project-librarian/dist/init-project-wiki.js",
-  ".claude/skills/project-librarian/dist/init-project-wiki.js",
-  ".cursor/skills/project-librarian/dist/init-project-wiki.js",
-  ".gemini/skills/project-librarian/dist/init-project-wiki.js",
-];
-
-// Deterministic command policy for the registered MCP server: if the repo
-// contains a local runner, register `node <runner> mcp`; otherwise register the
-// installed binary `project-librarian mcp`. This mirrors the local-runner-first
-// skill policy (run the installed local copy with node, not npx) so registration
-// does not depend on network/registry access. The runner path is stored project
-// relative so the registration stays portable across clones.
-function mcpServerEntry(): McpServerEntry {
-  const runner = localRunnerCandidates.find((candidate) => fs.existsSync(abs(candidate)));
-  if (runner) return { command: "node", args: [runner, "mcp"] };
-  return { command: mcpServerName, args: ["mcp"] };
-}
-
-// Preservation-first, idempotent merge of the project-librarian MCP server into a
-// JSON config file's `mcpServers` map. Unknown keys and other servers are never
-// clobbered; only `mcpServers["project-librarian"]` is set. A second run with an
-// unchanged entry returns "exists". Used for Claude `.mcp.json`, Cursor
-// `.cursor/mcp.json`, and (via the same map) Gemini `.gemini/settings.json`.
-//
-// Codex boundary: `codex mcp` only manages USER-level config (~/.codex/config.toml
-// via `codex mcp add`); there is no documented project-level MCP config file under
-// `.codex/`. Per the no-user-level-writes rule we do not register Codex here; the
-// README documents running `codex mcp add project-librarian -- node <runner> mcp`.
-function upsertMcpServersFile(relativePath: string): FileStatus {
-  const config = parseJson<McpServersConfig>(relativePath, {});
-  if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
-    config.mcpServers = {};
-  }
-  config.mcpServers[mcpServerName] = mcpServerEntry();
-  const next = `${JSON.stringify(config, null, 2)}\n`;
-  const previous = exists(relativePath) ? read(relativePath) : "";
-  if (previous === next) return "exists";
-  write(relativePath, next);
-  return previous ? "updated" : "created";
-}
-
-// Scale-aware MCP auto-registration gate (2026-06-12 decision). Below the
-// measured file-count threshold the code-evidence tools cost more tokens than
-// direct reads (stageR1: ~1.2k files lost every question), so bootstrap does not
-// auto-register the MCP server there. An existing .project-wiki index overrides
-// the gate regardless of scale: below the threshold it can only have been built
-// through --code-index --acknowledge-small-repo, so it is standing user consent.
-export type McpRegistrationGate =
-  | { register: true }
-  | { register: false; reason: FileStatus };
-
-export function codeEvidenceIndexExists(): boolean {
-  return walkFilesUnder(codeEvidenceDirectory, (file) => file.endsWith(".sqlite")).length > 0;
-}
-
-export function mcpRegistrationGate(): McpRegistrationGate {
-  if (codeEvidenceIndexExists()) return { register: true };
-  const indexableFileCount = discoverCodeFiles(["."]).length;
-  if (indexableFileCount >= SMALL_REPO_FILE_THRESHOLD) return { register: true };
-  return {
-    register: false,
-    reason: `skipped-small-repo ${indexableFileCount} indexable files < ${SMALL_REPO_FILE_THRESHOLD} (code-evidence tools measured costlier than direct reads at this scale: stageR1; opt in via --code-index --acknowledge-small-repo, then re-run bootstrap)`,
-  };
-}
-
-export function upsertClaudeMcpConfig(): FileStatus {
-  return upsertMcpServersFile(".mcp.json");
-}
-
-export function upsertCursorMcpConfig(): FileStatus {
-  return upsertMcpServersFile(".cursor/mcp.json");
-}
-
-export function upsertGeminiMcpConfig(): FileStatus {
-  return upsertMcpServersFile(".gemini/settings.json");
 }
 
 function buildStartupHookScript(output: string): string {
@@ -401,22 +313,6 @@ function truncateList(items) {
   return items.slice(0, 3).join(", ") + ", +" + String(items.length - 3);
 }
 
-function metadataLine(text, label) {
-  const match = text.match(new RegExp("^- " + label + ":\\\\s*(.+)$", "m"));
-  return match ? match[1].trim() : "";
-}
-
-function migrationStatus(files) {
-  const hasMigration = files.some((file) => file.startsWith("wiki/migration/") || file.endsWith("/migration-inbox.md"));
-  if (!hasMigration) return "n/a";
-  const text = existingFile("wiki/migration/verification.md") + "\\n" + existingFile("wiki/migration/review.md");
-  const coverage = metadataLine(text, "coverage") || "unknown";
-  const semantic = metadataLine(text, "semantic migration complete") || "unknown";
-  const pending = metadataLine(text, "pending") || "unknown";
-  const needsHuman = metadataLine(text, "needs-human-review") || "unknown";
-  return "coverage " + coverage + "; semantic complete " + semantic + "; pending " + pending + "; needs-human-review " + needsHuman;
-}
-
 function wikiScope(files) {
   const scopes = [];
   const add = (name) => {
@@ -433,7 +329,6 @@ function wikiScope(files) {
     else if (file.startsWith("wiki/decisions/")) add("decisions");
     else if (file.startsWith("wiki/meta/")) add("meta");
     else if (file.startsWith("wiki/sources/")) add("sources");
-    else if (file.startsWith("wiki/migration/") || file.endsWith("/migration-inbox.md")) add("migration");
     else if (file === "wiki/startup.md") add("startup");
     else if (file === "wiki/index.md") add("index");
     else if (file.startsWith(".codex/hooks/") || file === ".codex/hooks.json") add("codex-hooks");
@@ -512,15 +407,14 @@ if (wikiFiles.length === 0) process.exit(0);
 let message = fs.readFileSync(messagePath, "utf8");
 if (/^Wiki-scope:/m.test(message)) process.exit(0);
 
-const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || /\/09-decisions\//.test(file) || file === "wiki/meta/wiki-ops-v1-decisions.md" || file === "wiki/meta/wiki-ops-v2-decisions.md");
+const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || /\\/09-decisions\\//.test(file) || file === "wiki/meta/wiki-ops-v1-decisions.md" || file === "wiki/meta/wiki-ops-v2-decisions.md");
 const validation = validationTrailers();
 const trailers = [
   ["Wiki-scope", wikiScope(wikiFiles)],
-  ["Canonical-updated", truncateList(wikiFiles.filter((file) => (file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/canonical/")) && !file.includes("/migration-") && !file.endsWith("/migration-inbox.md")))],
+  ["Canonical-updated", truncateList(wikiFiles.filter((file) => file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/canonical/")))],
   ["Decision-ref", truncateList(decisionRefs)],
   ["Startup-updated", wikiFiles.includes("wiki/startup.md") ? "yes" : "no"],
   ["Index-updated", wikiFiles.includes("wiki/index.md") ? "yes" : "no"],
-  ["Migration-status", migrationStatus(wikiFiles)],
   ["Tested", validation.tested],
   ["Not-tested", validation.notTested],
 ];

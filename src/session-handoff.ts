@@ -313,9 +313,6 @@ function collectGitFacts(): string {
   const status = runGit(["status", "--short"]) || "clean";
   const diffStat = runGit(["diff", "--stat", "--no-ext-diff"]) || "no working-tree diff";
   const commits = runGit(["log", "--oneline", "-3"]) || "no commits";
-  const codeEvidence = fs.existsSync(resolveUnderRoot(".project-wiki/code-evidence.sqlite"))
-    ? ".project-wiki/code-evidence.sqlite exists"
-    : "code evidence index not found";
   return capText([
     `branch: ${branch}`,
     "",
@@ -327,8 +324,6 @@ function collectGitFacts(): string {
     "",
     "recent commits:",
     commits,
-    "",
-    codeEvidence,
   ].join("\n"), maxGitFactsChars);
 }
 

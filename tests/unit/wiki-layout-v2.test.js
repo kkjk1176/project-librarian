@@ -103,7 +103,7 @@ test("update preserves user-authored v2 operating documents", () => {
   }
 });
 
-test("central layout contract classifies PRD areas and validates migration targets", () => {
+test("central layout contract classifies PRD areas", () => {
   const layout = require("../../dist/wiki-layout.js");
   const decision = layout.classifyWikiPath("wiki/10-services/payments/prds/PRD-012-checkout/09-decisions/adr.md");
   assert.equal(decision.version, "v2");
@@ -111,55 +111,6 @@ test("central layout contract classifies PRD areas and validates migration targe
   assert.equal(decision.prdId, "PRD-012");
   assert.equal(decision.area, "decisions");
   assert.equal(decision.currentTruth, false);
-
-  const registrations = {
-    services: new Set(["payments"]),
-    prds: new Set(["payments/PRD-012-checkout"]),
-  };
-  assert.deepEqual(
-    layout.validateMigrationTarget("wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md", registrations),
-    [],
-  );
-  assert.match(layout.validateMigrationTarget("wiki/canonical/api.md", registrations)[0], /legacy lifecycle root/);
-  assert.match(layout.validateMigrationTarget("wiki/10-services/unknown/service-overview.md", registrations)[0], /unregistered service/);
-  assert.match(layout.validateMigrationTarget("wiki/90-archive/active.md", registrations, { activeTruth: true })[0], /archive/);
-});
-
-test("migration targets require registered leaf documents in exact v2 areas", () => {
-  const { validateMigrationTarget } = require("../../dist/wiki-layout.js");
-  const registrations = {
-    services: new Set(["payments"]),
-    prds: new Set(["payments/PRD-012-checkout"]),
-  };
-  const invalidTargets = [
-    "../outside.md",
-    "wiki/10-services/README.md",
-    "wiki/10-services/payments/README.md",
-    "wiki/10-services/payments/prds/PRD-012-checkout/README.md",
-    "wiki/10-services/payments/prds/PRD-012-checkout/direct.md",
-    "wiki/10-services/payments/prds/PRD-012-checkout/99-unknown/note.md",
-    "wiki/20-shared/README.md",
-    "wiki/30-portfolio/README.md",
-    "wiki/meta/wiki-ops-v2-decisions.md",
-    "wiki/meta/operating-model.md",
-  ];
-  for (const target of invalidTargets) {
-    assert.notDeepEqual(validateMigrationTarget(target, registrations), [], `${target} must be rejected`);
-  }
-
-  assert.deepEqual(validateMigrationTarget(
-    "wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md",
-    registrations,
-    { documentType: "design" },
-  ), []);
-  assert.match(validateMigrationTarget(
-    "wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md",
-    registrations,
-    { documentType: "requirements" },
-  ).join("\n"), /area\/type mismatch/);
-  assert.deepEqual(validateMigrationTarget("wiki/20-shared/payment-terms.md", registrations, { documentType: "shared" }), []);
-  assert.deepEqual(validateMigrationTarget("wiki/30-portfolio/payment-sequence.md", registrations, { documentType: "portfolio" }), []);
-  assert.deepEqual(validateMigrationTarget("wiki/meta/custom-wiki-policy.md", registrations, { documentType: "wiki-meta" }), []);
 });
 
 test("service and PRD metadata validation enforces ownership context", () => {

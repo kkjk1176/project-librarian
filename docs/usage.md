@@ -1,174 +1,115 @@
 # Usage
 
-Use this guide after the README quick start. It covers install scope, runner paths, generated files, migration behavior, and agent-facing requests.
-
-## Install Scopes
-
-Use `npx` for initial skill installation or for an explicit registry-version project update:
+## Install the Reusable Skill
 
 ```bash
 npx project-librarian@latest install --scope user --agents all
 ```
 
-Install into the current repository instead:
+Use `--scope project` to install into the current repository. Agent targets can be `codex`, `claude`, `cursor`, `gemini`, or `all`. `install-skill` remains an alias for older automation.
+
+## Initialize a Repository
 
 ```bash
-npx project-librarian@latest install --scope project --agents all
+npx project-librarian@latest init
 ```
 
-`install` copies reusable skill files and required local-runner runtime dependencies. It does not create or update `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `wiki/`, `.cursor/rules/`, `.cursor/hooks.json`, `.gemini/settings.json`, `.codex/hooks.json`, or `.claude/settings.json`. `install-skill` remains supported as a compatibility alias.
+Initialization creates neutral service/PRD hubs, operating rules, compact startup routing, agent hooks, and Git hook files. It does not invent services or PRDs and does not overwrite an existing wiki.
 
-| Situation | Command |
-| --- | --- |
-| Install globally for all supported agents | `npx project-librarian@latest install --scope user --agents all` |
-| Install in the current repository | `npx project-librarian@latest install --scope project --agents all` |
-| Install only Codex | `npx project-librarian@latest install --agents codex` |
-| Install only Claude Code | `npx project-librarian@latest install --agents claude` |
-| Install only Cursor | `npx project-librarian@latest install --agents cursor` |
-| Install only Gemini CLI | `npx project-librarian@latest install --agents gemini` |
-| Preview install output | `npx project-librarian@latest install --scope project --agents all --dry-run` |
+To target selected agent surfaces:
 
-`--agents` accepts comma-separated values such as `codex,claude,cursor,gemini`. `all` targets every supported agent. `--scope` accepts `user` or `project`.
+```bash
+npx project-librarian@latest init --agents codex,cursor
+```
 
-The project setup/update runner also accepts `--agents`. Fresh setup defaults to all supported agent surfaces only when no project-scoped Project Librarian skill install is present. If the repository already has project-scoped skills such as `.codex/skills/project-librarian/` and `.claude/skills/project-librarian/`, the first setup uses that installed agent set by default. Existing non-migration updates preserve Project Librarian-managed surfaces. If no managed surface exists yet, update selects only agent roots already present, so a bare `.codex/` repository gains the Codex setup without gaining Claude, Cursor, or Gemini files. An update with no detectable install or agent root exits before writing; use `init` for a fresh project or pass `--agents`. Use `project-librarian update --agents cursor` or `project-librarian update --agents all` when you intentionally want to add newly supported surfaces; unlisted surfaces are not deleted.
+Use `--no-git-config` when hook files are wanted but the repository's `core.hooksPath` must not change.
 
-`project-librarian update` also syncs any project-scoped Project Librarian skill installs that already exist for the selected surfaces from the currently running package, including the runtime dependencies needed by the project-local runner. An existing shared `.agents/skills/project-librarian/` install is synchronized independently and does not imply Codex, Claude, Cursor, or Gemini setup surfaces. This means `npx project-librarian@latest update` can refresh the repository's managed setup, hooks, wiki meta files, and existing project-scoped skill copies without migration. It does not create new project-scoped skill installs by default and does not update user-scoped skill installs; use `install --scope user` for that.
+## Update an Existing Setup
 
-## Runner Paths
+```bash
+npx project-librarian@latest update
+```
 
-These paths are mainly for agents and automation. After installation, agents should run the installed local copy with `node`, not `npx`. This avoids network access and unpinned package execution in restricted agent environments.
+Update refreshes managed instructions, hooks, operating templates, and installed project-scope skill copies. It preserves existing wiki documents and targets managed or already-present agent surfaces unless `--agents` is explicit. If no installation or agent root can be detected, it fails before writing and asks for `init` or an explicit agent selection.
 
-| Installation | Runner |
-| --- | --- |
-| Shared project-scoped skill | `node .agents/skills/project-librarian/dist/init-project-wiki.js` |
-| Project-scoped Codex skill | `node .codex/skills/project-librarian/dist/init-project-wiki.js` |
-| Project-scoped Claude skill | `node .claude/skills/project-librarian/dist/init-project-wiki.js` |
-| Project-scoped Cursor skill | `node .cursor/skills/project-librarian/dist/init-project-wiki.js` |
-| Project-scoped Gemini skill | `node .gemini/skills/project-librarian/dist/init-project-wiki.js` |
-| User-scoped Codex skill | `node ~/.codex/skills/project-librarian/dist/init-project-wiki.js` |
-| User-scoped Claude skill | `node ~/.claude/skills/project-librarian/dist/init-project-wiki.js` |
-| User-scoped Cursor skill | `node ~/.cursor/skills/project-librarian/dist/init-project-wiki.js` |
-| User-scoped Gemini skill | `node ~/.gemini/skills/project-librarian/dist/init-project-wiki.js` |
+Existing lifecycle-style directories are left in place as read-only compatibility material. Project Librarian does not automatically reorganize them.
+
+## Organize the Wiki
+
+The primary write route is:
+
+```text
+service -> PRD/initiative -> document area -> focused artifact
+```
+
+- Register services and stable PRD IDs through `wiki/00-index/`.
+- Store service and PRD truth under `wiki/10-services/`.
+- Use `wiki/20-shared/` only for genuinely shared contracts.
+- Use `wiki/30-portfolio/` for cross-PRD sequencing.
+- Put unresolved candidates in `wiki/inbox/`.
+- Retire recoverable material under `wiki/90-archive/`.
+
+Every durable page should state its status, update date, scope, type, owner, reading budget, decision reference, and review trigger.
+
+## Search and Follow Routes
+
+```bash
+project-librarian --query "rate limit policy"
+project-librarian --wiki-impact "PRD-012"
+project-librarian --wiki-neighborhood "checkout"
+```
+
+`--query` returns the strongest matching page and bounded supporting results. `--wiki-impact` explains links and citations around a target. `--wiki-neighborhood` proposes a small read order around a target.
+
+## Check Wiki Quality
+
+```bash
+project-librarian --lint
+project-librarian --link-check
+project-librarian --quality-check
+project-librarian --doctor
+```
+
+Use `--doctor --fix` to refresh the managed index block before running diagnostics. Use `--prune-check` or `--prune-check-strict` to identify pages that need review or retirement.
+
+## Inbox and Glossary
+
+```bash
+project-librarian --capture-inbox \
+  --title "Retry ownership" \
+  --content "Confirm which service owns retry policy." \
+  --category open-question
+
+project-librarian --glossary-init
+project-librarian --refresh-index
+```
+
+Inbox entries remain candidates until a human or agent classifies them into the owning service, PRD, shared, portfolio, or archive route.
+
+## Session Handoff
+
+```bash
+project-librarian --handoff-save \
+  --goal "Finish checkout requirements" \
+  --state "Draft complete" \
+  --next "Review with payments owner" \
+  --verification "project-librarian --doctor"
+
+project-librarian --handoff-show
+project-librarian --handoff-status
+project-librarian --handoff-promote-inbox
+project-librarian --handoff-clear
+```
+
+Handoff files are generated local reference data, not durable planning truth. Promote only selected facts to the inbox, then classify them normally.
 
 ## Common Agent Requests
 
-Ask your agent for the outcome you want; the skill maps the request to the local runner internally.
-
-Wiki setup and maintenance:
-
-| Goal | Ask The Agent | Internal Action |
-| --- | --- | --- |
-| Create or update the wiki | "Use Project Librarian to set up or update this repository's planning wiki." | `[init]` |
-| Update existing setup without migration | "Update this repository's Project Librarian setup without migrating the wiki." | `update` |
-| Update from the npm latest package without migration | "Run the latest Project Librarian update for this repository without migrating the wiki." | `npx project-librarian@latest update` |
-| Add a specific agent surface to an existing setup | "Add the Cursor Project Librarian surface without migrating the wiki." | `update --agents cursor` |
-| Migrate existing docs/wiki content | "Use Project Librarian to migrate the existing docs/wiki content." | `--migrate` |
-| Validate generated setup | "Run Project Librarian validation." | `--lint` |
-| Check links and document quality | "Run Project Librarian diagnostics." | `--doctor` |
-| Refresh generated routing before diagnostics | "Refresh Project Librarian routing and then run diagnostics." | `--doctor --fix` |
-| Search project wiki content | "Search the Project Librarian wiki for authentication decisions." | `--query "authentication decisions"` |
-| Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for the payments checkout PRD hub." | `--wiki-impact "10-services/payments/prds/PRD-012-checkout"` |
-| Find nearby wiki context | "Show Project Librarian wiki neighborhood for the payments checkout PRD hub." | `--wiki-neighborhood "10-services/payments/prds/PRD-012-checkout"` |
-| Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
-| Save a session handoff | "Save a Project Librarian session handoff for the current work." | `--handoff-save --goal "..." --state "..." --next "..."` |
-| Resume from a handoff | "Show the last Project Librarian session handoff." | `--handoff-show` |
-| Promote handoff candidates | "Promote the last Project Librarian handoff to the wiki inbox." | `--handoff-promote-inbox` |
-| Opt in to full handoff injection | "Enable the Project Librarian full handoff injection experiment." | `--handoff-injection-enable` |
-| Report stale or unresolved wiki pages | "Check Project Librarian for stale or unresolved pages." | `--prune-check` |
-| Report only higher-signal stale or unresolved wiki pages | "Check Project Librarian for strict stale or unresolved pages." | `--prune-check --prune-check-strict` |
-| Install hook files without changing git config | "Set up Project Librarian hook files without changing git config." | `--no-git-config` |
-
-Code evidence:
-
-| Goal | Ask The Agent | Internal Action |
-| --- | --- | --- |
-| Build the default evidence cache | "Build Project Librarian code evidence for `src`." | `--code-index --code-scope src` |
-| Build multiple scopes | "Build Project Librarian code evidence for `src` and `packages/api`." | `--code-index --code-scope src --code-scope packages/api` |
-| Require incremental update | "Update the Project Librarian code evidence index incrementally." | `--code-index --incremental` |
-| Force a full rebuild | "Fully rebuild the Project Librarian code evidence index." | `--code-index --code-index-full` |
-| Approve a schema migration | "Migrate the Project Librarian code evidence index schema." | `--code-index --code-index-migrate` |
-| Use optional Tree-sitter backend | "Build Project Librarian code evidence with the Tree-sitter parser." | `--code-index --code-parser tree-sitter` |
-| Inspect cache compatibility | "Inspect Project Librarian code evidence cache health." | `--code-index-health` |
-| Show cache status | "Show Project Librarian code evidence status." | `--code-status` |
-| List indexed files | "List files in the Project Librarian code evidence index." | `--code-files` |
-| Print architecture and ownership report | "Show the Project Librarian code report." | `--code-report` |
-| Print one report section | "Show the routes section of the Project Librarian code report." | `--code-report --code-report-section routes` |
-| Inspect impact evidence | "Show Project Librarian impact evidence for `healthHandler`." | `--code-impact healthHandler` |
-| Build a context pack | "Build a Project Librarian context pack for `healthHandler`." | `--code-context-pack healthHandler` |
-| Search indexed symbols | "Search Project Librarian code evidence for symbol `Auth`." | `--code-search-symbol Auth` |
-| Run conservative read-only SQL | "Run a read-only Project Librarian code evidence query for file paths." | `--code-query "select path from files order by path"` |
-
-Only one code evidence mode can run at a time. `--incremental`, `--code-index-full`, `--code-index-migrate`, and `--code-parser` are valid only with `--code-index`. `--code-index-migrate` is explicit approval to replace an existing disposable index when its schema version differs from the current package.
-
-## What Gets Installed
-
-Fresh setup installs the supported agent surfaces below unless you pass `--agents` or the repository already has project-scoped Project Librarian skills for a narrower agent set. Existing non-migration updates preserve the detected surface set by default and update only those selected surfaces plus the common wiki/git-hook files.
-
-Project instruction files:
-
-- `AGENTS.md`
-- `CLAUDE.md`
-- `GEMINI.md`
-- `wiki/AGENTS.md`
-- `.cursor/rules/project-librarian.mdc`
-
-Startup hooks:
-
-- `.codex/hooks.json`
-- `.codex/hooks/wiki-session-start.js`
-- `.claude/settings.json`
-- `.claude/hooks/wiki-session-start.js`
-- `.cursor/hooks.json`
-- `.cursor/hooks/wiki-session-start.js`
-- `.gemini/settings.json`
-- `.gemini/hooks/wiki-session-start.js`
-
-Git hook files:
-
-- `.githooks/prepare-commit-msg`
-- `.githooks/wiki-commit-trailers.js`
-
-Wiki directories:
-
-- `wiki/00-index/` — service map and PRD registry.
-- `wiki/01-governance/` — source-of-truth and writing rules.
-- `wiki/10-services/<service>/prds/<PRD-ID-slug>/01-discovery/` through `11-plans/` — service and initiative documentation.
-- `wiki/20-shared/` — shared contracts and glossary.
-- `wiki/30-portfolio/` — cross-PRD sequencing and roadmap.
-- `wiki/90-archive/` — retained retired material.
-- `wiki/inbox/`, `wiki/indexes/`, `wiki/meta/`, and `wiki/migration/` — candidates, generated routing, operations, and migration review.
-
-Seed wiki pages and routers:
-
-- `wiki/startup.md`
-- `wiki/index.md`
-- `wiki/meta/document-taxonomy.md`
-
-Fresh setup creates only common v2 hubs; it does not invent services, PRDs, or empty lifecycle folders. Register a service and PRD before creating its focused artifacts. During migration, form-only legacy templates are recorded as skipped in `wiki/migration/inventory.md` instead of becoming review rows or new wiki pages.
-
-MCP server registration is a preservation-first merge into `mcpServers` for Claude Code (`.mcp.json`), Cursor (`.cursor/mcp.json`), and Gemini CLI (`.gemini/settings.json`). The disposable code-evidence cache is `.project-wiki/code-evidence.sqlite`.
-
-## How It Works
-
-1. Bootstrap creates a preservation-first wiki structure and marker-bounded agent instruction sections.
-2. Session-start hooks inject only `wiki/startup.md` and `wiki/index.md`, with character budgets.
-3. Fresh setup avoids invented services and PRDs; focused v2 documents are created after ownership and PRD registration are known.
-4. Detailed planning truth stays under the owning service/PRD, shared area, portfolio area, or wiki meta pages and is read on demand.
-5. New project-planning content is classified before it is written or consolidated, keeping upstream/downstream document relationships visible.
-6. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
-7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
-8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
-9. Wiki producers keep writing the service/PRD v2 markdown/YAML schema, while read-only consumers such as diagnostics and MCP inspect source documents without mutating them.
-10. Diagnostics report broken links, duplicate routes, orphan pages, topology warnings, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
-
-Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:
-
-- `inventory.md` records migratable legacy markdown files, file-level classification, and form-only/template files skipped from semantic migration.
-- `unit-map.md` records each heading, paragraph, list item, table row, and code block with its suggested taxonomy area and target page.
-- `split-plan.md` groups those units by suggested new wiki target, so one legacy page that mixes API specs, features, UX, QA, policy, or operations can be rewritten into separate files.
-- `coverage.md` is the editable status ledger for each unit: pending, adopted, merged, superseded, rejected, resolved, or needs-human-review.
-- `verification.md` and `review.md` summarize coverage and semantic completion after `--review-migration`.
-
-`--migration-lint` validates that `coverage.md`, `unit-map.md`, and `split-plan.md` still account for the current migration batch, including duplicate/stale unit IDs, invalid storage/confidence/status values, split count drift, target drift, and old coverage-table schemas. When a legacy page has units that point to multiple targets, `--review-migration` will not let a file-level inbox status complete every unit; unit-level coverage must be resolved instead.
-
-Retained or copied legacy content is acceptable when it fits the new wiki policy and structure; the new wiki must not depend on citing `wiki_legacy*`.
+| Outcome | Request |
+| --- | --- |
+| Fresh setup | “Initialize Project Librarian and organize the project wiki.” |
+| Refresh setup | “Update Project Librarian while preserving the existing wiki.” |
+| Diagnose quality | “Run the Project Librarian wiki doctor and explain actionable findings.” |
+| Find project truth | “Search the project wiki for the authentication policy and follow the owning route.” |
+| Capture a candidate | “Save this open question to the Project Librarian inbox.” |
+| Resume work | “Show the latest Project Librarian handoff and continue the unfinished work.” |

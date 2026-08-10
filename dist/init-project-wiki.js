@@ -6,100 +6,60 @@ const agent_surfaces_1 = require("./agent-surfaces");
 const hooks_1 = require("./hooks");
 const install_skill_1 = require("./install-skill");
 const modes_1 = require("./modes");
-const migration_1 = require("./migration");
 const session_handoff_1 = require("./session-handoff");
 const templates_1 = require("./templates");
 const workspace_1 = require("./workspace");
-function codeIndex() {
-    return require("./code-index");
-}
 function printUsage() {
     console.log(`Usage:
   project-librarian [init|update] [options]
   project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
-  project-librarian mcp
+  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
 
-Options:
-  --migrate, --adopt-existing      Preserve an existing wiki as wiki_legacy and create unit-level migration map, split plan, coverage ledger, review files, and inboxes.
+Wiki options:
   --lint                           Validate the generated project wiki setup without editing files.
   --link-check                     Report broken wiki links, duplicate routes, and orphan pages.
   --quality-check                  Report stale, conflicting, and low-quality wiki document signals.
   --doctor                         Run lint, link-check, and quality-check together.
-  --fix                            With --doctor, safely refresh generated index routing.
-  --migration-lint                 Validate migration review scaffolding separately from normal lint.
-  --migration-quality-check        Report migration policy/structure signals separately from normal quality-check.
-  --migration-doctor               Run migration-lint and migration-quality-check together.
-  --issue-create                   Create a GitHub issue with gh issue create after explicit user approval.
-  --issue-draft                    Print a problem/side-effect GitHub issue body draft.
-  --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
-  --issue-title <title>            Override the generated issue draft title.
-  --dry-run                        With install, preview copied skill files without writing them.
-  --query <terms>                  Search wiki paths, metadata, titles, and bodies (answer-shaped, capped output).
-  --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth for matching pages.
-  --wiki-neighborhood <page-or-term>
-                                    Show a bounded read order for nearby wiki pages.
+  --fix                            With --doctor, refresh generated index routing before diagnostics.
+  --query <terms>                  Search wiki paths, metadata, titles, and bodies with capped output.
+  --wiki-impact <page-or-term>     Show wiki backlinks, decision_ref citations, and router depth.
+  --wiki-neighborhood <target>     Show a bounded read order for nearby wiki pages.
   --refresh-index                  Update the managed auto-discovered wiki index block.
   --capture-inbox                  Append a candidate note with --title, --content, and optional --category.
-  --handoff-save                   Save local generated session handoff state under .project-wiki/session/.
+  --glossary-init                  Create and route the optional shared glossary page.
+  --prune-check                    Report active pages with stale or unresolved signals.
+  --prune-check-strict             With --prune-check, omit age-only candidates.
+
+Session handoff options:
+  --handoff-save                   Save generated local resume state under .project-wiki/session/.
   --handoff-show                   Print the current local session handoff.
   --handoff-status                 Print JSON status for the local session handoff.
-  --handoff-clear                  Remove generated session handoff files.
-  --handoff-promote-inbox          Promote selected generated handoff facts into wiki/inbox/project-candidates.md.
+  --handoff-clear                  Remove generated local session handoff files.
+  --handoff-promote-inbox          Copy selected handoff facts into wiki/inbox/project-candidates.md.
   --handoff-injection-enable       Opt in to capped full handoff injection in startup hooks.
-  --handoff-injection-disable      Remove the generated full handoff injection opt-in.
-  --handoff-injection-status       Print JSON status for the full handoff injection experiment.
+  --handoff-injection-disable      Remove the full handoff injection opt-in.
+  --handoff-injection-status       Print JSON status for handoff injection.
   --goal, --state, --blocked       With --handoff-save, provide resume context fields.
   --next, --decision               With --handoff-save, repeat for next actions and decisions.
-  --glossary-init                  Create and route the optional glossary page.
-  --agents <list>                  With init/update, write only selected agent surfaces: codex, claude, cursor, gemini, or all. Update preserves managed surfaces or existing agent roots by default.
-  --prune-check                    Report active pages with stale or unresolved signals.
-  --prune-check-strict             With --prune-check, omit age-only candidates and show only higher-signal lifecycle items.
-  --review-migration               Sync unit coverage and compatible inbox statuses into migration review files.
+
+Setup and support options:
+  --agents <list>                  With init/update, target codex, claude, cursor, gemini, or all.
   --no-git-config                  Install hook files without changing git core.hooksPath.
-  --code-index                     Build the disposable .project-wiki code evidence index.
-  --code-index-health              Inspect code evidence cache compatibility and print rebuild guidance without writing.
-  --acknowledge-small-repo         With --code-index, proceed below the small-repo scale gate after its cost warning.
-  --incremental                    With --code-index, require an existing compatible index and update only changes.
-  --code-index-full                With --code-index, force a full rebuild even when incremental update is possible.
-  --code-index-migrate             With --code-index, approve replacing an incompatible schema-version index.
-  --code-index-engine <engine>     With --code-index, override default auto engine: typescript or native-rust.
-  --code-parser <mode>             With --code-index, use parser mode default or tree-sitter.
-  --code-query <sql>               Run conservative read-only SQL over the code evidence index.
-  --code-status, --code-files      Inspect the code evidence index.
-  --code-report                    Print architecture and ownership summaries from the code evidence index.
-  --code-report-section <section>  With --code-report, print one section: coverage, ownership, languages, parsers, workspaces, workspace-graph, routes, hotspots, configs, or edges.
-  --code-impact <term>             Show file, symbol, route, import, and edge impact evidence for a term.
-  --code-context-pack <term>       Print a budgeted first-pass code context pack for a path, symbol, route, or module term.
-  --code-search-symbol <term>      Search indexed symbols.
+  --dry-run                        With install, preview copied skill files without writing them.
+  --issue-draft                    Print a GitHub issue body draft for a Project Librarian problem.
+  --issue-create                   Create the issue with gh after explicit user approval.
+  --issue-body-file <path>         With --issue-create, use an existing Markdown body file.
+  --issue-title <title>            Override the generated issue title.
+  --help                           Show this help.
 
 Commands:
-  install                          Install the reusable Project Librarian skill files for selected agents.
-  install-skill                    Compatibility alias for install.
-  update                           Update an existing install or detected agent root without creating unrelated agent surfaces; reject migration flags.
-  mcp                              Run the stdio MCP server exposing answer-shaped code-evidence tools (code_context_pack, code_impact, code_ownership, code_workspace_graph, code_search, code_status) over the existing .project-wiki index.
-
-  --help                           Show this help.`);
+  init                             Create missing wiki and selected agent setup files; preserve an existing wiki.
+  update                           Refresh managed setup while preserving existing wiki content and agent surfaces.
+  install                          Install reusable Project Librarian skill files for selected agents.
+  install-skill                    Compatibility alias for install.`);
 }
-// console.log queues asynchronously on pipes; an immediate process.exit() discards
-// anything past the first ~64KB pipe chunk (observed truncating a large
-// --code-report on an 11k-file repo). Exiting from a zero-length write callback
-// guarantees everything queued before it has drained.
 function exitAfterStdoutDrain(code) {
     process.stdout.write("", () => process.exit(code));
-}
-function activeCodeEvidenceCliModes() {
-    const modes = [
-        { active: args_1.codeQueryMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeQueryMode() },
-        { active: args_1.codeReportMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeReportMode() },
-        { active: args_1.codeStatusMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeStatusMode() },
-        { active: args_1.codeFilesMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeFilesMode() },
-        { active: args_1.codeImpactMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeImpactMode() },
-        { active: args_1.codeContextPackMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeContextPackMode() },
-        { active: args_1.codeSearchSymbolMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeSearchSymbolMode() },
-        { active: args_1.codeIndexHealthMode, drainStdout: true, run: (codeIndexModule) => codeIndexModule.runCodeIndexHealthMode() },
-        { active: args_1.codeIndexMode, drainStdout: false, run: (codeIndexModule) => codeIndexModule.runCodeIndexMode() },
-    ];
-    return modes.filter((mode) => mode.active);
 }
 if (args_1.helpMode) {
     printUsage();
@@ -130,10 +90,6 @@ if (args_1.invalidAgentTargets.length > 0) {
     printUsage();
     process.exit(1);
 }
-if (args_1.command === "update" && args_1.migrateMode) {
-    console.error("update cannot be combined with --migrate or --adopt-existing; use project-librarian --migrate for migration.");
-    process.exit(1);
-}
 if (args_1.fixMode && !args_1.doctorMode) {
     console.error("--fix is only supported with --doctor.");
     process.exit(1);
@@ -142,44 +98,8 @@ if (args_1.issueCreateMode && args_1.issueDraftMode) {
     console.error("Use one issue mode at a time: --issue-draft or --issue-create.");
     process.exit(1);
 }
-if (args_1.codeReportSection && !args_1.codeReportMode) {
-    console.error("--code-report-section is only supported with --code-report.");
-    process.exit(1);
-}
 if (args_1.pruneCheckStrictMode && !args_1.pruneCheckMode) {
     console.error("--prune-check-strict is only supported with --prune-check.");
-    process.exit(1);
-}
-if (args_1.codeIndexIncrementalMode && !args_1.codeIndexMode) {
-    console.error("--incremental is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.acknowledgeSmallRepoMode && !args_1.codeIndexMode) {
-    console.error("--acknowledge-small-repo is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.codeIndexFullMode && !args_1.codeIndexMode) {
-    console.error("--code-index-full is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.codeIndexMigrateMode && !args_1.codeIndexMode) {
-    console.error("--code-index-migrate is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.codeIndexEngineMode && !args_1.codeIndexMode) {
-    console.error("--code-index-engine is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.codeParserMode && !args_1.codeIndexMode) {
-    console.error("--code-parser is only supported with --code-index.");
-    process.exit(1);
-}
-if (args_1.codeIndexIncrementalMode && args_1.codeIndexFullMode) {
-    console.error("Use one code index update mode at a time: --incremental or --code-index-full.");
-    process.exit(1);
-}
-if (args_1.codeIndexIncrementalMode && args_1.codeIndexMigrateMode) {
-    console.error("Use one code index update mode at a time: --incremental or --code-index-migrate.");
     process.exit(1);
 }
 const activeHandoffModes = [
@@ -204,16 +124,7 @@ if (args_1.command === "install" || args_1.command === "install-skill") {
     (0, install_skill_1.runInstallSkillMode)();
     process.exit(0);
 }
-if (args_1.command === "mcp") {
-    // Hand-rolled stdio MCP server over the existing code-evidence index. Lazy
-    // require keeps the server (and its node:sqlite dependency) out of the normal
-    // bootstrap path. The server roots at process.cwd() and runs until stdin ends,
-    // exiting from inside runMcpServerMode; the init flow below must not run.
-    require("./mcp-server").runMcpServerMode();
-}
-else {
-    runInitCommand();
-}
+runInitCommand();
 function runInitCommand() {
     const activeHandoffMode = activeHandoffModes[0];
     if (activeHandoffMode) {
@@ -240,20 +151,6 @@ function runInitCommand() {
             console.error(error instanceof Error ? error.message : String(error));
             process.exit(1);
         }
-        return;
-    }
-    const activeCodeModes = activeCodeEvidenceCliModes();
-    if (activeCodeModes.length > 1) {
-        console.error("Use one code evidence mode at a time: --code-index, --code-index-health, --code-query, --code-report, --code-status, --code-files, --code-impact, --code-context-pack, or --code-search-symbol.");
-        process.exit(1);
-    }
-    const activeCodeMode = activeCodeModes[0];
-    if (activeCodeMode) {
-        activeCodeMode.run(codeIndex());
-        if (activeCodeMode.drainStdout)
-            exitAfterStdoutDrain(0);
-        else
-            process.exit(0);
         return;
     }
     if (args_1.wikiImpactMode) {
@@ -284,22 +181,6 @@ function runInitCommand() {
         (0, modes_1.runPruneCheckMode)({ strict: args_1.pruneCheckStrictMode });
         process.exit(0);
     }
-    if (args_1.reviewMigrationMode) {
-        (0, migration_1.runReviewMigrationMode)();
-        process.exit(0);
-    }
-    if (args_1.migrationDoctorMode) {
-        (0, modes_1.runMigrationDoctorMode)();
-        process.exit(0);
-    }
-    if (args_1.migrationQualityCheckMode) {
-        (0, modes_1.runMigrationQualityCheckMode)();
-        process.exit(0);
-    }
-    if (args_1.migrationLintMode) {
-        (0, modes_1.runMigrationLintMode)();
-        process.exit(0);
-    }
     if (args_1.doctorMode) {
         (0, modes_1.runDoctorMode)(args_1.fixMode);
         process.exit(0);
@@ -316,13 +197,11 @@ function runInitCommand() {
         (0, modes_1.runLintMode)();
         process.exit(0);
     }
-    if (args_1.refreshIndexMode && !args_1.migrateMode && !args_1.glossaryMode && !args_1.captureInboxMode) {
+    if (args_1.refreshIndexMode && !args_1.glossaryMode && !args_1.captureInboxMode) {
         runRefreshIndexOnlyMode();
         process.exit(0);
     }
-    const agentSurfaceResolution = args_1.migrateMode
-        ? { source: "explicit", surfaces: Array.from(agent_surfaces_1.allAgentSurfaces) }
-        : (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.command === "update" ? "update" : "init", args_1.agentTargets, workspace_1.exists, workspace_1.read);
+    const agentSurfaceResolution = (0, agent_surfaces_1.resolveBootstrapAgentSurfaces)(args_1.command === "update" ? "update" : "init", args_1.agentTargets, workspace_1.exists, workspace_1.read);
     if (agentSurfaceResolution.source === "missing-update-target") {
         console.error("update cannot detect an existing Project Librarian install or agent surface; use init for a fresh project or pass --agents explicitly.");
         process.exit(1);
@@ -337,20 +216,19 @@ function runInitCommand() {
     const writeClaudeSurface = shouldWriteSurface("claude");
     const writeCursorSurface = shouldWriteSurface("cursor");
     const writeGeminiSurface = shouldWriteSurface("gemini");
-    const migrationState = args_1.migrateMode ? (0, migration_1.prepareMigrationMode)() : null;
     const results = [];
-    if (migrationState)
-        results.push(["migration prepare", migrationState.note]);
-    (0, workspace_1.mkdirp)("wiki/00-index");
-    (0, workspace_1.mkdirp)("wiki/01-governance");
-    (0, workspace_1.mkdirp)("wiki/10-services");
-    (0, workspace_1.mkdirp)("wiki/20-shared");
-    (0, workspace_1.mkdirp)("wiki/30-portfolio");
-    (0, workspace_1.mkdirp)("wiki/90-archive");
-    (0, workspace_1.mkdirp)("wiki/inbox");
-    (0, workspace_1.mkdirp)("wiki/indexes");
-    (0, workspace_1.mkdirp)("wiki/meta");
-    (0, workspace_1.mkdirp)("wiki/migration");
+    for (const directory of [
+        "wiki/00-index",
+        "wiki/01-governance",
+        "wiki/10-services",
+        "wiki/20-shared",
+        "wiki/30-portfolio",
+        "wiki/90-archive",
+        "wiki/inbox",
+        "wiki/indexes",
+        "wiki/meta",
+    ])
+        (0, workspace_1.mkdirp)(directory);
     if (writeCodexSurface)
         (0, workspace_1.mkdirp)(".codex/hooks");
     if (writeClaudeSurface)
@@ -370,12 +248,6 @@ function runInitCommand() {
         for (const result of (0, install_skill_1.syncSharedProjectSkillInstall)())
             results.push(result);
     }
-    // B1 fallback: sync the CURRENT startup.md TL;DR into the managed AGENTS.md block
-    // so non-interactive `codex exec` (which does not run SessionStart hooks) still
-    // gets compact startup context. Routers are starter files written later in this
-    // flow, so on a fresh bootstrap startup.md does not exist yet; fall back to the
-    // template TL;DR that bootstrap is about to write. A missing "## TL;DR" section in
-    // an existing startup.md fails loudly inside extractStartupTldr (no fallback).
     const startupForSync = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md") : templates_1.startup;
     const startupTldrForAgents = (0, templates_1.extractStartupTldr)(startupForSync);
     results.push(["AGENTS.md", (0, workspace_1.upsertMarkedSection)("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", (0, templates_1.agentsSection)(startupTldrForAgents))]);
@@ -407,35 +279,6 @@ function runInitCommand() {
         results.push([".gemini/settings.json", (0, hooks_1.upsertGeminiHookConfig)()]);
         results.push([".gemini/hooks/wiki-session-start.js", (0, workspace_1.writeManaged)(".gemini/hooks/wiki-session-start.js", hooks_1.hookScript)]);
     }
-    // Bootstrap-managed MCP registration (preservation-first, idempotent). Claude
-    // Code reads `.mcp.json`, Cursor reads `.cursor/mcp.json`, and Gemini reads
-    // `mcpServers` inside `.gemini/settings.json`. Codex only supports user-level MCP
-    // config (`codex mcp add` -> ~/.codex/config.toml), so it is intentionally not
-    // registered at project level; the README documents the manual user-level step.
-    // Registration is scale-gated (2026-06-12 decision): below the measured
-    // file-count threshold with no existing .project-wiki index, the rows report the
-    // skip reason instead of writing config; an existing index registers regardless.
-    if (writeClaudeSurface || writeCursorSurface || writeGeminiSurface) {
-        const mcpGate = (0, hooks_1.mcpRegistrationGate)();
-        if (mcpGate.register) {
-            if (writeClaudeSurface)
-                results.push([".mcp.json", (0, hooks_1.upsertClaudeMcpConfig)()]);
-            if (writeCursorSurface)
-                results.push([".cursor/mcp.json", (0, hooks_1.upsertCursorMcpConfig)()]);
-            if (writeGeminiSurface)
-                results.push([".gemini/settings.json mcpServers", (0, hooks_1.upsertGeminiMcpConfig)()]);
-        }
-        else {
-            if (writeClaudeSurface)
-                results.push([".mcp.json", mcpGate.reason]);
-            if (writeCursorSurface)
-                results.push([".cursor/mcp.json", mcpGate.reason]);
-            if (writeGeminiSurface)
-                results.push([".gemini/settings.json mcpServers", mcpGate.reason]);
-        }
-    }
-    // Routers accumulate user-maintained project state after bootstrap, so they are
-    // starter files: templates are written only when the file is absent, never rebuilt.
     results.push(["wiki/startup.md", (0, workspace_1.writeStarter)("wiki/startup.md", templates_1.startup)]);
     results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
     results.push(["wiki/meta/operating-model.md", (0, workspace_1.writeStarter)("wiki/meta/operating-model.md", templates_1.wikiOperatingModelV2)]);
@@ -457,15 +300,7 @@ function runInitCommand() {
     if (args_1.refreshIndexMode) {
         results.push(["wiki/index.md auto-discovered pages", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->", (0, modes_1.buildRefreshIndexBlock)())]);
     }
-    if (args_1.migrateMode && migrationState) {
-        const migration = (0, migration_1.runMigrationMode)(migrationState);
-        for (const result of migration.results)
-            results.push(result);
-        results.push(["migration summary", `${migration.total} files from ${migration.legacyPath || "no legacy"}`]);
-    }
     const modes = [];
-    if (args_1.migrateMode)
-        modes.push("migration");
     if (args_1.glossaryMode)
         modes.push("glossary");
     if (args_1.captureInboxMode)
@@ -475,16 +310,15 @@ function runInitCommand() {
     if (args_1.noGitConfigMode)
         modes.push("no-git-config");
     console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
-    for (const [relativePath, status] of results) {
+    for (const [relativePath, status] of results)
         console.log(`${String(status).padEnd(7)} ${relativePath}`);
-    }
 }
 function runRefreshIndexOnlyMode() {
-    const results = [];
-    results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
-    results.push(["wiki/index.md auto-discovered pages", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->", (0, modes_1.buildRefreshIndexBlock)())]);
+    const results = [
+        ["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)],
+        ["wiki/index.md auto-discovered pages", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->", (0, modes_1.buildRefreshIndexBlock)())],
+    ];
     console.log("Project Librarian refresh-index complete.");
-    for (const [relativePath, status] of results) {
+    for (const [relativePath, status] of results)
         console.log(`${String(status).padEnd(7)} ${relativePath}`);
-    }
 }

@@ -3,8 +3,7 @@ import { extractWikiLinks, normalizeWikiLinkTarget, wikiTitleForFile } from "./w
 import { metadataValue } from "./workspace";
 import { classifyWikiPath, wikiRoutePriority } from "./wiki-layout";
 
-// Wiki link graph: the code-evidence edges/impact model applied to the wiki's own
-// link structure (2026-06-12 method-transfer decision). Everything here is a pure
+// Wiki link graph for the wiki's own link structure. Everything here is a pure
 // function over provided page texts so graph behavior is unit-testable without
 // filesystem state; src/modes.ts feeds it from disk.
 
@@ -22,10 +21,8 @@ export interface WikiGraph {
   outgoingDecisionRef: Map<string, string>;
 }
 
-// Router reachability budget. The benchmark fixture A1 assert guarantees
-// startup -> index -> answer page within two hops; real wikis add one hop for
-// generated scoped routers (startup -> index -> wiki/indexes/auto-*.md -> page),
-// so the real-wiki budget is three hops from wiki/startup.md.
+// Router reachability budget. Scoped routers may add one hop between the primary
+// index and a page, so the general budget is three hops from wiki/startup.md.
 export const wikiRouterRoot = "wiki/startup.md";
 export const wikiRouterDepthBudget = 3;
 export function wikiRouterDepthBudgetForFile(file: string): number {
@@ -41,10 +38,7 @@ export function wikiRouterDepthBudgetForFile(file: string): number {
 export const wikiRouterExemptPages: Set<string> = new Set([wikiRouterRoot, "wiki/README.md"]);
 
 // Answer-shape discipline for wiki-side query/impact output: answer-first text,
-// hard char cap, explicit truncation notice (never silent). Mirrors the MCP
-// server constants (src/mcp-server.ts MAX_RESPONSE_CHARS / TRUNCATION_NOTICE);
-// kept separate so the MCP server module and its node:sqlite loading path stay
-// out of the bootstrap/diagnostics path.
+// a hard character cap, and an explicit truncation notice.
 export const wikiAnswerCharCap = 4000;
 export const wikiAnswerTruncationNotice = "[truncated — refine the query]";
 
@@ -110,10 +104,9 @@ export function wikiRouterDepths(graph: WikiGraph): Map<string, number> {
   return wikiReachableDepths(graph, wikiRouterRoot);
 }
 
-// Wiki impact: the --code-impact envelope shape applied to wiki maintenance.
-// Given a page or term, report which pages link to it (review candidates when it
-// changes), which pages cite it as decision_ref, what it depends on, and how the
-// router reaches it. Bounded by sampling plus the shared answer cap.
+// Wiki impact: given a page or term, report which pages link to it, which pages
+// cite it as decision_ref, what it depends on, and how the router reaches it.
+// Results are bounded by sampling plus the shared answer cap.
 const impactMatchCap = 5;
 const impactListCap = 12;
 

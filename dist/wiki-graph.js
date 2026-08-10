@@ -12,10 +12,8 @@ exports.wikiNeighborhoodAnswer = wikiNeighborhoodAnswer;
 const wiki_files_1 = require("./wiki-files");
 const workspace_1 = require("./workspace");
 const wiki_layout_1 = require("./wiki-layout");
-// Router reachability budget. The benchmark fixture A1 assert guarantees
-// startup -> index -> answer page within two hops; real wikis add one hop for
-// generated scoped routers (startup -> index -> wiki/indexes/auto-*.md -> page),
-// so the real-wiki budget is three hops from wiki/startup.md.
+// Router reachability budget. Scoped routers may add one hop between the primary
+// index and a page, so the general budget is three hops from wiki/startup.md.
 exports.wikiRouterRoot = "wiki/startup.md";
 exports.wikiRouterDepthBudget = 3;
 function wikiRouterDepthBudgetForFile(file) {
@@ -34,10 +32,7 @@ function wikiRouterDepthBudgetForFile(file) {
 // unrouted (the same exemption the orphan-page rule uses).
 exports.wikiRouterExemptPages = new Set([exports.wikiRouterRoot, "wiki/README.md"]);
 // Answer-shape discipline for wiki-side query/impact output: answer-first text,
-// hard char cap, explicit truncation notice (never silent). Mirrors the MCP
-// server constants (src/mcp-server.ts MAX_RESPONSE_CHARS / TRUNCATION_NOTICE);
-// kept separate so the MCP server module and its node:sqlite loading path stay
-// out of the bootstrap/diagnostics path.
+// a hard character cap, and an explicit truncation notice.
 exports.wikiAnswerCharCap = 4000;
 exports.wikiAnswerTruncationNotice = "[truncated — refine the query]";
 function finalizeWikiAnswer(body) {
@@ -101,10 +96,9 @@ function wikiReachableDepths(graph, root) {
 function wikiRouterDepths(graph) {
     return wikiReachableDepths(graph, exports.wikiRouterRoot);
 }
-// Wiki impact: the --code-impact envelope shape applied to wiki maintenance.
-// Given a page or term, report which pages link to it (review candidates when it
-// changes), which pages cite it as decision_ref, what it depends on, and how the
-// router reaches it. Bounded by sampling plus the shared answer cap.
+// Wiki impact: given a page or term, report which pages link to it, which pages
+// cite it as decision_ref, what it depends on, and how the router reaches it.
+// Results are bounded by sampling plus the shared answer cap.
 const impactMatchCap = 5;
 const impactListCap = 12;
 function sampled(items, cap) {

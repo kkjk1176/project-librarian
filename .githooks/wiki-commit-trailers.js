@@ -38,33 +38,22 @@ function truncateList(items) {
   return items.slice(0, 3).join(", ") + ", +" + String(items.length - 3);
 }
 
-function metadataLine(text, label) {
-  const match = text.match(new RegExp("^- " + label + ":\\s*(.+)$", "m"));
-  return match ? match[1].trim() : "";
-}
-
-function migrationStatus(files) {
-  const hasMigration = files.some((file) => file.startsWith("wiki/migration/") || file.endsWith("/migration-inbox.md"));
-  if (!hasMigration) return "n/a";
-  const text = existingFile("wiki/migration/verification.md") + "\n" + existingFile("wiki/migration/review.md");
-  const coverage = metadataLine(text, "coverage") || "unknown";
-  const semantic = metadataLine(text, "semantic migration complete") || "unknown";
-  const pending = metadataLine(text, "pending") || "unknown";
-  const needsHuman = metadataLine(text, "needs-human-review") || "unknown";
-  return "coverage " + coverage + "; semantic complete " + semantic + "; pending " + pending + "; needs-human-review " + needsHuman;
-}
-
 function wikiScope(files) {
   const scopes = [];
   const add = (name) => {
     if (!scopes.includes(name)) scopes.push(name);
   };
   for (const file of files) {
-    if (file.startsWith("wiki/canonical/")) add("canonical");
+    if (file.startsWith("wiki/00-index/")) add("index");
+    else if (file.startsWith("wiki/01-governance/")) add("governance");
+    else if (file.startsWith("wiki/10-services/")) add("services-prds");
+    else if (file.startsWith("wiki/20-shared/")) add("shared");
+    else if (file.startsWith("wiki/30-portfolio/")) add("portfolio");
+    else if (file.startsWith("wiki/90-archive/")) add("archive");
+    else if (file.startsWith("wiki/canonical/")) add("legacy-canonical");
     else if (file.startsWith("wiki/decisions/")) add("decisions");
     else if (file.startsWith("wiki/meta/")) add("meta");
     else if (file.startsWith("wiki/sources/")) add("sources");
-    else if (file.startsWith("wiki/migration/") || file.endsWith("/migration-inbox.md")) add("migration");
     else if (file === "wiki/startup.md") add("startup");
     else if (file === "wiki/index.md") add("index");
     else if (file.startsWith(".codex/hooks/") || file === ".codex/hooks.json") add("codex-hooks");
@@ -143,15 +132,14 @@ if (wikiFiles.length === 0) process.exit(0);
 let message = fs.readFileSync(messagePath, "utf8");
 if (/^Wiki-scope:/m.test(message)) process.exit(0);
 
-const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || file === "wiki/meta/wiki-ops-v1-decisions.md");
+const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || /\/09-decisions\//.test(file) || file === "wiki/meta/wiki-ops-v1-decisions.md" || file === "wiki/meta/wiki-ops-v2-decisions.md");
 const validation = validationTrailers();
 const trailers = [
   ["Wiki-scope", wikiScope(wikiFiles)],
-  ["Canonical-updated", truncateList(wikiFiles.filter((file) => file.startsWith("wiki/canonical/") && !file.endsWith("/migration-inbox.md")))],
+  ["Canonical-updated", truncateList(wikiFiles.filter((file) => file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/canonical/")))],
   ["Decision-ref", truncateList(decisionRefs)],
   ["Startup-updated", wikiFiles.includes("wiki/startup.md") ? "yes" : "no"],
   ["Index-updated", wikiFiles.includes("wiki/index.md") ? "yes" : "no"],
-  ["Migration-status", migrationStatus(wikiFiles)],
   ["Tested", validation.tested],
   ["Not-tested", validation.notTested],
 ];

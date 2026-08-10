@@ -8,7 +8,6 @@ import { captureCategory, captureContent, captureTitle, issueBodyFile, issueDraf
 import type { CursorHookConfig, FileStatus, HookConfig, MetadataSummary, PruneCandidate, QueryResult, WikiDiagnostic, WikiMarkdownBlock } from "./types";
 import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp, parseJson, read, root, stripMetadataHeader, today, upsertMarkedSection, walkFilesUnder, write } from "./workspace";
 import { metadata } from "./templates";
-import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
 import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiReachableDepths, wikiRouterDepthBudgetForFile, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
@@ -182,26 +181,12 @@ function scoreQueryBlock(block: WikiMarkdownBlock, terms: string[]): number {
   return occurrences > 0 ? occurrences + blockKindBoost(block) : 0;
 }
 
-function hasMigrationQueryIntent(terms: string[]): boolean {
-  return terms.some((term) => /^(migrat|legacy|coverage|unit|ledger|review)/.test(term));
-}
-
 function hasDeepReferenceQueryIntent(terms: string[]): boolean {
-  return hasMigrationQueryIntent(terms)
-    || terms.some((term) => /^(archive|audit|decision|detail|history|ledger|raw|record|source|trace|verification)/.test(term));
-}
-
-function isMigrationSurface(file: string, meta: MetadataSummary): boolean {
-  return file.startsWith("wiki/migration/")
-    || /(?:^|-)migration(?:-|$)/.test(file)
-    || /migration|legacy/.test(meta.scope);
+  return terms.some((term) => /^(archive|audit|decision|detail|history|ledger|raw|record|source|trace|verification)/.test(term));
 }
 
 function querySurfaceScore(file: string, meta: MetadataSummary, rawScore: number, terms: string[]): number {
   if (rawScore <= 0) return 0;
-  if (isMigrationSurface(file, meta) && !hasMigrationQueryIntent(terms)) {
-    return Math.max(1, Math.floor(rawScore * 0.25) - 20);
-  }
   let score = rawScore;
   if (meta.budget === "on-demand" && !hasDeepReferenceQueryIntent(terms)) {
     score = Math.max(1, Math.min(Math.floor(score * 0.5), 24));
@@ -417,7 +402,6 @@ function issueDraftMarkdown(): string {
   const verification = [
     "Run `npx project-librarian --lint` and paste the output.",
     "If generated wiki links or document quality are involved, run `npx project-librarian --doctor` and paste the output.",
-    "If the problem involves code evidence indexing, include the exact `--code-*` command and whether the runtime supports `node:sqlite`.",
   ];
   return `# ${title}
 
@@ -537,7 +521,7 @@ export function buildPruneCandidate(file: string, text: string, options: PruneCh
   const scope = metadataValue(text, "scope");
   const body = stripMetadataHeader(text);
   const reasons = [];
-  const lifecycleScope = /project-canonical|project-decisions|inbox|migration-inbox/.test(scope);
+  const lifecycleScope = /project-canonical|project-decisions|inbox/.test(scope);
   if (status === "active" && lifecycleScope && /pending|proposed|undecided|TODO|TBD|미정/i.test(body)) reasons.push("contains pending/proposed/undecided signal");
   if (status === "active" && trigger && /stale|old|expired|due|오래|도래|만료/i.test(trigger)) reasons.push(`review trigger: ${trigger}`);
   if (updated && updated < (options.today ?? today) && status === "active") reasons.push(`${pruneCheckAgeReasonPrefix} ${updated}`);
@@ -625,10 +609,8 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
       });
     }
   }
-  // Bounded router reachability, promoted from the benchmark fixture A1 hard
-  // assert (benchmarks/lib/llm-fixtures.js assertBoundedAnswerReachability) to the
-  // real wiki: fixture wikis were guaranteed navigable from startup while real
-  // wikis were never checked for the same property. Pages with zero incoming
+  // Bounded router reachability ensures maintained pages stay navigable from the
+  // compact startup router. Pages with zero incoming
   // links are already the orphan-page rule's finding, so reachability reports
   // only the cases orphan cannot see: linked-but-disconnected islands, an index
   // the startup router never links (hop 1), and routes deeper than the budget.
@@ -672,33 +654,6 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
   return diagnostics.sort((a, b) => a.severity.localeCompare(b.severity) || a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 
-function legacyWikiRoots(): string[] {
-  if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && /^wiki_legacy(?:_|$)/.test(entry.name))
-    .map((entry) => entry.name)
-    .sort();
-}
-
-function shouldGuardAgainstLegacyReference(file: string): boolean {
-  if (file.endsWith("/migration-inbox.md")) return false;
-  if (/^wiki\/(?:canonical|decisions|sources)\//.test(file)) return true;
-  const layout = classifyWikiPath(file);
-  return layout.version === "v2" && (file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/30-portfolio/"));
-}
-
-function migrationLegacyReferenceDiagnostics(files: string[], corpus?: WikiCorpus): WikiDiagnostic[] {
-  return files
-    .filter(shouldGuardAgainstLegacyReference)
-    .filter((file) => /\bwiki_legacy(?:_|\b|\/)/.test(stripMetadataHeader(wikiCorpusText(corpus, file))))
-    .map((file) => ({
-      code: "migration-legacy-reference",
-      severity: "error",
-      file,
-      message: "new project truth must not link to or cite wiki_legacy*; migrate the meaning or keep unresolved material in migration inboxes",
-    }));
-}
-
 export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(), options: QualityDiagnosticsOptions = {}): WikiDiagnostic[] {
   const diagnostics: WikiDiagnostic[] = [];
   const files = corpus.files;
@@ -721,7 +676,7 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(),
     if (status === "active" && reviewAge !== null && (isCurrentTruthPath(file) || /project-decisions|source-summary|wiki-meta|prd-|service-|shared/.test(scope))) {
       diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
     }
-    if (status === "active" && !/inbox|migration-inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
+    if (status === "active" && !/inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
       diagnostics.push({ code: "unresolved-signal", severity: "warn", file, message: "contains pending/proposed/undecided language" });
     }
     const shortLimit = file === "wiki/index.md" ? 4500 : 3500;
@@ -747,40 +702,6 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(),
   return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
 }
 
-export function collectMigrationQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): WikiDiagnostic[] {
-  return migrationLegacyReferenceDiagnostics(corpus.files, corpus).sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code));
-}
-
-export function collectMigrationLintDiagnostics(): WikiDiagnostic[] {
-  if (legacyWikiRoots().length === 0) return [];
-  const requiredCoreFiles = [
-    "wiki/meta/document-taxonomy.md",
-    "wiki/migration/inventory.md",
-    "wiki/migration/unit-map.md",
-    "wiki/migration/split-plan.md",
-    "wiki/migration/coverage.md",
-    "wiki/migration/plan.md",
-    "wiki/migration/review.md",
-    "wiki/migration/verification.md",
-    "wiki/migration/bulk-review.md",
-  ];
-  const requiredInboxFiles = migrationSemanticReviewComplete() ? [] : [...generatedMigrationInboxFiles];
-  const requiredFiles = [...requiredCoreFiles, ...requiredInboxFiles];
-  const diagnostics: WikiDiagnostic[] = requiredFiles
-    .filter((file) => !exists(file))
-    .map((file) => ({
-      code: "migration-missing-file",
-      severity: "error",
-      file,
-      message: "migration review files are missing; run --migrate or keep migration diagnostics out of normal doctor",
-    }));
-  const migrationContext = loadMigrationUnitContext();
-  diagnostics.push(...collectMigrationCoverageDiagnostics(migrationContext));
-  diagnostics.push(...collectMigrationUnitMapDiagnostics(migrationContext));
-  diagnostics.push(...collectMigrationSplitPlanDiagnostics(migrationContext));
-  return diagnostics.sort((a, b) => a.file.localeCompare(b.file) || a.code.localeCompare(b.code) || a.message.localeCompare(b.message));
-}
-
 export function runLinkCheckMode(): void {
   const corpus = loadWikiCorpus();
   const ok = printDiagnostics("Project wiki link-check", collectLinkDiagnostics(corpus), corpus.files.length);
@@ -791,24 +712,6 @@ export function runQualityCheckMode(): void {
   const corpus = loadWikiCorpus();
   const ok = printDiagnostics("Project wiki quality-check", collectQualityDiagnostics(corpus), corpus.files.length);
   if (!ok) process.exit(1);
-}
-
-export function runMigrationQualityCheckMode(): void {
-  const corpus = loadWikiCorpus();
-  const ok = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
-  if (!ok) process.exit(1);
-}
-
-export function runMigrationLintMode(): void {
-  const ok = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), wikiMarkdownFiles().length);
-  if (!ok) process.exit(1);
-}
-
-export function runMigrationDoctorMode(): void {
-  const corpus = loadWikiCorpus();
-  const lintOk = printDiagnostics("Project wiki migration lint", collectMigrationLintDiagnostics(), corpus.files.length);
-  const qualityOk = printDiagnostics("Project wiki migration quality-check", collectMigrationQualityDiagnostics(corpus), corpus.files.length);
-  if (!lintOk || !qualityOk) process.exit(1);
 }
 
 // B2 router-truth contradiction rule. A compact router that contradicts the
