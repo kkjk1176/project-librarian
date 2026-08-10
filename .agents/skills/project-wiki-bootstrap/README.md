@@ -13,7 +13,7 @@ The generated wiki keeps startup context small:
 
 - `wiki/startup.md`: current project summary
 - `wiki/index.md`: router for detailed pages to read next
-- `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, and `wiki/meta/`: detailed context loaded only when needed
+- `wiki/00-index/`, the owning `wiki/10-services/<service>/` PRD hub, `wiki/20-shared/`, `wiki/30-portfolio/`, and `wiki/meta/`: detailed context loaded only when needed
 
 ## What You Get
 
@@ -23,7 +23,7 @@ Core features:
 
 - Wiki-first project instructions for Codex and Claude Code
 - Session-start hooks that load only compact startup context
-- Canonical pages for current project facts, assumptions, risks, decisions, and sources
+- Service and PRD hubs with focused current truth, decisions, evidence, and plans
 - Wiki diagnostics for broken links, duplicate routes, orphan pages, stale signals, and quality gaps
 - Migration support for existing markdown docs
 - Optional code evidence index for code-backed wiki updates in larger repositories
@@ -100,7 +100,7 @@ After installation, ask Codex or Claude Code to:
 - capture a candidate note into `wiki/inbox/project-candidates.md`
 - report stale or undecided wiki pages
 - draft a GitHub issue body for problems or side effects found while using the skill
-- create `wiki/canonical/glossary.md`
+- create `wiki/20-shared/glossary.md`
 - migrate existing markdown docs into reviewable inboxes
 - analyze code and update wiki pages with code-backed evidence
 
@@ -174,12 +174,9 @@ Optional git hook files:
 
 Wiki directories:
 
-- `wiki/canonical/`
-- `wiki/decisions/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/inbox/`
-- `wiki/migration/`
+- `wiki/00-index/`, `wiki/01-governance/`, and `wiki/10-services/`
+- `wiki/20-shared/`, `wiki/30-portfolio/`, and `wiki/90-archive/`
+- `wiki/inbox/`, `wiki/indexes/`, `wiki/meta/`, and `wiki/migration/`
 
 ## Code Evidence Index
 

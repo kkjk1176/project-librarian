@@ -13,7 +13,7 @@
 
 - `wiki/startup.md`: 当前项目摘要
 - `wiki/index.md`: 下一步要读取的详细页面路由
-- `wiki/canonical/`、`wiki/decisions/`、`wiki/sources/`、`wiki/meta/`: 仅在需要时读取的详细上下文
+- `wiki/00-index/`、所属的 `wiki/10-services/<service>/` PRD 中心、`wiki/20-shared/`、`wiki/30-portfolio/` 和 `wiki/meta/`: 仅在需要时读取的详细上下文
 
 ## 你会得到什么
 
@@ -100,7 +100,7 @@ Wiki 命令:
 - 将候选备注保存到 `wiki/inbox/project-candidates.md`
 - 报告 stale 或 undecided 状态的 wiki 页面
 - 为使用 skill 时发现的问题或副作用生成 GitHub issue body 草稿
-- 创建 `wiki/canonical/glossary.md`
+- 创建 `wiki/20-shared/glossary.md`
 - 将已有 markdown 文档迁移到可 review 的 inbox
 - 分析代码，并将有代码依据的项目信息写入 wiki
 
@@ -158,12 +158,9 @@ Review the migrated wiki inbox.
 
 wiki 目录:
 
-- `wiki/canonical/`
-- `wiki/decisions/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/inbox/`
-- `wiki/migration/`
+- `wiki/00-index/`、`wiki/01-governance/`、`wiki/10-services/`
+- `wiki/20-shared/`、`wiki/30-portfolio/`、`wiki/90-archive/`
+- `wiki/inbox/`、`wiki/indexes/`、`wiki/meta/`、`wiki/migration/`
 
 ## Code Evidence Index
 

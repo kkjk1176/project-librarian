@@ -179,6 +179,22 @@ test("wikiNeighborhoodAnswer uses title matches and stays bounded for no-match t
   assert.equal(missing, 'Wiki neighborhood "no-such-topic": no matching wiki pages.');
 });
 
+test("v2 PRD hubs outrank matching legacy lifecycle pages and receive the artifact depth budget", () => {
+  const pages = [
+    { file: "wiki/startup.md", text: "- [[index]]\n" },
+    { file: "wiki/index.md", text: "- [[00-index/README]]\n" },
+    { file: "wiki/00-index/README.md", text: "- [[10-services/payments/README]]\n" },
+    { file: "wiki/10-services/payments/README.md", text: "- [[10-services/payments/prds/PRD-012-checkout/README]]\n" },
+    { file: "wiki/10-services/payments/prds/PRD-012-checkout/README.md", text: "---\nstatus: active\nscope: prd-hub\n---\n\n# Checkout\n\n- [[10-services/payments/prds/PRD-012-checkout/03-design/api]]\n" },
+    { file: "wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md", text: "---\nstatus: active\nscope: prd-design\n---\n\n# Checkout API\n" },
+    { file: "wiki/canonical/checkout.md", text: "---\nstatus: active\nscope: project-canonical\n---\n\n# Checkout\n" },
+  ];
+  const answer = wikiGraph.wikiNeighborhoodAnswer(pages, "Checkout");
+  assert.match(answer, /best match wiki\/10-services\/payments\/prds\/PRD-012-checkout\/README\.md/);
+  assert.equal(wikiGraph.wikiRouterDepthBudgetForFile("wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md"), 5);
+  assert.equal(wikiGraph.wikiRouterDepthBudgetForFile("wiki/canonical/checkout.md"), 3);
+});
+
 test("firstTldrBullet extracts the first TL;DR bullet and stays empty without one", () => {
   const withTldr = "---\nstatus: active\n---\n\n# Page\n\n## TL;DR\n\n- First summary bullet.\n- Second bullet.\n\n## Next\n";
   assert.equal(wikiFiles.firstTldrBullet(withTldr), "First summary bullet.");

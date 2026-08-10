@@ -69,6 +69,7 @@ const wiki_files_1 = require("./wiki-files");
 const wiki_graph_1 = require("./wiki-graph");
 const wiki_corpus_1 = require("./wiki-corpus");
 const wiki_diagnostics_1 = require("./wiki-diagnostics");
+const wiki_layout_1 = require("./wiki-layout");
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
 const scopedAutoIndexMarker = "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->";
@@ -80,6 +81,15 @@ function slugPart(value) {
     return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "misc";
 }
 function routeAreaForWikiFile(file) {
+    const layout = (0, wiki_layout_1.classifyWikiPath)(file);
+    if (layout.prdRoot)
+        return slugPart(`${layout.service}-${layout.prdRoot}`);
+    if (layout.service)
+        return slugPart(layout.service);
+    if (layout.version === "v2" && layout.area !== "other")
+        return slugPart(layout.area);
+    if (layout.legacy)
+        return `legacy-${slugPart(layout.area)}`;
     const base = path.basename(file, path.extname(file));
     const parts = base.split(/[-_]+/).filter(Boolean);
     if (parts.length >= 3 && ["apps", "libs", "packages", "services"].includes(parts[0] ?? ""))
@@ -105,7 +115,7 @@ function scopedIndexContent(area, files, partIndex = 0, partCount = 1) {
         const meta = (0, wiki_files_1.metadataSummary)(file, (0, workspace_1.read)(file));
         return `| ${(0, wiki_files_1.wikiLinkForFile)(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
     }).join("\n");
-    return `${(0, templates_1.metadata)("wiki-router", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "auto-discovered scoped routes change")}${scopedAutoIndexMarker}
+    return `${(0, templates_1.metadata)("wiki-router", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "auto-discovered scoped routes change", "active", { type: "router" })}${scopedAutoIndexMarker}
 # Auto Index: ${title}
 
 ## TL;DR
@@ -173,8 +183,11 @@ function syncScopedAutoIndexes(files) {
 function buildRefreshIndexBlock() {
     const indexText = (0, workspace_1.exists)("wiki/index.md") ? (0, workspace_1.read)("wiki/index.md") : "";
     const comparableIndex = (0, wiki_files_1.stripMarkedSection)(indexText, "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->");
-    const files = (0, wiki_files_1.wikiMarkdownFiles)().filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
-    const missing = files.filter((file) => !comparableIndex.includes((0, wiki_files_1.wikiLinkForFile)(file)));
+    const allFiles = (0, wiki_files_1.wikiMarkdownFiles)();
+    const files = allFiles.filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file) && !(0, wiki_layout_1.isLegacyLifecyclePath)(file));
+    const pages = allFiles.map((file) => ({ file, text: file === "wiki/index.md" ? comparableIndex : (0, workspace_1.read)(file) }));
+    const indexDepths = (0, wiki_graph_1.wikiReachableDepths)((0, wiki_graph_1.buildWikiGraph)(pages), "wiki/index.md");
+    const missing = files.filter((file) => (indexDepths.get(file) ?? Number.POSITIVE_INFINITY) > (0, wiki_graph_1.wikiRouterDepthBudgetForFile)(file) - 1);
     if (missing.length > scopedAutoIndexThreshold) {
         const summaries = syncScopedAutoIndexes(missing);
         const rows = summaries.map((summary) => `| ${(0, wiki_files_1.wikiLinkForFile)(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
@@ -188,18 +201,16 @@ ${rows}
     }
     removeStaleScopedAutoIndexes(new Set());
     const rows = missing.length === 0
-        ? "| none | - | - | - |\n"
+        ? "- none\n"
         : missing.map((file) => {
             const meta = (0, wiki_files_1.metadataSummary)(file, (0, workspace_1.read)(file));
-            return `| ${(0, wiki_files_1.wikiLinkForFile)(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
+            return `- ${(0, wiki_files_1.wikiLinkForFile)(file)} — ${meta.scope}; ${meta.status}; ${meta.budget}`;
         }).join("\n") + "\n";
     return `<!-- PROJECT-WIKI-AUTO-INDEX:START -->
 ## Auto-Discovered Pages
 
-This block is managed by \`--refresh-index\`. Move useful rows into a hand-written section when they become part of the normal route.
+Managed by \`--refresh-index\`; promote normal routes into a hand-written section.
 
-| Document | Scope | Status | Token Budget |
-| --- | --- | --- | --- |
 ${rows}<!-- PROJECT-WIKI-AUTO-INDEX:END -->`;
 }
 function termOccurrences(text, terms) {
@@ -241,7 +252,8 @@ function querySurfaceScore(file, meta, rawScore, terms) {
     if (meta.budget === "on-demand" && !hasDeepReferenceQueryIntent(terms)) {
         score = Math.max(1, Math.min(Math.floor(score * 0.5), 24));
     }
-    if (file.startsWith("wiki/canonical/") && meta.status === "active")
+    score += (0, wiki_layout_1.wikiRoutePriority)(file) - 20;
+    if ((0, wiki_layout_1.isCurrentTruthPath)(file) && meta.status === "active")
         score += 12;
     else if (meta.status === "active")
         score += 2;
@@ -335,17 +347,17 @@ function runWikiNeighborhoodMode() {
     console.log((0, wiki_graph_1.wikiNeighborhoodAnswer)(corpus.pages, args_1.wikiNeighborhoodTarget.trim(), (0, wiki_corpus_1.wikiCorpusGraph)(corpus)));
 }
 function projectCandidatesContent() {
-    return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
+    return `${(0, templates_1.metadata)("inbox", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "candidate ownership, classification, adoption, rejection, or staleness changes", "active", { type: "candidate" })}
 # Project Candidates Inbox
 
 ## TL;DR
 
-- This file temporarily stores project-canonical candidates from conversation.
-- This file is not canonical truth.
-- After review, move useful content into canonical/decision/source/meta docs or mark it rejected/resolved.
+- This file temporarily stores unreviewed project candidates from conversation.
+- Service, PRD, type, and owner fields keep routing explicit; unknown ownership remains unassigned.
+- After review, move useful content into the owning service, PRD, shared, portfolio, or meta area.
 
-| Date | Title | Category | Content | Status |
-| --- | --- | --- | --- | --- |
+| Date | Title | Service | PRD | Type | Owner | Content | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
 `;
 }
 function appendProjectCandidate(input = {}) {
@@ -361,7 +373,11 @@ function appendProjectCandidate(input = {}) {
         return existed ? "exists" : "created";
     const title = (candidateTitle || "Untitled candidate").replace(/\|/g, "/");
     const content = (candidateContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
-    const row = `| ${workspace_1.today} | ${title} | ${candidateCategory.replace(/\|/g, "/")} | ${content} | pending |`;
+    const service = (input.service || "unassigned").replace(/\|/g, "/");
+    const prdId = (input.prdId || "unassigned").replace(/\|/g, "/");
+    const type = (input.type || candidateCategory || "candidate").replace(/\|/g, "/");
+    const owner = (input.owner || "unassigned").replace(/\|/g, "/");
+    const row = `| ${workspace_1.today} | ${title} | ${service} | ${prdId} | ${type} | ${owner} | ${content} | pending |`;
     const current = (0, workspace_1.read)(relativePath);
     if (current.includes(row))
         return "exists";
@@ -655,6 +671,9 @@ function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
     for (const file of files) {
         if (orphanExemptions.has(file))
             continue;
+        const status = (0, workspace_1.metadataValue)((0, wiki_corpus_1.wikiCorpusText)(corpus, file), "status").toLowerCase();
+        if ((0, wiki_layout_1.isLegacyLifecyclePath)(file) && ["superseded", "archived", "compatibility"].includes(status))
+            continue;
         if ((incoming.get(file) ?? 0) === 0) {
             diagnostics.push({
                 code: "orphan-page",
@@ -678,6 +697,9 @@ function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
         for (const file of files) {
             if (wiki_graph_1.wikiRouterExemptPages.has(file))
                 continue;
+            const status = (0, workspace_1.metadataValue)((0, wiki_corpus_1.wikiCorpusText)(corpus, file), "status").toLowerCase();
+            if ((0, wiki_layout_1.isLegacyLifecyclePath)(file) && ["superseded", "archived", "compatibility"].includes(status))
+                continue;
             const depth = depths.get(file);
             const isIndex = file === "wiki/index.md";
             if (depth === undefined) {
@@ -698,12 +720,12 @@ function collectLinkDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)()) {
                     });
                 }
             }
-            else if (depth > wiki_graph_1.wikiRouterDepthBudget) {
+            else if (depth > (0, wiki_graph_1.wikiRouterDepthBudgetForFile)(file)) {
                 diagnostics.push({
                     code: "router-depth-exceeded",
                     severity: "warn",
                     file,
-                    message: `reachable from ${wiki_graph_1.wikiRouterRoot} only at depth ${depth} (budget ${wiki_graph_1.wikiRouterDepthBudget}); add a shorter route`,
+                    message: `reachable from ${wiki_graph_1.wikiRouterRoot} only at depth ${depth} (budget ${(0, wiki_graph_1.wikiRouterDepthBudgetForFile)(file)}); add a shorter route`,
                 });
             }
         }
@@ -720,9 +742,12 @@ function legacyWikiRoots() {
         .sort();
 }
 function shouldGuardAgainstLegacyReference(file) {
-    if (!/^wiki\/(?:canonical|decisions|sources)\//.test(file))
+    if (file.endsWith("/migration-inbox.md"))
         return false;
-    return !file.endsWith("/migration-inbox.md");
+    if (/^wiki\/(?:canonical|decisions|sources)\//.test(file))
+        return true;
+    const layout = (0, wiki_layout_1.classifyWikiPath)(file);
+    return layout.version === "v2" && (file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/30-portfolio/"));
 }
 function migrationLegacyReferenceDiagnostics(files, corpus) {
     return files
@@ -754,7 +779,7 @@ function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)(),
             diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
         }
         const reviewAge = updated ? (0, wiki_diagnostics_1.staleReviewAge)(updated, currentDate) : null;
-        if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
+        if (status === "active" && reviewAge !== null && ((0, wiki_layout_1.isCurrentTruthPath)(file) || /project-decisions|source-summary|wiki-meta|prd-|service-|shared/.test(scope))) {
             diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
         }
         if (status === "active" && !/inbox|migration-inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
@@ -767,8 +792,8 @@ function collectQualityDiagnostics(corpus = (0, wiki_corpus_1.loadWikiCorpus)(),
         else if (budget === "medium" && text.length > 8000) {
             diagnostics.push({ code: "budget-drift", severity: "warn", file, message: `${text.length}/8000 chars for medium read_budget` });
         }
-        if (file.startsWith("wiki/canonical/") && /Code-proven behavior:/i.test(body) && !/evidence:\s*`?[\w./-]+/i.test(body)) {
-            diagnostics.push({ code: "missing-evidence", severity: "warn", file, message: "code-proven canonical claims should cite concrete evidence paths" });
+        if ((0, wiki_layout_1.isCurrentTruthPath)(file) && /Code-proven behavior:/i.test(body) && !/evidence:\s*`?[\w./-]+/i.test(body)) {
+            diagnostics.push({ code: "missing-evidence", severity: "warn", file, message: "code-proven current-truth claims should cite concrete evidence paths" });
         }
         if (scope === "source-summary" && !/https?:\/\//.test(body)) {
             diagnostics.push({ code: "missing-source-link", severity: "warn", file, message: "source summaries should retain at least one source URL" });
@@ -939,11 +964,17 @@ const commonLintRequiredFiles = [
     "wiki/AGENTS.md",
     "wiki/startup.md",
     "wiki/index.md",
-    "wiki/decisions/log.md",
-    "wiki/decisions/recent.md",
+    "wiki/00-index/README.md",
+    "wiki/00-index/service-map.md",
+    "wiki/00-index/prd-registry.md",
+    "wiki/01-governance/README.md",
+    "wiki/10-services/README.md",
+    "wiki/20-shared/README.md",
+    "wiki/30-portfolio/README.md",
+    "wiki/90-archive/README.md",
     "wiki/meta/operating-model.md",
     "wiki/meta/decision-policy.md",
-    "wiki/meta/wiki-ops-v1-decisions.md",
+    "wiki/meta/wiki-ops-v2-decisions.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
 ];
@@ -979,6 +1010,14 @@ function runLintMode(corpus) {
             if (!(0, workspace_1.metadataValue)(text, key))
                 errors.push(`missing metadata key ${key}: ${file}`);
         }
+        if ((0, wiki_layout_1.classifyWikiPath)(file).version === "v2") {
+            for (const key of ["type", "owner"]) {
+                if (!(0, workspace_1.metadataValue)(text, key))
+                    errors.push(`missing metadata key ${key}: ${file}`);
+            }
+            for (const message of (0, wiki_layout_1.validateWikiMetadataContext)(file, text))
+                errors.push(`${message}: ${file}`);
+        }
     }
     const startupLength = (0, workspace_1.exists)("wiki/startup.md") ? (0, wiki_corpus_1.wikiCorpusText)(corpus, "wiki/startup.md").length : 0;
     const indexLength = (0, workspace_1.exists)("wiki/index.md") ? (0, wiki_corpus_1.wikiCorpusText)(corpus, "wiki/index.md").length : 0;
@@ -1001,10 +1040,6 @@ function runLintMode(corpus) {
     }
     if ((0, workspace_1.exists)("wiki/AGENTS.md") && !(0, workspace_1.read)("wiki/AGENTS.md").includes("Language policy"))
         warnings.push("wiki/AGENTS.md is missing language policy");
-    for (const legacyFile of ["wiki/canonical/wiki-operating-model.md", "wiki/canonical/decision-policy.md", "wiki/decisions/wiki-v1-decisions.md"]) {
-        if ((0, workspace_1.exists)(legacyFile))
-            errors.push(`legacy wiki-ops file must move out of project canonical/decisions: ${legacyFile}`);
-    }
     if ((0, workspace_1.exists)(".codex/hooks/wiki-session-start.js")) {
         const hook = (0, workspace_1.read)(".codex/hooks/wiki-session-start.js");
         if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]'))
@@ -1105,19 +1140,19 @@ function runLintMode(corpus) {
     }
     if ((0, workspace_1.exists)("wiki/index.md") && !(0, workspace_1.read)("wiki/index.md").includes("## Language Policy"))
         errors.push("index is missing Language Policy section");
-    if ((0, workspace_1.exists)("wiki/canonical/glossary.md")) {
-        const glossaryText = (0, workspace_1.read)("wiki/canonical/glossary.md");
+    if ((0, workspace_1.exists)("wiki/20-shared/glossary.md")) {
+        const glossaryText = (0, workspace_1.read)("wiki/20-shared/glossary.md");
         if (!(0, wiki_files_1.hasGlossaryTable)(glossaryText))
-            errors.push("glossary is missing required table header: | Term | Definition | Avoid | Related Canonical Doc | Status |");
-        if ((0, workspace_1.exists)("wiki/index.md") && !(0, workspace_1.read)("wiki/index.md").includes("[[canonical/glossary]]"))
+            errors.push("glossary is missing required table header: | Term | Definition | Avoid | Related Service/PRD Doc | Status |");
+        if ((0, workspace_1.exists)("wiki/index.md") && !(0, workspace_1.read)("wiki/index.md").includes("[[20-shared/glossary]]"))
             errors.push("glossary exists but index is missing glossary routing");
     }
     else if ((0, wiki_files_1.hasGlossaryNeedSignal)((0, wiki_files_1.canonicalBodyForLint)())) {
-        warnings.push("project canonical docs contain naming/model signals; consider running --glossary-init");
+        warnings.push("service/PRD/shared truth contains naming/model signals; consider running --glossary-init");
     }
-    if ((0, workspace_1.exists)("wiki/meta/wiki-ops-v1-decisions.md")) {
-        const ops = (0, workspace_1.read)("wiki/meta/wiki-ops-v1-decisions.md");
-        for (const phrase of ["metadata headers", "Read On Demand", "language", "--no-git-config", "needs-human-review", "Wiki-scope"]) {
+    if ((0, workspace_1.exists)("wiki/meta/wiki-ops-v2-decisions.md")) {
+        const ops = (0, workspace_1.read)("wiki/meta/wiki-ops-v2-decisions.md");
+        for (const phrase of ["service", "PRD", "lifecycle roots"]) {
             if (!ops.includes(phrase))
                 warnings.push(`wiki ops decision pack may be missing decision phrase: ${phrase}`);
         }

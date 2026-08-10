@@ -80,6 +80,25 @@ test("migration mode refuses a symlinked wiki root before reading external markd
   }
 });
 
+test("migration target validation rejects a symlinked v2 leaf path", (t) => {
+  const root = makeTmpDir("migration-symlink-target-");
+  const outside = makeTmpDir("migration-outside-target-");
+  try {
+    fs.mkdirSync(path.join(root, "wiki", "20-shared"), { recursive: true });
+    if (!symlinkDirOrSkip(t, outside, path.join(root, "wiki", "20-shared", "external"))) return;
+    const script = [
+      `const { migrationTargetErrors } = require(${JSON.stringify(path.resolve(__dirname, "..", "..", "dist", "migration.js"))});`,
+      `process.stdout.write(JSON.stringify(migrationTargetErrors("wiki/20-shared/external/target.md")));`,
+    ].join("\n");
+    const result = childProcess.spawnSync(process.execPath, ["-e", script], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /refuses a symlinked path/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("extractMigrationUnits ignores form-only legacy templates and empty generated starters", () => {
   const adrTemplate = [
     "---",
@@ -158,12 +177,12 @@ test("classifyMigrationUnit marks weak signals as low-confidence review", () => 
   assert.match(classification.target, /migration-review/);
 });
 
-test("classifyMigrationUnit preserves legacy storage for low-confidence review targets", () => {
+test("classifyMigrationUnit preserves semantic storage but leaves unknown ownership unassigned", () => {
   const cases = [
-    ["canonical/assumptions.md", "canonical", /wiki\/canonical\/assumptions-migration-review\.md/],
+    ["canonical/assumptions.md", "canonical", /unassigned\/assumptions-migration-review\.md/],
     ["meta/code-map.md", "meta", /wiki\/meta\/code-map-migration-review\.md/],
-    ["decisions/old-choice.md", "decisions", /wiki\/decisions\/old-choice-migration-review\.md/],
-    ["sources/misc.md", "sources", /wiki\/sources\/misc-migration-review\.md/],
+    ["decisions/old-choice.md", "decisions", /unassigned\/old-choice-migration-review\.md/],
+    ["sources/misc.md", "sources", /unassigned\/misc-migration-review\.md/],
   ];
 
   for (const [legacyPath, storage, targetPattern] of cases) {

@@ -59,6 +59,7 @@
     "benchmark:release:diagnose": "npm run benchmark:llm -- --sanitized-pack --runs 1 --warmup-runs 0 --model gpt-5.5 --out benchmarks/reports/llm/diagnostic-current.json --markdown benchmarks/reports/llm/diagnostic-current.md",
     "benchmark:release": "npm run benchmark:llm -- --sanitized-pack --full-matrix --runs 3 --warmup-runs 1 --min-runs-for-claim 3 --require-clean --require-claimable --model gpt-5.5 --out benchmarks/reports/llm/current.json --markdown benchmarks/reports/llm/current.md",
     "build": "tsc && chmod +x dist/init-project-wiki.js",
+    "postbuild": "node tools/project-librarian/sync-installed-skills.js",
     "check:dist": "node benchmarks/tools/release-readiness.js --only-dist-parity",
     "audit:supply-chain": "npm audit --omit=dev",
     "native:build": "cargo build --release --locked --manifest-path native/indexer-rs/Cargo.toml",
@@ -76,6 +77,7 @@
     "unit": "node --test tests/unit/*.test.js",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=dist/**/*.js --test-coverage-include=benchmarks/**/*.js --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=65 tests/unit/*.test.js",
     "test": "npm run build && npm run typecheck && npm run unit && bash tests/smoke.sh",
+    "test:installed-skills": "node --test tests/unit/installed-skill-runtime-v2.test.js",
     "prepack": "npm run build"
   },
   "dependencies": {

@@ -33,7 +33,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--capture-inbox --title <title> --content <content> --category <category>` | Append a candidate note to the wiki inbox; category defaults to `project-candidate`. |
 | `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, and `--last-failure-command` as needed. |
 | `--handoff-show`, `--handoff-status`, `--handoff-clear` | Print, inspect, or remove generated session handoff state. Startup hooks mention the handoff when it exists but do not inject the full file by default. |
-| `--handoff-promote-inbox` | Append selected generated handoff facts to `wiki/inbox/project-candidates.md` as a pending candidate. It does not write canonical, plan, or decision pages. |
+| `--handoff-promote-inbox` | Append selected generated handoff facts to `wiki/inbox/project-candidates.md` as a pending candidate. It does not write current-truth, PRD plan, or decision artifacts. |
 | `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status` | Opt in, opt out, or inspect the capped full handoff injection experiment. Default startup behavior remains pointer-only. |
 | `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |
 | `--issue-create --issue-title <title> --issue-body-file <path>` | Create a GitHub issue through `gh` after explicit user approval; `--issue-body-file` reuses an existing Markdown body. |
@@ -66,6 +66,6 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | Code | Meaning |
 | --- | --- |
 | `hub-overload` | A hand-maintained router or meta page links to too many wiki pages and should be split or scoped. |
-| `weak-authority-route` | An active canonical page with decision or evidence authority signals is reachable only through generated auto-index routing. |
-| `missing-evidence-link` | An active canonical page makes a source-backed claim without a source link or `decision_ref`. |
+| `weak-authority-route` | An active v2 current-truth page with decision or evidence authority signals is reachable only through generated auto-index routing. |
+| `missing-evidence-link` | An active v2 current-truth page makes a source-backed claim without a source link or `decision_ref`. |
 | `stale-fanout` | A heavily linked active page has a broad review trigger that is too weak for topology-sensitive edits. |

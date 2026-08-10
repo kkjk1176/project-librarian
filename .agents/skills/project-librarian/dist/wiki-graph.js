@@ -1,20 +1,35 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.wikiAnswerTruncationNotice = exports.wikiAnswerCharCap = exports.wikiRouterExemptPages = exports.wikiRouterDepthBudget = exports.wikiRouterRoot = void 0;
+exports.wikiRouterDepthBudgetForFile = wikiRouterDepthBudgetForFile;
 exports.finalizeWikiAnswer = finalizeWikiAnswer;
 exports.buildWikiGraph = buildWikiGraph;
+exports.wikiReachableDepths = wikiReachableDepths;
 exports.wikiRouterDepths = wikiRouterDepths;
 exports.wikiQueryGraphEvidence = wikiQueryGraphEvidence;
 exports.wikiImpactAnswer = wikiImpactAnswer;
 exports.wikiNeighborhoodAnswer = wikiNeighborhoodAnswer;
 const wiki_files_1 = require("./wiki-files");
 const workspace_1 = require("./workspace");
+const wiki_layout_1 = require("./wiki-layout");
 // Router reachability budget. The benchmark fixture A1 assert guarantees
 // startup -> index -> answer page within two hops; real wikis add one hop for
 // generated scoped routers (startup -> index -> wiki/indexes/auto-*.md -> page),
 // so the real-wiki budget is three hops from wiki/startup.md.
 exports.wikiRouterRoot = "wiki/startup.md";
 exports.wikiRouterDepthBudget = 3;
+function wikiRouterDepthBudgetForFile(file) {
+    const layout = (0, wiki_layout_1.classifyWikiPath)(file);
+    if (layout.prdRoot && layout.type !== "prd-hub")
+        return 5;
+    if (layout.prdRoot)
+        return 4;
+    if (layout.service)
+        return 3;
+    if (layout.version === "v2" && ["index", "services", "shared", "portfolio", "governance"].includes(layout.area))
+        return 3;
+    return exports.wikiRouterDepthBudget;
+}
 // startup is the BFS root; README is a human entry document that is deliberately
 // unrouted (the same exemption the orphan-page rule uses).
 exports.wikiRouterExemptPages = new Set([exports.wikiRouterRoot, "wiki/README.md"]);
@@ -61,15 +76,15 @@ function buildWikiGraph(pages) {
     }
     return { files, links, incomingLinks, outgoingLinks, incomingDecisionRefs, outgoingDecisionRef };
 }
-// BFS depths over existing pages from wiki/startup.md (depth 0). Pages absent
-// from the result are unreachable through the router chain. Only links whose
-// target exists are traversed; broken links are the broken-link rule's job.
-function wikiRouterDepths(graph) {
+// BFS depths over existing pages from a caller-selected root (depth 0). Pages
+// absent from the result are unreachable through that link chain. Only links
+// whose target exists are traversed; broken links are the broken-link rule's job.
+function wikiReachableDepths(graph, root) {
     const depths = new Map();
-    if (!graph.files.has(exports.wikiRouterRoot))
+    if (!graph.files.has(root))
         return depths;
-    depths.set(exports.wikiRouterRoot, 0);
-    const queue = [exports.wikiRouterRoot];
+    depths.set(root, 0);
+    const queue = [root];
     while (queue.length > 0) {
         const current = queue.shift();
         const depth = depths.get(current) ?? 0;
@@ -82,6 +97,9 @@ function wikiRouterDepths(graph) {
         }
     }
     return depths;
+}
+function wikiRouterDepths(graph) {
+    return wikiReachableDepths(graph, exports.wikiRouterRoot);
 }
 // Wiki impact: the --code-impact envelope shape applied to wiki maintenance.
 // Given a page or term, report which pages link to it (review candidates when it
@@ -160,12 +178,14 @@ function wikiImpactAnswer(pages, term, graph = buildWikiGraph(pages)) {
         lines.push(`  outgoing links (${outgoing.length}): ${sampled(outgoing, impactListCap)}`);
         lines.push(depth === undefined
             ? `  router: unreachable from ${exports.wikiRouterRoot}`
-            : `  router: reachable at depth ${depth} (budget ${exports.wikiRouterDepthBudget})`);
+            : `  router: reachable at depth ${depth} (budget ${wikiRouterDepthBudgetForFile(match.file)})`);
     }
     return finalizeWikiAnswer(lines.join("\n"));
 }
 const neighborhoodReadCap = 5;
 function pageClassPriority(file, scope) {
+    if ((0, wiki_layout_1.classifyWikiPath)(file).version === "v2")
+        return (0, wiki_layout_1.wikiRoutePriority)(file);
     if (file.startsWith("wiki/decisions/") || /decision/.test(scope))
         return 90;
     if (file.startsWith("wiki/sources/") || /source/.test(scope))

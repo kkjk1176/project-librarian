@@ -33,87 +33,53 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.CodeEvidenceIndexUnavailableError = exports.nativeCodeIndexAutoFileThreshold = exports.codeContextPackTruncationNotice = exports.codeContextPackCharCap = exports.codeIndexSnapshot = exports.workspaceSummary = exports.workspaceDependencyGraph = exports.searchSymbols = exports.ownershipInfo = exports.ownershipContext = exports.matchedCodeownerRules = exports.evidenceCoverage = exports.codeownerRules = void 0;
+exports.codeIndexStaleness = codeIndexStaleness;
+exports.codeIndexHealth = codeIndexHealth;
+exports.codeImpact = codeImpact;
+exports.codeContextPack = codeContextPack;
+exports.openCodeEvidenceDatabaseForServing = openCodeEvidenceDatabaseForServing;
 exports.runCodeIndexMode = runCodeIndexMode;
 exports.runCodeQueryMode = runCodeQueryMode;
 exports.runCodeReportMode = runCodeReportMode;
 exports.runCodeStatusMode = runCodeStatusMode;
+exports.runCodeIndexHealthMode = runCodeIndexHealthMode;
 exports.runCodeFilesMode = runCodeFilesMode;
+exports.runCodeImpactMode = runCodeImpactMode;
+exports.runCodeContextPackMode = runCodeContextPackMode;
 exports.runCodeSearchSymbolMode = runCodeSearchSymbolMode;
 exports.isCodeEvidenceMode = isCodeEvidenceMode;
+exports.isCodeEvidenceModeFor = isCodeEvidenceModeFor;
 const crypto = __importStar(require("node:crypto"));
-const childProcess = __importStar(require("node:child_process"));
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
-const ts = __importStar(require("typescript"));
 const args_1 = require("./args");
+const code_index_db_1 = require("./code-index-db");
+const code_index_file_policy_1 = require("./code-index-file-policy");
+const evidence_1 = require("./code-index/evidence");
+const registry_1 = require("./code-index/extractors/registry");
+const shared_1 = require("./code-index/extractors/shared");
+const index_health_1 = require("./code-index/index-health");
+const modes_1 = require("./code-index/modes");
+const native_helper_1 = require("./code-index/native-helper");
+const ownership_1 = require("./code-index/ownership");
+Object.defineProperty(exports, "codeownerRules", { enumerable: true, get: function () { return ownership_1.codeownerRules; } });
+Object.defineProperty(exports, "matchedCodeownerRules", { enumerable: true, get: function () { return ownership_1.matchedCodeownerRules; } });
+Object.defineProperty(exports, "ownershipContext", { enumerable: true, get: function () { return ownership_1.ownershipContext; } });
+Object.defineProperty(exports, "ownershipInfo", { enumerable: true, get: function () { return ownership_1.ownershipInfo; } });
+const reports_1 = require("./code-index/reports");
+Object.defineProperty(exports, "evidenceCoverage", { enumerable: true, get: function () { return reports_1.evidenceCoverage; } });
+Object.defineProperty(exports, "workspaceDependencyGraph", { enumerable: true, get: function () { return reports_1.workspaceDependencyGraph; } });
+Object.defineProperty(exports, "workspaceSummary", { enumerable: true, get: function () { return reports_1.workspaceSummary; } });
+const schema_1 = require("./code-index/schema");
+Object.defineProperty(exports, "codeIndexSnapshot", { enumerable: true, get: function () { return schema_1.codeIndexSnapshot; } });
+const search_1 = require("./code-index/search");
+Object.defineProperty(exports, "searchSymbols", { enumerable: true, get: function () { return search_1.searchSymbols; } });
 const workspace_1 = require("./workspace");
-const ignoredDirectories = new Set([
-    ".git",
-    ".codex",
-    ".claude",
-    ".project-wiki",
-    "node_modules",
-    ".next",
-    "dist",
-    "build",
-    "coverage",
-    "vendor",
-    "tmp",
-    "temp",
-]);
-const languageByExtension = {
-    ".c": "c",
-    ".cc": "cpp",
-    ".cjs": "javascript",
-    ".cpp": "cpp",
-    ".cs": "csharp",
-    ".css": "css",
-    ".cts": "typescript",
-    ".go": "go",
-    ".java": "java",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".kt": "kotlin",
-    ".mjs": "javascript",
-    ".mts": "typescript",
-    ".php": "php",
-    ".py": "python",
-    ".rb": "ruby",
-    ".rs": "rust",
-    ".swift": "swift",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".vue": "vue",
-};
-const codeEvidenceDirectory = ".project-wiki";
-const codeIndexSchemaVersion = "3";
-const configExtensions = new Set([".json", ".yaml", ".yml", ".toml"]);
-const maxIndexedBytes = 1024 * 1024;
-const httpMethods = new Set(["all", "delete", "get", "patch", "post", "put"]);
-function loadDatabaseSync() {
-    const previousListeners = process.listeners("warning");
-    const suppressExperimentalSqliteWarning = (warning) => {
-        if (warning.name !== "ExperimentalWarning" || !warning.message.includes("SQLite")) {
-            for (const listener of previousListeners)
-                listener.call(process, warning);
-        }
-    };
-    try {
-        process.removeAllListeners("warning");
-        process.on("warning", suppressExperimentalSqliteWarning);
-        const sqlite = require("node:sqlite");
-        return sqlite.DatabaseSync;
-    }
-    catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return fail(`code evidence index requires Node.js with node:sqlite support; current Node is ${process.version}. Error: ${message}`);
-    }
-    finally {
-        process.removeAllListeners("warning");
-        for (const listener of previousListeners)
-            process.on("warning", listener);
-    }
-}
+exports.codeContextPackCharCap = 4000;
+exports.codeContextPackTruncationNotice = "[truncated - refine the query]";
+exports.nativeCodeIndexAutoFileThreshold = 1;
+const codeFileFingerprintPaths = new Map();
 function fail(message) {
     console.error(message);
     process.exit(1);
@@ -128,252 +94,113 @@ function normalizeProjectRelative(input, label) {
     return (0, workspace_1.normalizePath)(path.relative(rootResolved, resolved)) || ".";
 }
 function codeEvidenceDatabasePath() {
-    const raw = args_1.codeIndexOutput.trim() || `${codeEvidenceDirectory}/code-evidence.sqlite`;
+    const raw = args_1.codeIndexOutput.trim() || `${code_index_file_policy_1.codeEvidenceDirectory}/code-evidence.sqlite`;
     const absolutePath = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(workspace_1.root, raw);
-    const evidenceRoot = path.resolve(workspace_1.root, codeEvidenceDirectory);
+    const evidenceRoot = path.resolve(workspace_1.root, code_index_file_policy_1.codeEvidenceDirectory);
     if (absolutePath === evidenceRoot || !absolutePath.startsWith(`${evidenceRoot}${path.sep}`)) {
-        fail(`--code-index-out must stay inside ${codeEvidenceDirectory}/`);
+        fail(`--code-index-out must stay inside ${code_index_file_policy_1.codeEvidenceDirectory}/`);
     }
     return {
         absolutePath,
         relativePath: (0, workspace_1.normalizePath)(path.relative(workspace_1.root, absolutePath)),
     };
 }
-function fileLanguage(relativePath) {
-    if (path.basename(relativePath) === ".env.example")
-        return "config";
-    const extension = path.extname(relativePath).toLowerCase();
-    return languageByExtension[extension] ?? (configExtensions.has(extension) ? "config" : "");
+function selectedCodeParserMode() {
+    const requested = args_1.codeParser.trim().toLowerCase();
+    if (!requested || requested === "default")
+        return "default";
+    if (requested === "tree-sitter" || requested === "treesitter")
+        return "tree-sitter";
+    fail(`invalid --code-parser: ${args_1.codeParser}; expected one of: default, tree-sitter`);
 }
-function isBlockedEnvFile(relativePath) {
-    const base = path.basename(relativePath);
-    return base.startsWith(".env") && base !== ".env.example";
+function selectedCodeIndexEngine() {
+    const requested = args_1.codeIndexEngine.trim().toLowerCase();
+    if (!requested || requested === "auto")
+        return "auto";
+    if (requested === "typescript")
+        return "typescript";
+    if (requested === "native-rust")
+        return "native-rust";
+    fail(`invalid --code-index-engine: ${args_1.codeIndexEngine}; expected one of: auto, typescript, native-rust`);
 }
-function isBlockedSensitiveConfigFile(relativePath) {
-    if (fileLanguage(relativePath) !== "config")
-        return false;
-    const base = path.basename(relativePath).toLowerCase();
-    if (base === ".env.example")
-        return false;
-    return /(^|[._-])(secret|secrets|credential|credentials|token|tokens|private|key|keys)([._-]|$)/i.test(base);
-}
-function isJavaScriptLike(relativePath) {
-    return [".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"].includes(path.extname(relativePath).toLowerCase());
-}
-function extractionProfile(relativePath) {
-    if (isJavaScriptLike(relativePath))
-        return "typescript-ast";
-    if (fileLanguage(relativePath) === "python")
-        return "python-light";
-    if (fileLanguage(relativePath) === "go")
-        return "go-light";
-    if (fileLanguage(relativePath) === "config")
-        return "config";
-    return "inventory-only";
-}
-function shouldIndexFile(relativePath) {
-    if (isBlockedEnvFile(relativePath))
-        return false;
-    if (isBlockedSensitiveConfigFile(relativePath))
-        return false;
-    const language = fileLanguage(relativePath);
-    if (language)
-        return true;
-    const base = path.basename(relativePath);
-    return ["Dockerfile", "Makefile", "package.json", "tsconfig.json"].includes(base);
-}
-function walkCodeFiles(relativePath, files = []) {
-    const target = (0, workspace_1.abs)(relativePath);
-    if (!fs.existsSync(target))
-        return files;
-    const stat = fs.statSync(target);
-    if (stat.isFile()) {
-        if (stat.size <= maxIndexedBytes && shouldIndexFile(relativePath))
-            files.push(relativePath);
-        return files.sort();
+function codeIndexEngineSelectionContext(discoveredFiles, parserMode) {
+    let nativeEligibleFileCount = 0;
+    for (const filePath of discoveredFiles) {
+        const language = (0, code_index_file_policy_1.fileLanguage)(filePath) || "config";
+        if (nativeAutoEligibleProfile((0, registry_1.extractionProfile)(filePath, language, parserMode)))
+            nativeEligibleFileCount += 1;
     }
-    for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
-        const child = (0, workspace_1.normalizePath)(path.join(relativePath, entry.name));
-        if (entry.isDirectory()) {
-            if (!ignoredDirectories.has(entry.name))
-                walkCodeFiles(child, files);
-        }
-        else if (entry.isFile() && shouldIndexFile(child)) {
-            const childStat = fs.statSync((0, workspace_1.abs)(child));
-            if (childStat.size <= maxIndexedBytes)
-                files.push(child);
-        }
-    }
-    return files.sort();
-}
-function gitTrackedAndUnignoredFiles(scopes) {
-    try {
-        const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...scopes], {
-            cwd: workspace_1.root,
-            encoding: "buffer",
-            stdio: ["ignore", "pipe", "ignore"],
-        });
-        return output.toString("utf8").split("\0").filter(Boolean).map((file) => normalizeProjectRelative(file, "git-indexed file"));
-    }
-    catch {
-        return null;
-    }
-}
-function discoverCodeFiles(scopes) {
-    const gitFiles = gitTrackedAndUnignoredFiles(scopes);
-    const candidates = gitFiles ?? scopes.flatMap((scope) => walkCodeFiles(scope));
-    return Array.from(new Set(candidates))
-        .filter((file) => fs.existsSync((0, workspace_1.abs)(file)))
-        .filter((file) => fs.statSync((0, workspace_1.abs)(file)).isFile())
-        .filter((file) => shouldIndexFile(file))
-        .filter((file) => fs.statSync((0, workspace_1.abs)(file)).size <= maxIndexedBytes)
-        .sort();
-}
-function readCodeFile(relativePath) {
-    const text = fs.readFileSync((0, workspace_1.abs)(relativePath), "utf8");
     return {
-        bytes: Buffer.byteLength(text),
-        hash: crypto.createHash("sha256").update(text).digest("hex"),
-        language: fileLanguage(relativePath) || "config",
-        lines: text.length === 0 ? 0 : text.split(/\r?\n/).length,
+        discoveredFileCount: discoveredFiles.length,
+        nativeEligibleFileCount,
+        nativeIneligibleFileCount: discoveredFiles.length - nativeEligibleFileCount,
+    };
+}
+function shouldUseNativeCodeIndexAuto(context) {
+    return context.nativeEligibleFileCount >= exports.nativeCodeIndexAutoFileThreshold
+        && (0, native_helper_1.nativeCodeIndexHelperAvailable)();
+}
+function nativeCodeIndexAvailable() {
+    return (0, native_helper_1.nativeCodeIndexHelperAvailable)();
+}
+function normalizedMtimeMs(stat) {
+    return Number(stat.mtimeMs.toFixed(3));
+}
+function readCodeFileFingerprint(relativePath) {
+    const discovered = (0, code_index_file_policy_1.cachedDiscoveredCodeFileStat)(relativePath);
+    const { absolutePath, stat } = discovered ?? (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+    codeFileFingerprintPaths.set(relativePath, absolutePath);
+    return {
+        mtimeMs: normalizedMtimeMs(stat),
         path: relativePath,
-        profile: extractionProfile(relativePath),
+        size: stat.size,
+    };
+}
+function lineCount(text) {
+    if (text.length === 0)
+        return 0;
+    let lines = 1;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text.charCodeAt(index) === 10)
+            lines += 1;
+    }
+    return lines;
+}
+function readCodeFile(relativePath, parserMode = "default", fingerprint) {
+    let effectiveFingerprint = fingerprint;
+    let absolutePath = effectiveFingerprint ? codeFileFingerprintPaths.get(relativePath) : undefined;
+    if (!absolutePath || !effectiveFingerprint) {
+        const contained = (0, workspace_1.requireContainedProjectFile)(relativePath, "code-index file");
+        absolutePath = contained.absolutePath;
+        effectiveFingerprint ??= {
+            mtimeMs: normalizedMtimeMs(contained.stat),
+            path: relativePath,
+            size: contained.stat.size,
+        };
+    }
+    const text = fs.readFileSync(absolutePath, "utf8");
+    const language = (0, code_index_file_policy_1.fileLanguage)(relativePath) || "config";
+    return {
+        bytes: effectiveFingerprint.size,
+        hash: crypto.createHash("sha256").update(text).digest("hex"),
+        language,
+        lines: lineCount(text),
+        mtimeMs: effectiveFingerprint.mtimeMs,
+        path: relativePath,
+        profile: (0, registry_1.extractionProfile)(relativePath, language, parserMode),
+        size: effectiveFingerprint.size,
         text,
     };
 }
-function lineNumber(text, index) {
-    return text.slice(0, index).split(/\r?\n/).length;
-}
-function scriptKindForPath(relativePath) {
-    const extension = path.extname(relativePath).toLowerCase();
-    if (extension === ".tsx")
-        return ts.ScriptKind.TSX;
-    if (extension === ".jsx")
-        return ts.ScriptKind.JSX;
-    if ([".ts", ".mts", ".cts"].includes(extension))
-        return ts.ScriptKind.TS;
-    return ts.ScriptKind.JS;
-}
-function setupDatabase(database) {
-    database.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE files (
-      path TEXT PRIMARY KEY,
-      language TEXT NOT NULL,
-      profile TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      bytes INTEGER NOT NULL,
-      lines INTEGER NOT NULL,
-      hash TEXT NOT NULL
-    );
-    CREATE TABLE symbols (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      signature TEXT NOT NULL
-    );
-    CREATE TABLE imports (
-      id INTEGER PRIMARY KEY,
-      from_file TEXT NOT NULL,
-      to_ref TEXT NOT NULL,
-      imported TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      raw TEXT NOT NULL
-    );
-    CREATE TABLE routes (
-      id INTEGER PRIMARY KEY,
-      method TEXT NOT NULL,
-      route TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      handler TEXT NOT NULL
-    );
-    CREATE TABLE configs (
-      id INTEGER PRIMARY KEY,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL
-    );
-    CREATE TABLE edges (
-      id INTEGER PRIMARY KEY,
-      kind TEXT NOT NULL,
-      source_kind TEXT NOT NULL,
-      source TEXT NOT NULL,
-      target_kind TEXT NOT NULL,
-      target TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      line INTEGER NOT NULL,
-      evidence TEXT NOT NULL
-    );
-    CREATE VIRTUAL TABLE files_fts USING fts5(path, language, profile, content);
-    CREATE VIRTUAL TABLE symbols_fts USING fts5(name, kind, file_path, signature);
-    CREATE INDEX idx_symbols_file ON symbols(file_path);
-    CREATE INDEX idx_symbols_name ON symbols(name);
-    CREATE INDEX idx_imports_from ON imports(from_file);
-    CREATE INDEX idx_routes_path ON routes(route);
-    CREATE INDEX idx_configs_file ON configs(file_path);
-    CREATE INDEX idx_edges_source ON edges(source_kind, source);
-    CREATE INDEX idx_edges_target ON edges(target_kind, target);
-    CREATE INDEX idx_edges_kind ON edges(kind);
-  `);
-}
-function createIndexStatements(database) {
-    return {
-        deleteConfig: database.prepare("DELETE FROM configs WHERE file_path = ?"),
-        deleteEdge: database.prepare("DELETE FROM edges WHERE file_path = ?"),
-        deleteFile: database.prepare("DELETE FROM files WHERE path = ?"),
-        deleteFileFts: database.prepare("DELETE FROM files_fts WHERE path = ?"),
-        deleteImport: database.prepare("DELETE FROM imports WHERE from_file = ?"),
-        deleteRoute: database.prepare("DELETE FROM routes WHERE file_path = ?"),
-        deleteSymbol: database.prepare("DELETE FROM symbols WHERE file_path = ?"),
-        deleteSymbolFts: database.prepare("DELETE FROM symbols_fts WHERE file_path = ?"),
-        insertConfig: database.prepare("INSERT INTO configs (key, value, file_path, line) VALUES (?, ?, ?, ?)"),
-        insertEdge: database.prepare("INSERT INTO edges (kind, source_kind, source, target_kind, target, file_path, line, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
-        insertFile: database.prepare("INSERT INTO files (path, language, profile, kind, bytes, lines, hash) VALUES (?, ?, ?, ?, ?, ?, ?)"),
-        insertFileFts: database.prepare("INSERT INTO files_fts (path, language, profile, content) VALUES (?, ?, ?, ?)"),
-        insertImport: database.prepare("INSERT INTO imports (from_file, to_ref, imported, line, raw) VALUES (?, ?, ?, ?, ?)"),
-        insertMeta: database.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)"),
-        insertRoute: database.prepare("INSERT INTO routes (method, route, file_path, line, handler) VALUES (?, ?, ?, ?, ?)"),
-        insertSymbol: database.prepare("INSERT INTO symbols (name, kind, file_path, line, signature) VALUES (?, ?, ?, ?, ?)"),
-        insertSymbolFts: database.prepare("INSERT INTO symbols_fts (name, kind, file_path, signature) VALUES (?, ?, ?, ?)"),
-    };
-}
-function removeIndexedFile(filePath, statements) {
-    statements.deleteConfig.run(filePath);
-    statements.deleteEdge.run(filePath);
-    statements.deleteImport.run(filePath);
-    statements.deleteRoute.run(filePath);
-    statements.deleteSymbol.run(filePath);
-    statements.deleteSymbolFts.run(filePath);
-    statements.deleteFileFts.run(filePath);
-    statements.deleteFile.run(filePath);
+const extractionBackendRegistry = (0, registry_1.createExtractionBackendRegistry)(fail);
+function extractionBackendForProfile(profile) {
+    return extractionBackendRegistry.backendForProfile(profile);
 }
 function indexCodeFile(file, statements) {
-    statements.insertFile.run(file.path, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash);
-    statements.insertFileFts.run(file.path, file.language, file.profile, file.text);
-    if (file.profile === "typescript-ast")
-        indexJavaScriptLike(file, statements);
-    else if (file.profile === "python-light")
-        indexPythonLight(file, statements);
-    else if (file.profile === "go-light")
-        indexGoLight(file, statements);
-    if (file.language === "config")
-        indexConfigs(file, statements.insertConfig);
-}
-function writeIndexMetadata(scopes, statements) {
-    statements.insertMeta.run("schema_version", codeIndexSchemaVersion);
-    statements.insertMeta.run("updated_at", new Date().toISOString());
-    statements.insertMeta.run("root", workspace_1.root);
-    statements.insertMeta.run("scopes", scopes.join(", "));
-    statements.insertMeta.run("scopes_json", JSON.stringify(scopes));
-    statements.insertMeta.run("terminology", "code evidence index");
-}
-function oneLine(text) {
-    return text.replace(/\s+/g, " ").trim().slice(0, 240);
+    const ftsRowid = (0, schema_1.fileFtsRowid)(file.path);
+    statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.language === "config" ? "config" : "source", file.bytes, file.lines, file.hash, file.mtimeMs, file.size);
+    statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.text);
+    extractionBackendForProfile(file.profile).index(file, statements);
 }
 function printRows(rows) {
     console.log(JSON.stringify(rows, null, 2));
@@ -381,269 +208,12 @@ function printRows(rows) {
 function printJson(value) {
     console.log(JSON.stringify(value, null, 2));
 }
-function tsLine(sourceFile, node) {
-    return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-}
-function nodeName(node, sourceFile) {
-    if (ts.isIdentifier(node))
-        return node.text;
-    if (ts.isStringLiteral(node) || ts.isNumericLiteral(node))
-        return node.text;
-    if (ts.isPrivateIdentifier(node))
-        return node.text;
-    return oneLine(node.getText(sourceFile));
-}
-function propertyNameText(name, sourceFile) {
-    if (!name)
-        return "";
-    return nodeName(name, sourceFile);
-}
-function callTarget(expression, sourceFile) {
-    if (ts.isIdentifier(expression))
-        return expression.text;
-    if (ts.isPropertyAccessExpression(expression))
-        return oneLine(expression.getText(sourceFile));
-    if (ts.isElementAccessExpression(expression))
-        return oneLine(expression.getText(sourceFile));
-    return oneLine(expression.getText(sourceFile));
-}
-function insertSymbol(statements, name, kind, file, line, signature) {
-    if (!name)
-        return;
-    statements.insertSymbol.run(name, kind, file.path, line, signature);
-    statements.insertSymbolFts.run(name, kind, file.path, signature);
-}
-function insertEdge(statements, kind, sourceKind, source, targetKind, target, file, line, evidence) {
-    if (!target)
-        return;
-    statements.insertEdge.run(kind, sourceKind, source, targetKind, target, file.path, line, evidence);
-}
-function importBindingText(importClause, sourceFile) {
-    if (!importClause)
-        return "";
-    const names = [];
-    if (importClause.name)
-        names.push(importClause.name.text);
-    const namedBindings = importClause.namedBindings;
-    if (namedBindings && ts.isNamespaceImport(namedBindings))
-        names.push(`* as ${namedBindings.name.text}`);
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-        for (const element of namedBindings.elements)
-            names.push(element.name.text);
-    }
-    return names.join(", ") || oneLine(importClause.getText(sourceFile));
-}
-function stringArg(node) {
-    if (!node)
-        return "";
-    return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : "";
-}
-function handlerArg(node, sourceFile) {
-    if (!node)
-        return "";
-    return callTarget(node, sourceFile);
-}
-function routeFromCall(node, sourceFile) {
-    if (!ts.isPropertyAccessExpression(node.expression))
-        return null;
-    const method = node.expression.name.text.toLowerCase();
-    if (!httpMethods.has(method))
-        return null;
-    const receiver = node.expression.expression;
-    if (!ts.isIdentifier(receiver) || !["app", "router", "server"].includes(receiver.text))
-        return null;
-    const route = stringArg(node.arguments[0]);
-    if (!route)
-        return null;
-    return {
-        handler: handlerArg(node.arguments[1], sourceFile),
-        method: method.toUpperCase(),
-        route,
-    };
-}
-function routeFromDecorator(node, sourceFile) {
-    const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
-    const routes = [];
-    for (const decorator of decorators) {
-        const expression = decorator.expression;
-        if (!ts.isCallExpression(expression))
-            continue;
-        const callee = expression.expression;
-        if (!ts.isIdentifier(callee))
-            continue;
-        const method = callee.text.toLowerCase();
-        if (!httpMethods.has(method))
-            continue;
-        routes.push({ method: method.toUpperCase(), route: stringArg(expression.arguments[0]) || "/" });
-    }
-    return routes;
-}
-function signatureFor(node, sourceFile) {
-    return oneLine(node.getText(sourceFile));
-}
-function indexJavaScriptLike(file, statements) {
-    const sourceFile = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true, scriptKindForPath(file.path));
-    function visit(node, context) {
-        let nextContext = context;
-        if (ts.isFunctionDeclaration(node)) {
-            const name = node.name?.text ?? "";
-            insertSymbol(statements, name, "function", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            if (name)
-                nextContext = name;
-        }
-        else if (ts.isClassDeclaration(node)) {
-            const name = node.name?.text ?? "";
-            insertSymbol(statements, name, "class", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            if (name)
-                nextContext = name;
-        }
-        else if (ts.isInterfaceDeclaration(node)) {
-            insertSymbol(statements, node.name.text, "interface", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-        }
-        else if (ts.isTypeAliasDeclaration(node)) {
-            insertSymbol(statements, node.name.text, "type", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-        }
-        else if (ts.isEnumDeclaration(node)) {
-            insertSymbol(statements, node.name.text, "enum", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-        }
-        else if (ts.isMethodDeclaration(node)) {
-            const name = propertyNameText(node.name, sourceFile);
-            insertSymbol(statements, name, "method", file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            for (const route of routeFromDecorator(node, sourceFile)) {
-                statements.insertRoute.run(route.method, route.route, file.path, tsLine(sourceFile, node), name);
-                insertEdge(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", name, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            }
-            if (name)
-                nextContext = name;
-        }
-        else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-            const symbolKind = node.initializer && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) ? "function" : "variable";
-            insertSymbol(statements, node.name.text, symbolKind, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            if (symbolKind === "function")
-                nextContext = node.name.text;
-        }
-        else if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-            const imported = importBindingText(node.importClause, sourceFile);
-            statements.insertImport.run(file.path, node.moduleSpecifier.text, imported, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            insertEdge(statements, "import", "file", file.path, "module", node.moduleSpecifier.text, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-        }
-        else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-            const exported = node.exportClause ? oneLine(node.exportClause.getText(sourceFile)) : "";
-            statements.insertImport.run(file.path, node.moduleSpecifier.text, exported, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            insertEdge(statements, "export", "file", file.path, "module", node.moduleSpecifier.text, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-        }
-        else if (ts.isCallExpression(node)) {
-            const route = routeFromCall(node, sourceFile);
-            if (route) {
-                statements.insertRoute.run(route.method, route.route, file.path, tsLine(sourceFile, node), route.handler);
-                insertEdge(statements, "route_to_handler", "route", `${route.method} ${route.route}`, "symbol", route.handler, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            }
-            if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
-                const moduleName = stringArg(node.arguments[0]);
-                if (moduleName) {
-                    statements.insertImport.run(file.path, moduleName, "", tsLine(sourceFile, node), signatureFor(node, sourceFile));
-                    insertEdge(statements, "import", "file", file.path, "module", moduleName, file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-                }
-            }
-            else {
-                insertEdge(statements, "call", context ? "symbol" : "file", context || file.path, "symbol", callTarget(node.expression, sourceFile), file, tsLine(sourceFile, node), signatureFor(node, sourceFile));
-            }
-        }
-        ts.forEachChild(node, (child) => visit(child, nextContext));
-    }
-    visit(sourceFile, "");
-}
-function insertMatches(file, regex, insert) {
-    for (const match of file.text.matchAll(regex)) {
-        insert(match, lineNumber(file.text, match.index ?? 0));
-    }
-}
-function indexPythonLight(file, statements) {
-    const symbolPatterns = [
-        [/^\s*def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/gm, "function", (match) => `def ${match[1] ?? ""}(${match[2] ?? ""})`],
-        [/^\s*class\s+([A-Za-z_]\w*)/gm, "class", (match) => `class ${match[1] ?? ""}`],
-    ];
-    for (const [regex, kind, signature] of symbolPatterns) {
-        insertMatches(file, regex, (match, line) => insertSymbol(statements, match[1] ?? "", kind, file, line, signature(match)));
-    }
-    const importPatterns = [
-        [/^\s*from\s+([A-Za-z0-9_.$]+)\s+import\s+(.+)$/gm, (match) => [match[1] ?? "", match[2] ?? ""]],
-        [/^\s*import\s+([A-Za-z0-9_.$,\s]+)$/gm, (match) => [match[1] ?? "", ""]],
-    ];
-    for (const [regex, fields] of importPatterns) {
-        insertMatches(file, regex, (match, line) => {
-            const [toRef, imported] = fields(match);
-            statements.insertImport.run(file.path, toRef, imported.trim(), line, match[0].trim());
-            insertEdge(statements, "import", "file", file.path, "module", toRef, file, line, match[0].trim());
-        });
-    }
-}
-function insertGoImport(file, statements, toRef, imported, line, raw) {
-    if (!toRef)
-        return;
-    statements.insertImport.run(file.path, toRef, imported, line, raw);
-    insertEdge(statements, "import", "file", file.path, "module", toRef, file, line, raw);
-}
-function indexGoLight(file, statements) {
-    const symbolPatterns = [
-        [/^\s*func\s*\(\s*[^)]*\)\s*([A-Za-z_]\w*)\s*\(([^)]*)\)/gm, "method", (match) => match[1] ?? "", (match) => `func (...) ${match[1] ?? ""}(${match[2] ?? ""})`],
-        [/^\s*func\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/gm, "function", (match) => match[1] ?? "", (match) => `func ${match[1] ?? ""}(${match[2] ?? ""})`],
-        [/^\s*type\s+([A-Za-z_]\w*)\s+(struct|interface)?/gm, "type", (match) => match[1] ?? "", (match) => `type ${match[1] ?? ""} ${match[2] ?? ""}`.trim()],
-        [/^\s*const\s+([A-Za-z_]\w*)\b/gm, "constant", (match) => match[1] ?? "", (match) => `const ${match[1] ?? ""}`],
-        [/^\s*var\s+([A-Za-z_]\w*)\b/gm, "variable", (match) => match[1] ?? "", (match) => `var ${match[1] ?? ""}`],
-    ];
-    for (const [regex, kind, name, signature] of symbolPatterns) {
-        insertMatches(file, regex, (match, line) => insertSymbol(statements, name(match), kind, file, line, signature(match)));
-    }
-    insertMatches(file, /^\s*import\s+(?:(?:([A-Za-z_]\w*|[_.])\s+)?\"([^\"]+)\"|`([^`]+)`)/gm, (match, line) => {
-        const imported = match[1] ?? "";
-        const toRef = match[2] ?? match[3] ?? "";
-        insertGoImport(file, statements, toRef, imported, line, match[0].trim());
-    });
-    insertMatches(file, /^\s*import\s*\(([\s\S]*?)^\s*\)/gm, (blockMatch) => {
-        const block = blockMatch[1] ?? "";
-        const blockStart = blockMatch.index ?? 0;
-        for (const lineMatch of block.matchAll(/^\s*(?:([A-Za-z_]\w*|[_.])\s+)?\"([^\"]+)\"/gm)) {
-            const imported = lineMatch[1] ?? "";
-            const toRef = lineMatch[2] ?? "";
-            const line = lineNumber(file.text, blockStart + (lineMatch.index ?? 0));
-            insertGoImport(file, statements, toRef, imported, line, lineMatch[0].trim());
-        }
-    });
-}
-function indexConfigs(file, insertConfig) {
-    if (path.basename(file.path) === "package.json") {
-        try {
-            const parsed = JSON.parse(file.text);
-            for (const [name, value] of Object.entries(parsed.scripts ?? {}))
-                insertConfig.run(`script:${name}`, value, file.path, 1);
-            for (const [name, value] of Object.entries(parsed.dependencies ?? {}))
-                insertConfig.run(`dependency:${name}`, value, file.path, 1);
-            for (const [name, value] of Object.entries(parsed.devDependencies ?? {}))
-                insertConfig.run(`devDependency:${name}`, value, file.path, 1);
-        }
-        catch {
-            insertConfig.run("parse-error", "package.json is not valid JSON", file.path, 1);
-        }
-        return;
-    }
-    insertMatches(file, /^\s*([A-Za-z0-9_.-]+)\s*[:=]\s*(.+)$/gm, (match, line) => {
-        insertConfig.run(match[1] ?? "", (match[2] ?? "").trim(), file.path, line);
-    });
-}
 function codeScopes() {
     const scopes = args_1.codeIndexScopes.length > 0 ? args_1.codeIndexScopes : ["."];
     return scopes.map((scope) => normalizeProjectRelative(scope, "--code-scope"));
 }
 function openDatabase(databasePath) {
-    const DatabaseSync = loadDatabaseSync();
-    return new DatabaseSync(databasePath);
-}
-function isReadOnlySql(sql) {
-    const trimmed = sql.trim().toLowerCase();
-    if (!/^(select|with)\b/.test(trimmed) || /;\s*\S/.test(trimmed))
-        return false;
-    return !/\b(attach|alter|create|delete|detach|drop|insert|pragma|reindex|replace|update|vacuum)\b/.test(trimmed);
+    return (0, code_index_db_1.openDatabase)(databasePath, fail);
 }
 function requireExistingIndex() {
     const databasePath = codeEvidenceDatabasePath();
@@ -652,224 +222,118 @@ function requireExistingIndex() {
         process.exit(1);
     }
 }
-function readMetaValue(database, key) {
-    const rows = database.prepare("SELECT value FROM meta WHERE key = ?").all(key);
-    const value = rows[0]?.value;
-    return typeof value === "string" ? value : "";
-}
-function indexedScopes(database) {
-    const scopesJson = readMetaValue(database, "scopes_json");
-    if (scopesJson) {
-        try {
-            const parsed = JSON.parse(scopesJson);
-            if (Array.isArray(parsed) && parsed.every((scope) => typeof scope === "string"))
-                return parsed;
-        }
-        catch {
-            // Fall back to the legacy comma-separated scope metadata below.
-        }
-    }
-    return readMetaValue(database, "scopes")
-        .split(",")
-        .map((scope) => scope.trim())
-        .filter(Boolean);
-}
-function scopesMatch(left, right) {
-    return left.length === right.length && left.every((scope, index) => scope === right[index]);
-}
-function canIncrementallyUpdate(database, scopes) {
-    return readMetaValue(database, "schema_version") === codeIndexSchemaVersion && scopesMatch(indexedScopes(database), scopes);
-}
 function removeDatabaseFiles(databasePath) {
     for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]) {
         if (fs.existsSync(filePath))
             fs.unlinkSync(filePath);
     }
 }
-function codeIndexStaleness(database) {
-    const scopes = indexedScopes(database);
-    const current = new Map(discoverCodeFiles(scopes.length > 0 ? scopes : ["."]).map((file) => {
-        const codeFile = readCodeFile(file);
-        return [codeFile.path, codeFile.hash];
-    }));
-    const indexed = new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)]));
-    let changed = 0;
-    let deleted = 0;
-    for (const [filePath, hash] of indexed) {
-        const currentHash = current.get(filePath);
-        if (!currentHash)
-            deleted += 1;
-        else if (currentHash !== hash)
-            changed += 1;
+function moveDatabaseFiles(sourcePath, targetPath) {
+    const backupPath = `${targetPath}.backup-${process.pid}-${Date.now()}`;
+    removeDatabaseFiles(backupPath);
+    for (const suffix of ["", "-wal", "-shm"]) {
+        const target = `${targetPath}${suffix}`;
+        if (fs.existsSync(target))
+            fs.renameSync(target, `${backupPath}${suffix}`);
     }
-    let added = 0;
-    for (const filePath of current.keys()) {
-        if (!indexed.has(filePath))
-            added += 1;
-    }
-    return {
-        added,
-        changed,
-        deleted,
-        stale: added > 0 || changed > 0 || deleted > 0,
-    };
-}
-function warnIfCodeIndexStale(database) {
-    const staleness = codeIndexStaleness(database);
-    if (!staleness.stale)
-        return;
-    console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
-}
-function ownerKey(filePath) {
-    const parts = (0, workspace_1.normalizePath)(filePath).split("/").filter(Boolean);
-    if (parts.length === 0)
-        return ".";
-    if (["apps", "libs", "packages", "services"].includes(parts[0] ?? "") && parts[1])
-        return `${parts[0]}/${parts[1]}`;
-    return parts[0] ?? ".";
-}
-function incrementOwnerField(owners, filePath, field, increment = 1) {
-    const key = ownerKey(filePath);
-    const current = owners.get(key) ?? {
-        bytes: 0,
-        configs: 0,
-        file_count: 0,
-        imports: 0,
-        languages: "",
-        lines: 0,
-        owner: key,
-        routes: 0,
-        symbols: 0,
-    };
-    current[field] += increment;
-    owners.set(key, current);
-}
-function codeReport(database) {
-    const databasePath = codeEvidenceDatabasePath();
-    const staleness = codeIndexStaleness(database);
-    const coverageRows = database.prepare(`
-    SELECT 'files' AS table_name, count(*) AS rows FROM files
-    UNION ALL SELECT 'symbols', count(*) FROM symbols
-    UNION ALL SELECT 'imports', count(*) FROM imports
-    UNION ALL SELECT 'routes', count(*) FROM routes
-    UNION ALL SELECT 'configs', count(*) FROM configs
-    UNION ALL SELECT 'edges', count(*) FROM edges
-  `).all();
-    const files = database.prepare("SELECT path, language, profile, lines, bytes FROM files ORDER BY path").all();
-    const owners = new Map();
-    const ownerLanguages = new Map();
-    for (const row of files) {
-        const filePath = String(row.path);
-        const key = ownerKey(filePath);
-        incrementOwnerField(owners, filePath, "file_count");
-        incrementOwnerField(owners, filePath, "lines", Number(row.lines ?? 0));
-        incrementOwnerField(owners, filePath, "bytes", Number(row.bytes ?? 0));
-        const languages = ownerLanguages.get(key) ?? new Set();
-        languages.add(String(row.language));
-        ownerLanguages.set(key, languages);
-    }
-    for (const row of database.prepare("SELECT file_path, count(*) AS count FROM symbols GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "symbols", Number(row.count ?? 0));
-    for (const row of database.prepare("SELECT file_path, count(*) AS count FROM routes GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "routes", Number(row.count ?? 0));
-    for (const row of database.prepare("SELECT from_file, count(*) AS count FROM imports GROUP BY from_file").all())
-        incrementOwnerField(owners, String(row.from_file), "imports", Number(row.count ?? 0));
-    for (const row of database.prepare("SELECT file_path, count(*) AS count FROM configs GROUP BY file_path").all())
-        incrementOwnerField(owners, String(row.file_path), "configs", Number(row.count ?? 0));
-    const ownershipSummary = Array.from(owners.values()).map((owner) => ({
-        ...owner,
-        languages: Array.from(ownerLanguages.get(String(owner.owner)) ?? []).sort().join(", "),
-    })).sort((left, right) => right.file_count - left.file_count || left.owner.localeCompare(right.owner)).slice(0, 25);
-    return {
-        schema_version: 1,
-        generated_at: new Date().toISOString(),
-        database: databasePath.relativePath,
-        scopes: indexedScopes(database),
-        stale: {
-            files: staleness.added + staleness.changed + staleness.deleted,
-            changed: staleness.changed,
-            added: staleness.added,
-            deleted: staleness.deleted,
-        },
-        report_sections: ["evidence_coverage", "ownership_summary", "language_profile_summary", "route_inventory", "dependency_hotspots", "config_inventory", "edge_summary"],
-        evidence_coverage: Object.fromEntries(coverageRows.map((row) => [String(row.table_name), Number(row.rows ?? 0)])),
-        ownership_summary: ownershipSummary,
-        language_profile_summary: database.prepare("SELECT language, profile, count(*) AS files, sum(lines) AS lines, sum(bytes) AS bytes FROM files GROUP BY language, profile ORDER BY files DESC, language").all(),
-        route_inventory: database.prepare("SELECT method, route, file_path, line, handler FROM routes ORDER BY file_path, line LIMIT 100").all(),
-        dependency_hotspots: {
-            imports: database.prepare("SELECT to_ref, count(DISTINCT from_file) AS importing_files, count(*) AS reference_count FROM imports GROUP BY to_ref ORDER BY importing_files DESC, reference_count DESC, to_ref LIMIT 50").all(),
-            package_dependencies: database.prepare("SELECT substr(key, 12) AS package, value AS version, file_path FROM configs WHERE key LIKE 'dependency:%' ORDER BY file_path, package LIMIT 100").all(),
-        },
-        config_inventory: database.prepare("SELECT key, value, file_path, line FROM configs WHERE key LIKE 'script:%' OR key LIKE 'dependency:%' OR key LIKE 'devDependency:%' ORDER BY file_path, key LIMIT 150").all(),
-        edge_summary: {
-            by_kind: database.prepare("SELECT kind, count(*) AS edges FROM edges GROUP BY kind ORDER BY edges DESC, kind").all(),
-            fanout: database.prepare("SELECT source_kind, source, kind, count(DISTINCT target) AS targets, file_path FROM edges GROUP BY source_kind, source, kind, file_path ORDER BY targets DESC, source LIMIT 50").all(),
-        },
-    };
-}
-function prepareOutputPath() {
-    const databasePath = codeEvidenceDatabasePath();
-    (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
-    (0, workspace_1.mkdirp)(codeEvidenceDirectory);
-    fs.writeFileSync((0, workspace_1.abs)(`${codeEvidenceDirectory}/.gitignore`), "*\n!.gitignore\n");
-}
-function runCodeIndexMode() {
-    prepareOutputPath();
-    const databasePath = codeEvidenceDatabasePath();
-    const scopes = codeScopes();
-    const existingIndex = fs.existsSync(databasePath.absolutePath);
-    let incremental = false;
-    if (existingIndex) {
-        const existingDatabase = openDatabase(databasePath.absolutePath);
-        try {
-            incremental = canIncrementallyUpdate(existingDatabase, scopes);
-        }
-        finally {
-            existingDatabase.close();
-        }
-    }
-    if (!incremental)
-        removeDatabaseFiles(databasePath.absolutePath);
-    const database = openDatabase(databasePath.absolutePath);
     try {
-        if (!incremental)
-            setupDatabase(database);
-        const statements = createIndexStatements(database);
-        const currentFiles = discoverCodeFiles(scopes).map(readCodeFile);
-        const currentByPath = new Map(currentFiles.map((file) => [file.path, file]));
-        const indexed = incremental ? new Map(database.prepare("SELECT path, hash FROM files").all().map((row) => [String(row.path), String(row.hash)])) : new Map();
-        const deletedPaths = incremental ? Array.from(indexed.keys()).filter((filePath) => !currentByPath.has(filePath)) : [];
-        const reindexedFiles = incremental
-            ? currentFiles.filter((file) => indexed.get(file.path) !== file.hash)
-            : currentFiles;
-        const unchangedFiles = incremental ? currentFiles.length - reindexedFiles.length : 0;
-        database.exec("BEGIN");
-        if (!incremental)
-            statements.insertMeta.run("created_at", new Date().toISOString());
-        writeIndexMetadata(scopes, statements);
-        for (const filePath of deletedPaths)
-            removeIndexedFile(filePath, statements);
-        for (const file of reindexedFiles) {
-            if (incremental && indexed.has(file.path))
-                removeIndexedFile(file.path, statements);
-            indexCodeFile(file, statements);
+        for (const suffix of ["", "-wal", "-shm"]) {
+            const source = `${sourcePath}${suffix}`;
+            if (fs.existsSync(source))
+                fs.renameSync(source, `${targetPath}${suffix}`);
         }
+        removeDatabaseFiles(backupPath);
+    }
+    catch (error) {
+        removeDatabaseFiles(targetPath);
+        for (const suffix of ["", "-wal", "-shm"]) {
+            const backup = `${backupPath}${suffix}`;
+            if (fs.existsSync(backup))
+                fs.renameSync(backup, `${targetPath}${suffix}`);
+        }
+        throw error;
+    }
+}
+function removeTemporaryDatabaseFiles(databasePath) {
+    for (const suffix of ["", "-wal", "-shm"]) {
+        const filePath = `${databasePath}${suffix}`;
+        if (fs.existsSync(filePath))
+            fs.unlinkSync(filePath);
+    }
+}
+function nativeCodeIndexFileFor(filePath, parserMode) {
+    const fingerprint = readCodeFileFingerprint(filePath);
+    const language = (0, code_index_file_policy_1.fileLanguage)(filePath) || "config";
+    return {
+        ...fingerprint,
+        language,
+        profile: (0, registry_1.extractionProfile)(filePath, language, parserMode),
+    };
+}
+function nativeCodeIndexFileFromCodeFile(file) {
+    return {
+        language: file.language,
+        mtimeMs: file.mtimeMs,
+        path: file.path,
+        profile: file.profile,
+        size: file.size,
+    };
+}
+function nativeCodeIndexFileFromFingerprint(file, parserMode) {
+    const language = (0, code_index_file_policy_1.fileLanguage)(file.path) || "config";
+    return {
+        language,
+        mtimeMs: file.mtimeMs,
+        path: file.path,
+        profile: (0, registry_1.extractionProfile)(file.path, language, parserMode),
+        size: file.size,
+    };
+}
+function nativeEligibleProfile(profile) {
+    return nativeAutoEligibleProfile(profile) || profile === "config" || profile === "inventory-only";
+}
+function nativeCodeIndexIncrementalEligible(files, parserMode) {
+    return files.every((file) => nativeEligibleProfile(nativeCodeIndexFileFromFingerprint(file, parserMode).profile));
+}
+function nativeAutoEligibleProfile(profile) {
+    return [
+        "typescript-ast",
+        "python-light",
+        "go-light",
+        "c-light",
+        "cpp-light",
+        "csharp-light",
+        "java-light",
+        "kotlin-light",
+        "php-light",
+        "rust-light",
+        "swift-light",
+    ].includes(profile);
+}
+function nativeCodeIndexOutputMode() {
+    const requested = (process.env.PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY ?? "sqlite-direct").trim();
+    if (requested === "row-stream" || requested === "sqlite-bridge" || requested === "sqlite-direct")
+        return requested;
+    fail(`invalid PROJECT_LIBRARIAN_NATIVE_INDEXER_STRATEGY: ${requested}; expected row-stream, sqlite-bridge, or sqlite-direct`);
+}
+function appendTypeScriptPartitionToNativeDatabase(databasePath, files, parserMode) {
+    if (files.length === 0)
+        return 0;
+    const database = openDatabase(databasePath);
+    try {
+        const statements = (0, schema_1.createIndexStatements)(database);
+        database.exec("BEGIN");
+        for (const file of files)
+            indexCodeFile(readCodeFile(file.path, parserMode, file), statements);
         database.exec("COMMIT");
-        console.log("Project wiki code evidence index complete.");
-        console.log(`database: ${databasePath.relativePath}`);
-        console.log(`mode: ${incremental ? "incremental" : "full"}`);
-        console.log(`scopes: ${scopes.join(", ")}`);
-        console.log(`files: ${currentFiles.length}`);
-        console.log(`reindexed_files: ${reindexedFiles.length}`);
-        console.log(`deleted_files: ${deletedPaths.length}`);
-        console.log(`unchanged_files: ${unchangedFiles}`);
+        return files.length;
     }
     catch (error) {
         try {
             database.exec("ROLLBACK");
         }
         catch {
-            // Ignore rollback failures after setup errors.
+            // Ignore rollback failures after helper-created database errors.
         }
         throw error;
     }
@@ -877,84 +341,471 @@ function runCodeIndexMode() {
         database.close();
     }
 }
-function runCodeQueryMode() {
-    if (!args_1.codeQuerySql.trim()) {
-        console.error("missing SQL: use --code-query \"select ...\"");
-        process.exit(1);
-    }
-    requireExistingIndex();
-    if (!isReadOnlySql(args_1.codeQuerySql)) {
-        console.error("code queries must be read-only SQL starting with SELECT or WITH");
-        process.exit(1);
-    }
-    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
+function writeNativeRowsToDatabase(databasePath, rows, scopes, parserMode) {
+    removeDatabaseFiles(databasePath);
+    const database = openDatabase(databasePath);
     try {
-        database.exec("PRAGMA query_only = ON");
-        warnIfCodeIndexStale(database);
-        printRows(database.prepare(args_1.codeQuerySql).all());
+        (0, schema_1.setupDatabase)(database, { secondaryIndexes: false });
+        const statements = (0, schema_1.createIndexStatements)(database);
+        database.exec("BEGIN");
+        statements.insertMeta.run("created_at", new Date().toISOString());
+        (0, schema_1.writeIndexMetadata)(scopes, parserMode, statements);
+        for (const file of rows.files) {
+            const ftsRowid = (0, schema_1.fileFtsRowid)(file.path);
+            statements.insertFile.run(file.path, ftsRowid, file.language, file.profile, file.kind, file.bytes, file.lines, file.hash, file.mtime_ms, file.size);
+            statements.insertFileFts.run(ftsRowid, file.path, file.language, file.profile, file.content);
+        }
+        for (const symbol of rows.symbols) {
+            statements.insertSymbol.run(symbol.name, symbol.kind, symbol.file_path, symbol.line, symbol.signature);
+            statements.insertSymbolFts.run(symbol.name, symbol.kind, symbol.file_path, symbol.signature);
+        }
+        for (const imported of rows.imports) {
+            statements.insertImport.run(imported.from_file, imported.to_ref, imported.imported, imported.line, imported.raw);
+        }
+        for (const route of rows.routes) {
+            statements.insertRoute.run(route.method, route.route, route.file_path, route.line, route.handler);
+        }
+        for (const config of rows.configs) {
+            statements.insertConfig.run(config.key, config.value, config.file_path, config.line);
+        }
+        for (const edge of rows.edges) {
+            statements.insertEdge.run(edge.kind, edge.source_kind, edge.source, edge.target_kind, edge.target, edge.file_path, edge.line, edge.evidence);
+        }
+        (0, schema_1.createSecondaryIndexes)(database);
+        database.exec("COMMIT");
+    }
+    catch (error) {
+        try {
+            database.exec("ROLLBACK");
+        }
+        catch {
+            // Ignore rollback failures after row-stream setup errors.
+        }
+        throw error;
     }
     finally {
         database.close();
     }
+}
+function runNativeCodeIndexMode(request) {
+    let helperPath = "";
+    try {
+        helperPath = (0, native_helper_1.requireNativeCodeIndexHelperPath)();
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    prepareOutputPath();
+    const tempDatabasePath = `${request.databasePath.absolutePath}.native-${process.pid}-${Date.now()}.tmp`;
+    removeDatabaseFiles(tempDatabasePath);
+    const manifestFiles = [];
+    const nativeFiles = [];
+    const typescriptFiles = [];
+    for (const filePath of request.discoveredFiles) {
+        const file = nativeCodeIndexFileFor(filePath, request.parserMode);
+        manifestFiles.push(file);
+        if (nativeEligibleProfile(file.profile))
+            nativeFiles.push(file);
+        else
+            typescriptFiles.push(file);
+    }
+    const typescriptProfiles = [...new Set(typescriptFiles.map((file) => file.profile))].sort();
+    const outputMode = nativeCodeIndexOutputMode();
+    const rowsPath = `${tempDatabasePath}.rows.json`;
+    const job = (0, native_helper_1.buildNativeCodeIndexJob)({
+        database_path: tempDatabasePath,
+        files: nativeFiles,
+        output_mode: outputMode,
+        parser_mode: request.parserMode,
+        schema_version: schema_1.codeIndexSchemaVersion,
+        scopes: request.scopes,
+        ...(outputMode === "row-stream" ? { rows_path: rowsPath } : {}),
+    });
+    let summary;
+    let typescriptIndexedFiles = 0;
+    try {
+        if (outputMode === "row-stream") {
+            const result = (0, native_helper_1.runNativeCodeIndexRowsHelper)(job, { helperPath });
+            summary = result.summary;
+            writeNativeRowsToDatabase(tempDatabasePath, result.rows, request.scopes, request.parserMode);
+        }
+        else {
+            summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        }
+        if (!fs.existsSync(tempDatabasePath)) {
+            fail(`native code index helper did not create database: ${tempDatabasePath}`);
+        }
+        typescriptIndexedFiles = appendTypeScriptPartitionToNativeDatabase(tempDatabasePath, typescriptFiles, request.parserMode);
+        moveDatabaseFiles(tempDatabasePath, request.databasePath.absolutePath);
+    }
+    catch (error) {
+        removeTemporaryDatabaseFiles(tempDatabasePath);
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    finally {
+        if (fs.existsSync(rowsPath))
+            fs.unlinkSync(rowsPath);
+    }
+    console.log("Project wiki code evidence index complete.");
+    console.log(`database: ${request.databasePath.relativePath}`);
+    console.log("mode: full");
+    console.log(`parser_mode: ${request.parserMode}`);
+    console.log(`engine: ${typescriptIndexedFiles > 0 ? "mixed-native-rust" : "native-rust"}`);
+    if (request.requestedEngine === "auto")
+        console.log("engine_selection: auto");
+    console.log(`native_strategy: ${outputMode}`);
+    console.log(`scopes: ${request.scopes.join(", ")}`);
+    console.log(`files: ${manifestFiles.length}`);
+    console.log(`native_files: ${nativeFiles.length}`);
+    console.log(`typescript_files: ${typescriptIndexedFiles}`);
+    if (typescriptProfiles.length > 0)
+        console.log(`typescript_profiles: ${typescriptProfiles.join(", ")}`);
+    console.log(`reindexed_files: ${manifestFiles.length}`);
+    console.log(`deleted_files: ${summary.deleted_files ?? 0}`);
+    console.log(`unchanged_files: ${summary.unchanged_files ?? 0}`);
+}
+function runNativeCodeIndexIncrementalMode(request) {
+    let helperPath = "";
+    try {
+        helperPath = (0, native_helper_1.requireNativeCodeIndexHelperPath)();
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    const nativeFiles = request.reindexedFiles.map((file) => nativeCodeIndexFileFromFingerprint(file, request.parserMode));
+    const ineligibleProfiles = [...new Set(nativeFiles
+            .filter((file) => !nativeEligibleProfile(file.profile))
+            .map((file) => file.profile))].sort();
+    if (ineligibleProfiles.length > 0) {
+        fail(`native incremental writer does not support parser profiles: ${ineligibleProfiles.join(", ")}`);
+    }
+    prepareOutputPath();
+    const outputMode = "sqlite-direct";
+    const job = (0, native_helper_1.buildNativeCodeIndexJob)({
+        database_path: request.databasePath.absolutePath,
+        deleted_paths: request.deletedPaths,
+        files: nativeFiles,
+        mode: "incremental",
+        output_mode: outputMode,
+        parser_mode: request.parserMode,
+        schema_version: schema_1.codeIndexSchemaVersion,
+        scopes: request.scopes,
+    });
+    let summary;
+    try {
+        summary = (0, native_helper_1.runNativeCodeIndexHelper)(job, { helperPath });
+        if (!fs.existsSync(request.databasePath.absolutePath)) {
+            fail(`native incremental writer did not preserve database: ${request.databasePath.absolutePath}`);
+        }
+    }
+    catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+    }
+    console.log("Project wiki code evidence index complete.");
+    console.log(`database: ${request.databasePath.relativePath}`);
+    console.log("mode: incremental");
+    console.log(`parser_mode: ${request.parserMode}`);
+    console.log("engine: native-rust");
+    if (request.requestedEngine === "auto")
+        console.log("engine_selection: auto");
+    console.log(`native_strategy: ${outputMode}`);
+    console.log(`scopes: ${request.scopes.join(", ")}`);
+    console.log(`files: ${request.discoveredFiles.length}`);
+    console.log(`native_files: ${nativeFiles.length}`);
+    console.log("typescript_files: 0");
+    console.log(`reindexed_files: ${summary.reindexed_files ?? nativeFiles.length}`);
+    console.log(`deleted_files: ${summary.deleted_files ?? request.deletedPaths.length}`);
+    console.log(`unchanged_files: ${request.unchangedFiles}`);
+}
+function codeIndexStaleness(database) {
+    const scopes = (0, schema_1.indexedScopes)(database);
+    const parserMode = (0, schema_1.indexedParserMode)(database);
+    const currentFiles = (0, code_index_file_policy_1.discoverCodeFiles)(scopes.length > 0 ? scopes : ["."]).map(readCodeFileFingerprint);
+    const currentPaths = new Set(currentFiles.map((file) => file.path));
+    const indexedRows = database.prepare("SELECT path, hash, mtime_ms, size FROM files").all();
+    const indexed = new Map(indexedRows.map((row) => [String(row.path), {
+            hash: String(row.hash),
+            mtimeMs: Number(row.mtime_ms),
+            size: Number(row.size),
+        }]));
+    let added = 0;
+    let changed = 0;
+    for (const file of currentFiles) {
+        const existing = indexed.get(file.path);
+        if (!existing) {
+            added += 1;
+            continue;
+        }
+        if (existing.mtimeMs === file.mtimeMs && existing.size === file.size)
+            continue;
+        if (readCodeFile(file.path, parserMode, file).hash !== existing.hash)
+            changed += 1;
+    }
+    const deleted = indexedRows.filter((row) => !currentPaths.has(String(row.path))).length;
+    return {
+        added,
+        changed,
+        deleted,
+        stale: added > 0 || changed > 0 || deleted > 0,
+    };
+}
+function codeIndexHealth() {
+    const databasePath = codeEvidenceDatabasePath();
+    return (0, index_health_1.inspectCodeIndexHealth)({
+        absolutePath: databasePath.absolutePath,
+        defaultScopes: codeScopes(),
+        discoverCodeFiles: code_index_file_policy_1.discoverCodeFiles,
+        expectedSchemaVersion: schema_1.codeIndexSchemaVersion,
+        openDatabase,
+        relativePath: databasePath.relativePath,
+        smallRepoThreshold: code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD,
+    });
+}
+function warnIfCodeIndexStale(database, staleness = codeIndexStaleness(database)) {
+    if (!staleness.stale)
+        return;
+    console.error(`code evidence index may be stale: ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted; rerun --code-index`);
+}
+function codeReportRuntime(database, options = {}) {
+    const databasePath = codeEvidenceDatabasePath();
+    return {
+        databaseRelativePath: databasePath.relativePath,
+        parserBackendForProfile: (profile) => {
+            const backend = extractionBackendForProfile(profile);
+            return {
+                id: backend.id,
+                label: backend.label,
+                strength: backend.strength,
+            };
+        },
+        staleness: options.staleness ?? codeIndexStaleness(database),
+    };
+}
+function codeImpact(database, target, options = {}) {
+    const normalized = target.trim();
+    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, {
+        edgeLimit: 100,
+        fileLimit: 25,
+        includeEdgeEvidenceMatches: false,
+        includeOwnerCodeowners: true,
+        includeRouteEdges: true,
+        importLimit: 75,
+        ownerSampleLimit: 10,
+        routeEdgeLimit: 100,
+        routeLimit: 50,
+        symbolLimit: 50,
+    });
+    return {
+        ...(0, reports_1.codeReportMetadata)(database, codeReportRuntime(database, options)),
+        target,
+        matches: {
+            files: evidence.files,
+            symbols: evidence.symbols,
+            routes: evidence.routes,
+            imports: evidence.imports,
+        },
+        edges: {
+            outgoing: evidence.outgoingEdges,
+            incoming: evidence.incomingEdges,
+            routes: evidence.routeEdges,
+        },
+        impacted_owners: evidence.owners,
+    };
+}
+function sampleLines(items, limit, render) {
+    const lines = items.slice(0, limit).map(render);
+    if (items.length > limit)
+        lines.push(`  ...+${items.length - limit} more`);
+    return lines;
+}
+function pushBudgetedLine(lines, line) {
+    const candidate = [...lines, line].join("\n");
+    if (candidate.length > exports.codeContextPackCharCap)
+        return false;
+    lines.push(line);
+    return true;
+}
+function pushBudgetedSection(lines, title, items, limit, render) {
+    if (items.length === 0)
+        return;
+    if (!pushBudgetedLine(lines, title))
+        return;
+    for (const line of sampleLines(items, limit, render)) {
+        if (!pushBudgetedLine(lines, line)) {
+            pushBudgetedLine(lines, "  ...more omitted; refine the query");
+            return;
+        }
+    }
+}
+function finalizeCodeContextPack(body) {
+    if (body.length <= exports.codeContextPackCharCap)
+        return body;
+    const budget = exports.codeContextPackCharCap - exports.codeContextPackTruncationNotice.length - 1;
+    return `${body.slice(0, budget > 0 ? budget : 0).trimEnd()}\n${exports.codeContextPackTruncationNotice}`;
+}
+function codeContextScaleLine(fileCount) {
+    return fileCount < code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD
+        ? `scale small (${fileCount} indexed files < ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); direct reads are usually cheaper for simple lookups`
+        : `scale large (${fileCount} indexed files >= ${code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD}); indexed traversal is useful for impact-style context`;
+}
+function codeContextCollectorOptions(fileCount) {
+    if (fileCount < code_index_file_policy_1.SMALL_REPO_FILE_THRESHOLD) {
+        return {
+            edgeLimit: 8,
+            fileLimit: 8,
+            includeEdgeEvidenceMatches: false,
+            includeOwnerCodeowners: false,
+            includeRouteEdges: false,
+            importLimit: 12,
+            ownerSampleLimit: 3,
+            routeEdgeLimit: 0,
+            routeLimit: 8,
+            symbolLimit: 12,
+        };
+    }
+    return {
+        edgeLimit: 30,
+        fileLimit: 12,
+        includeEdgeEvidenceMatches: true,
+        includeOwnerCodeowners: false,
+        includeRouteEdges: false,
+        importLimit: 30,
+        ownerSampleLimit: 4,
+        routeEdgeLimit: 0,
+        routeLimit: 20,
+        symbolLimit: 20,
+    };
+}
+function structuralSignature(value) {
+    const signature = (0, shared_1.oneLine)(String(value ?? ""));
+    const bodyStart = signature.indexOf("{");
+    return bodyStart >= 0 ? signature.slice(0, bodyStart).trimEnd() : signature;
+}
+function codeContextPack(database, query, options = {}) {
+    const normalized = query.trim();
+    if (!normalized)
+        return 'Code context pack: missing query; use --code-context-pack "path-or-symbol-or-route".';
+    const coverage = (0, reports_1.evidenceCoverage)(database);
+    const indexedFileCount = Number(coverage.files ?? 0);
+    const evidence = (0, evidence_1.collectCodeEvidence)(database, normalized, codeContextCollectorOptions(indexedFileCount));
+    const staleness = options.staleness ?? codeIndexStaleness(database);
+    const staleLabel = staleness.stale
+        ? `STALE ${staleness.changed} changed, ${staleness.added} added, ${staleness.deleted} deleted`
+        : "fresh";
+    const lines = [
+        `Code context pack "${normalized}": ${evidence.files.length} file matches, ${evidence.symbols.length} symbols, ${evidence.routes.length} routes, ${evidence.imports.length} imports, ${evidence.incomingEdges.length} incoming / ${evidence.outgoingEdges.length} outgoing edges; index ${staleLabel}; ${codeContextScaleLine(indexedFileCount)}.`,
+        "Evidence is structural only: paths, lines, signatures, routes, imports, edges, and owners; no source snippets are included.",
+    ];
+    pushBudgetedSection(lines, "Files:", evidence.files, 8, (row) => `  file-match ${String(row.path)} (${String(row.language)}, ${String(row.profile)}, ${Number(row.lines ?? 0)} lines)`);
+    pushBudgetedSection(lines, "Symbols:", evidence.symbols, 12, (row) => `  symbol-match ${String(row.file_path)}:${String(row.line)} ${String(row.kind)} ${String(row.name)} - ${structuralSignature(row.signature)}`);
+    pushBudgetedSection(lines, "Routes:", evidence.routes, 8, (row) => `  route-match ${String(row.method)} ${String(row.route)} -> ${String(row.handler)} (${String(row.file_path)}:${String(row.line)})`);
+    pushBudgetedSection(lines, "Imports:", evidence.imports, 8, (row) => `  import-match ${String(row.from_file)}:${String(row.line)} -> ${String(row.to_ref)}${row.imported ? ` (${String(row.imported)})` : ""}`);
+    pushBudgetedSection(lines, "Incoming edges:", evidence.incomingEdges, 8, (row) => `  edge-in ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+    pushBudgetedSection(lines, "Outgoing edges:", evidence.outgoingEdges, 8, (row) => `  edge-out ${String(row.kind)} ${String(row.source)} -> ${String(row.target)} (${String(row.file_path)}:${String(row.line)})`);
+    pushBudgetedSection(lines, "Owners:", evidence.owners, 6, (row) => `  owner ${row.owner} (${row.owner_source}, ${row.files} files): ${row.sample_files.join(", ")}`);
+    return finalizeCodeContextPack(lines.join("\n"));
+}
+// Error thrown when the code-evidence index is missing or schema-incompatible.
+// The MCP server catches this to return an isError tool result (tools/list still
+// works); CLI modes keep their own process.exit path via requireExistingIndex.
+class CodeEvidenceIndexUnavailableError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = "CodeEvidenceIndexUnavailableError";
+    }
+}
+exports.CodeEvidenceIndexUnavailableError = CodeEvidenceIndexUnavailableError;
+// Open the existing .project-wiki code-evidence index READ-ONLY for serving:
+// validates existence and schema version, then pins PRAGMA query_only = ON. Uses
+// the same path resolution and schema constant as the indexer so the server and
+// the writer share one contract. Throws CodeEvidenceIndexUnavailableError (never
+// exits) so the MCP server can answer with guidance to run --code-index.
+function openCodeEvidenceDatabaseForServing() {
+    const databasePath = codeEvidenceDatabasePath();
+    if (!fs.existsSync(databasePath.absolutePath)) {
+        throw new CodeEvidenceIndexUnavailableError(`missing code evidence index: ${databasePath.relativePath}; run \`project-librarian --code-index\` first`);
+    }
+    const database = openDatabase(databasePath.absolutePath);
+    let schemaVersion = "";
+    try {
+        schemaVersion = (0, schema_1.readMetaValue)(database, "schema_version");
+    }
+    catch (error) {
+        database.close();
+        const message = error instanceof Error ? error.message : String(error);
+        throw new CodeEvidenceIndexUnavailableError(`code evidence index at ${databasePath.relativePath} is not readable; rebuild with \`project-librarian --code-index\`. Error: ${message}`);
+    }
+    if (schemaVersion !== schema_1.codeIndexSchemaVersion) {
+        database.close();
+        throw new CodeEvidenceIndexUnavailableError((0, index_health_1.formatCodeIndexHealthRemediation)(codeIndexHealth()));
+    }
+    database.exec("PRAGMA query_only = ON");
+    return { database, relativePath: databasePath.relativePath };
+}
+function prepareOutputPath() {
+    const databasePath = codeEvidenceDatabasePath();
+    (0, workspace_1.mkdirp)(path.dirname(databasePath.relativePath));
+    (0, workspace_1.mkdirp)(code_index_file_policy_1.codeEvidenceDirectory);
+    (0, workspace_1.write)(`${code_index_file_policy_1.codeEvidenceDirectory}/.gitignore`, "*\n!.gitignore\n");
+}
+function codeIndexModeRuntime() {
+    return {
+        codeContextPack,
+        codeEvidenceDatabasePath,
+        codeImpact,
+        codeIndexHealth,
+        codeIndexStaleness,
+        codeReportForRequestedSection: (database, requestedSection, options) => (0, reports_1.codeReportForRequestedSection)(database, requestedSection, codeReportRuntime(database, options)),
+        codeScopes,
+        fail,
+        indexCodeFile,
+        nativeCodeIndexAvailable,
+        nativeCodeIndexIncrementalEligible,
+        openDatabase,
+        prepareOutputPath,
+        readCodeFileFingerprint,
+        readCodeFile,
+        removeDatabaseFiles,
+        requireExistingIndex,
+        runNativeCodeIndexIncrementalMode,
+        runNativeCodeIndexMode,
+        selectedCodeIndexEngine,
+        selectedCodeParserMode,
+        codeIndexEngineSelectionContext,
+        shouldUseNativeCodeIndexAuto,
+        warnIfCodeIndexStale,
+    };
+}
+function runCodeIndexMode() {
+    (0, modes_1.runCodeIndexMode)(codeIndexModeRuntime());
+}
+function runCodeQueryMode() {
+    (0, modes_1.runCodeQueryMode)(codeIndexModeRuntime());
 }
 function runCodeReportMode() {
-    requireExistingIndex();
-    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
-    try {
-        warnIfCodeIndexStale(database);
-        printJson(codeReport(database));
-    }
-    finally {
-        database.close();
-    }
+    (0, modes_1.runCodeReportMode)(codeIndexModeRuntime());
 }
 function runCodeStatusMode() {
-    requireExistingIndex();
-    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
-    try {
-        const rows = database.prepare(`
-      SELECT 'files' AS metric, count(*) AS value FROM files
-      UNION ALL SELECT 'symbols', count(*) FROM symbols
-      UNION ALL SELECT 'imports', count(*) FROM imports
-      UNION ALL SELECT 'routes', count(*) FROM routes
-      UNION ALL SELECT 'edges', count(*) FROM edges
-      UNION ALL SELECT 'configs', count(*) FROM configs
-    `).all();
-        const staleness = codeIndexStaleness(database);
-        rows.push({ metric: "stale_files", value: staleness.added + staleness.changed + staleness.deleted }, { metric: "stale_changed_files", value: staleness.changed }, { metric: "stale_added_files", value: staleness.added }, { metric: "stale_deleted_files", value: staleness.deleted });
-        printRows(rows);
-    }
-    finally {
-        database.close();
-    }
+    (0, modes_1.runCodeStatusMode)(codeIndexModeRuntime());
+}
+function runCodeIndexHealthMode() {
+    (0, modes_1.runCodeIndexHealthMode)(codeIndexModeRuntime());
 }
 function runCodeFilesMode() {
-    requireExistingIndex();
-    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
-    try {
-        warnIfCodeIndexStale(database);
-        printRows(database.prepare("SELECT path, language, profile, kind, lines, bytes FROM files ORDER BY path").all());
-    }
-    finally {
-        database.close();
-    }
+    (0, modes_1.runCodeFilesMode)(codeIndexModeRuntime());
+}
+function runCodeImpactMode() {
+    (0, modes_1.runCodeImpactMode)(codeIndexModeRuntime());
+}
+function runCodeContextPackMode() {
+    (0, modes_1.runCodeContextPackMode)(codeIndexModeRuntime());
 }
 function runCodeSearchSymbolMode() {
-    if (!args_1.codeSearchSymbol.trim()) {
-        console.error("missing symbol search term: use --code-search-symbol \"term\"");
-        process.exit(1);
-    }
-    requireExistingIndex();
-    const database = openDatabase(codeEvidenceDatabasePath().absolutePath);
-    try {
-        warnIfCodeIndexStale(database);
-        const like = `%${args_1.codeSearchSymbol}%`;
-        printRows(database.prepare("SELECT name, kind, file_path, line, signature FROM symbols WHERE name LIKE ? OR signature LIKE ? ORDER BY file_path, line LIMIT 50").all(like, like));
-    }
-    finally {
-        database.close();
-    }
+    (0, modes_1.runCodeSearchSymbolMode)(codeIndexModeRuntime());
 }
 function isCodeEvidenceMode() {
-    return args_1.codeIndexMode || Boolean(args_1.codeQuerySql) || args_1.codeReportMode || args_1.codeStatusMode || args_1.codeFilesMode || Boolean(args_1.codeSearchSymbol);
+    return (0, modes_1.isCodeEvidenceMode)();
+}
+function isCodeEvidenceModeFor(flags) {
+    return (0, modes_1.isCodeEvidenceModeFor)(flags);
 }

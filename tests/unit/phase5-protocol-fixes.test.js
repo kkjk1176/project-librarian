@@ -27,7 +27,7 @@ const INDEX_BUDGET = 4500;
 
 const TLDR_SYNC_LABEL = "Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)";
 const TRUST_CONTRACT_LEAD = "Wiki decision documents are authoritative for project decisions";
-const FIRST_TEMPLATE_TLDR_BULLET = "This project is in an initial planning state unless the canonical wiki says otherwise.";
+const FIRST_TEMPLATE_TLDR_BULLET = "This project is in an initial planning state until services and PRDs are registered.";
 
 function makeTmpDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -219,7 +219,8 @@ test("the managed AGENTS.md block routes broad improvement automation through an
     assert(block.includes("개선 자동화 시작해"), "managed block should name the Korean improvement automation request shape");
     assert(block.includes("analyze-first project work"), "managed block should require analyze-first handling");
     assert(block.includes("ranked backlog with evidence"), "managed block should require evidence-backed prioritization");
-    assert(block.includes("wiki/plans/"), "managed block should persist durable plans when planning state changes");
+    assert(block.includes("11-plans/"), "managed block should persist PRD-local plans with the owning PRD");
+    assert(block.includes("wiki/30-portfolio/"), "managed block should persist cross-PRD plans in the portfolio area");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -247,6 +248,8 @@ test("every agent SessionStart hook payload carries the injected-context marker"
       assert(typeof ctx === "string" && ctx.length > 0, `${hook} produced no additional context`);
       assert(ctx.includes("ALREADY included"), `${hook} missing injected-context marker`);
       assert(ctx.includes("Do not re-read these two files this session"), `${hook} missing no-duplicate-read instruction`);
+      assert(ctx.includes("owning service, PRD current-truth, shared, portfolio"), `${hook} missing v2 current-truth routing language`);
+      assert(!ctx.includes("detailed project canonical, decision, or meta files"), `${hook} retained canonical-first startup language`);
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -330,6 +333,14 @@ function writeWiki(root, relative, content) {
   fs.writeFileSync(filePath, content);
 }
 
+function writeLegacyDecisionLog(root, summary = "benchmark evidence adopted") {
+  writeWiki(root, "wiki/decisions/log.md", `# Decision Log\n\n- 2026-06-10 | metrics | ${summary} | compatibility record\n`);
+}
+
+function writeLegacyRecentNone(root) {
+  writeWiki(root, "wiki/decisions/recent.md", "# Recent Project Decisions\n\n## Decisions\n\n- None yet.\n");
+}
+
 // collectRouterTruthDiagnostics reads files through the workspace `root`, which is
 // frozen to process.cwd() when dist/ is first required, so the rule is exercised
 // the way it actually runs: via a spawned `--doctor` in the fixture cwd. The
@@ -358,11 +369,8 @@ test("--doctor flags both routers when the log has a dated entry and they say No
   const root = makeTmpDir("p5-b2-violate-");
   try {
     runCli(root);
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/x]]",
-    ));
+    writeLegacyDecisionLog(root);
+    writeLegacyRecentNone(root);
     const result = doctorRun(root);
     assert.notEqual(result.status, 0, "--doctor must fail on a router-truth contradiction");
     const contradictionLines = result.stdout.split(/\r?\n/).filter((line) => line.includes("router-truth-contradiction"));
@@ -404,11 +412,8 @@ test("--doctor fails on a planted router-truth contradiction and passes once fix
     const clean = doctorRun(root);
     assert.equal(clean.status, 0, "fresh bootstrap should pass --doctor");
     // Plant the contradiction, confirm it fails.
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/project-brief]]",
-    ));
+    writeLegacyDecisionLog(root);
+    writeLegacyRecentNone(root);
     assert.notEqual(doctorRun(root).status, 0, "--doctor must fail on a router-truth contradiction");
     // Fix the routers by recording the decision; the rule passes again.
     writeWiki(root, "wiki/decisions/recent.md", maintainedRecentDecisions());
@@ -431,11 +436,7 @@ test('B2 no false-positive: "None yet." in an unrelated startup section + mainta
   try {
     runCli(root);
     // Plant a dated decision log entry so the rule is armed.
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/x]]",
-    ));
+    writeLegacyDecisionLog(root);
     // Write a startup where Recent Project Decisions is maintained (has a dated
     // entry), but an unrelated section contains "None yet." text.
     writeWiki(root, "wiki/startup.md", maintainedStartup() + "\n## Open Questions\n\n- None yet.\n");
@@ -456,11 +457,7 @@ test('B2 no false-positive: "None yet." in an unrelated recent.md section → NO
   const root = makeTmpDir("p5-b2-falspos-recent-");
   try {
     runCli(root);
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/x]]",
-    ));
+    writeLegacyDecisionLog(root);
     // Write recent.md with maintained ## Decisions but "None yet." in ## TL;DR.
     writeWiki(root, "wiki/decisions/recent.md",
       maintainedRecentDecisions().replace(
@@ -485,11 +482,8 @@ test("B2 real contradiction still flags after section-anchored fix", () => {
   const root = makeTmpDir("p5-b2-real-contra-");
   try {
     runCli(root);
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/x]]",
-    ));
+    writeLegacyDecisionLog(root);
+    writeLegacyRecentNone(root);
     // routers are at the template "None yet." state after fresh bootstrap
     const result = doctorRun(root);
     assert.notEqual(result.status, 0, "--doctor must still fail on the real contradiction");
@@ -508,17 +502,10 @@ test("B2 flags contradiction when the section contains 'None yet' without termin
   const root = makeTmpDir("p5-b2-minor2-");
   try {
     runCli(root);
-    const logPath = path.join(root, "wiki", "decisions", "log.md");
-    fs.writeFileSync(logPath, fs.readFileSync(logPath, "utf8").replace(
-      "No project decisions yet.",
-      "- 2026-06-10 | metrics | benchmark evidence adopted | canonical: [[canonical/x]]",
-    ));
+    writeLegacyDecisionLog(root);
     // Write startup with "None yet" (no period) in the Recent Project Decisions section.
     writeWiki(root, "wiki/startup.md",
-      maintainedStartup().replace(
-        `- ${SEEDED_DECISION.date}: ${SEEDED_DECISION.summary}.`,
-        "- None yet",
-      ),
+      maintainedStartup().replace(/^- 2026-06-10:.*$/m, "- None yet"),
     );
     const result = doctorRun(root);
     assert.notEqual(result.status, 0, "--doctor must flag 'None yet' (no period) as a contradiction");

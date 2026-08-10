@@ -33,7 +33,7 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | `--capture-inbox --title <title> --content <content> --category <category>` | 후보 메모를 위키 inbox에 추가합니다. category 기본값은 `project-candidate`입니다. |
 | `--handoff-save --goal <goal> --state <state> --next <action>` | `.project-wiki/session/` 아래에 생성형 로컬 세션 핸드오프를 저장합니다. 필요하면 `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, `--last-failure-command`를 반복합니다. |
 | `--handoff-show`, `--handoff-status`, `--handoff-clear` | 생성된 세션 핸드오프를 출력, 점검, 제거합니다. 시작 훅은 핸드오프가 있을 때 존재만 알리고 기본적으로 전체 파일을 주입하지 않습니다. |
-| `--handoff-promote-inbox` | 생성된 핸드오프의 선별된 사실을 `wiki/inbox/project-candidates.md`에 pending 후보로 추가합니다. canonical, plan, decision 페이지는 쓰지 않습니다. |
+| `--handoff-promote-inbox` | 생성된 핸드오프의 선별된 사실을 `wiki/inbox/project-candidates.md`에 pending 후보로 추가합니다. current-truth, PRD plan, decision artifact는 쓰지 않습니다. |
 | `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status` | 제한된 전체 핸드오프 주입 실험을 켜고, 끄고, 상태를 확인합니다. 기본 시작 동작은 pointer-only입니다. |
 | `--issue-draft --issue-title <title>` | 문제나 부작용에 대한 읽기 전용 GitHub issue 본문 초안을 출력합니다. |
 | `--issue-create --issue-title <title> --issue-body-file <path>` | 명시적 사용자 승인 후 `gh`로 GitHub issue를 생성합니다. `--issue-body-file`은 기존 Markdown 본문을 재사용합니다. |
@@ -66,6 +66,6 @@ node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope 
 | 코드 | 의미 |
 | --- | --- |
 | `hub-overload` | 사람이 관리하는 router 또는 meta 페이지가 너무 많은 위키 페이지를 링크하므로 분리하거나 범위를 좁혀야 합니다. |
-| `weak-authority-route` | decision 또는 evidence 권위 신호가 있는 active canonical page가 generated auto-index routing으로만 도달 가능합니다. |
-| `missing-evidence-link` | active canonical page가 source-backed claim을 하지만 source link 또는 `decision_ref`가 없습니다. |
+| `weak-authority-route` | decision 또는 evidence 권위 신호가 있는 active v2 current-truth page가 generated auto-index routing으로만 도달 가능합니다. |
+| `missing-evidence-link` | active v2 current-truth page가 source-backed claim을 하지만 source link 또는 `decision_ref`가 없습니다. |
 | `stale-fanout` | 많이 링크된 active page가 topology-sensitive edit에 비해 너무 넓은 review trigger를 갖고 있습니다. |

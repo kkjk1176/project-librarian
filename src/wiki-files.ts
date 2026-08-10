@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { ignoredDirectorySet } from "./path-ignore-policy";
 import type { MarkdownFileInfo, MetadataSummary, WikiLinkReference, WikiMarkdownBlock, WikiMarkdownBlockKind } from "./types";
 import { abs, metadataValue, normalizePath, read, root, stripMetadataHeader, walkFilesUnder } from "./workspace";
+import { isCurrentTruthPath } from "./wiki-layout";
 
 export const standardWikiFiles: Set<string> = new Set([
   "AGENTS.md",
@@ -23,7 +24,19 @@ export const standardWikiFiles: Set<string> = new Set([
   "wiki/README.md",
   "wiki/startup.md",
   "wiki/index.md",
+  "wiki/00-index/README.md",
+  "wiki/00-index/service-map.md",
+  "wiki/00-index/prd-registry.md",
+  "wiki/01-governance/README.md",
+  "wiki/10-services/README.md",
+  "wiki/20-shared/README.md",
+  "wiki/20-shared/glossary.md",
+  "wiki/30-portfolio/README.md",
+  "wiki/90-archive/README.md",
   "wiki/inbox/project-candidates.md",
+  "wiki/inbox/migration-canonical.md",
+  "wiki/inbox/migration-decisions.md",
+  "wiki/inbox/migration-sources.md",
   "wiki/migration/inventory.md",
   "wiki/migration/unit-map.md",
   "wiki/migration/split-plan.md",
@@ -42,6 +55,7 @@ export const standardWikiFiles: Set<string> = new Set([
   "wiki/meta/decision-policy.md",
   "wiki/meta/document-taxonomy.md",
   "wiki/meta/wiki-ops-v1-decisions.md",
+  "wiki/meta/wiki-ops-v2-decisions.md",
   "wiki/sources/karpathy-llm-wiki.md",
   "wiki/sources/migration-inbox.md",
   "tools/project-librarian/SKILL.md",
@@ -332,7 +346,7 @@ export function hasGlossaryNeedSignal(text: string): boolean {
 
 export function hasGlossaryTable(text: string): boolean {
   const body = stripMetadataHeader(text);
-  return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
+  return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related (?:Canonical|Service\/PRD) Doc\s*\|\s*Status\s*\|/.test(body);
 }
 
 // First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
@@ -347,7 +361,7 @@ export function firstTldrBullet(text: string): string {
 }
 
 export function canonicalBodyForLint(): string {
-  return walkFilesUnder("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")
+  return walkFilesUnder("wiki", (file) => /\.(md|mdx)$/i.test(file) && isCurrentTruthPath(file) && !file.endsWith("/glossary.md"))
     .map((file) => stripMetadataHeader(read(file)))
     .join("\n");
 }

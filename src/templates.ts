@@ -79,7 +79,7 @@ At the start of every session:
 
 1. Review \`wiki/startup.md\` for compact current context.
 2. Review \`wiki/index.md\` as the router for which files to read next.
-3. Read detailed \`wiki/canonical/\`, \`wiki/roadmaps/\`, \`wiki/plans/\`, \`wiki/decisions/\`, \`wiki/meta/\`, and \`wiki/sources/\` files on demand only when the current question needs them.
+3. Follow \`wiki/00-index/\` into the owning service, PRD hub, shared area, portfolio route, or compatibility page; read detailed pages on demand only when the current question needs them.
 
 ### ${startupTldrSyncLabel}
 
@@ -89,9 +89,9 @@ During conversation:
 
 - Update \`./wiki\` in the same turn when project planning content is added, changed, or removed.
 - Classify new project-planning content with \`wiki/meta/document-taxonomy.md\` before writing or consolidating it.
-- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in project wiki canonical or decision docs.
+- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in service, PRD, shared, or decision docs.
 - Follow \`wiki/AGENTS.md\` for detailed rules when editing files under \`wiki/\`.
-- Treat broad maintenance/improvement automation requests that do not name a concrete command (for example "improve this project", "start improvement automation", or "개선 자동화 시작해") as analyze-first project work, not as a plain bootstrap/update. Inspect repo, wiki, CI, test, release, dependency, and code-structure evidence; produce a ranked backlog with evidence and verification paths; persist the plan in \`wiki/plans/\` when project-planning content changes; then execute safe high-priority items with tests.
+- Treat broad maintenance/improvement automation requests that do not name a concrete command (for example "improve this project", "start improvement automation", or "개선 자동화 시작해") as analyze-first project work, not as a plain bootstrap/update. Inspect repo, wiki, CI, test, release, dependency, and code-structure evidence; produce a ranked backlog with evidence and verification paths; persist PRD-specific plans in the PRD's \`11-plans/\` area and cross-PRD plans in \`wiki/30-portfolio/\`; then execute safe high-priority items with tests.
 - Do not execute worktree-controlled commit hooks for wiki trailers; add trailers explicitly when needed.
 - ${wikiTrustContract}
 - ${codeEvidenceTrustContract}
@@ -108,7 +108,7 @@ export const claudeSection = `<!-- PROJECT-WIKI-CLAUDE:START -->
 
 Claude Code reads \`CLAUDE.md\`, not \`AGENTS.md\`, so this file imports \`AGENTS.md\` to share the same wiki-first planning contract with Codex and other agents. Bootstrap also installs a Claude Code \`SessionStart\` hook in \`.claude/settings.json\` for compact wiki startup context.
 
-At session start, follow the imported instructions: review \`wiki/startup.md\` and \`wiki/index.md\` first, then read detailed wiki pages on demand only when the current task needs them.
+At session start, follow the imported instructions: review \`wiki/startup.md\` and \`wiki/index.md\` first, then route through the owning service or PRD hub on demand.
 <!-- PROJECT-WIKI-CLAUDE:END -->`;
 
 export const geminiSection = `<!-- PROJECT-WIKI-GEMINI:START -->
@@ -120,7 +120,7 @@ export const geminiSection = `<!-- PROJECT-WIKI-GEMINI:START -->
 
 Gemini CLI reads \`GEMINI.md\` by default, so this file imports \`AGENTS.md\` to share the same wiki-first planning contract with Codex, Claude Code, Cursor, and other agents.
 
-At session start, follow the imported instructions: review \`wiki/startup.md\` and \`wiki/index.md\` first, then read detailed wiki pages on demand only when the current task needs them.
+At session start, follow the imported instructions: review \`wiki/startup.md\` and \`wiki/index.md\` first, then route through the owning service or PRD hub on demand.
 <!-- PROJECT-WIKI-GEMINI:END -->`;
 
 export const cursorRule = `---
@@ -148,39 +148,45 @@ Language policy:
 Reading rules:
 
 - Treat \`startup.md\` as compact session context and \`index.md\` as the router.
-- Read detailed \`canonical/\`, \`roadmaps/\`, \`plans/\`, \`decisions/\`, \`meta/\`, and \`sources/\` files on demand only when the current question needs them.
+- Follow the primary \`00-index/ -> 10-services/ -> PRD hub -> document area\` route first.
+- Read detailed service, PRD, shared, portfolio, and legacy compatibility pages on demand only when the current question needs them.
 - Prefer each file's TL;DR and metadata before reading the full body.
 
 Storage boundaries:
 
-- \`canonical/\` contains current project-planning truth only.
-- \`roadmaps/\` contains broad future scope, priority queues, and milestone sequences only; it is not canonical truth.
-- \`plans/\` contains detailed execution plans for roadmap items only; it is not canonical truth.
-- \`decisions/\` contains project decision history only.
+- \`00-index/\` contains the service map, PRD registry, and navigation hubs.
+- \`01-governance/\` contains documentation governance and source-of-truth rules.
+- \`10-services/<service>/\` contains service truth, operations, metrics, and \`prds/<PRD-ID-slug>/\` initiative documentation.
+- A PRD uses \`01-discovery/\` through \`08-roadmap/\`, then \`09-decisions/\`, \`10-sources/\`, and \`11-plans/\` as needed.
+- \`20-shared/\` contains contracts and terminology shared by multiple services or PRDs.
+- \`30-portfolio/\` contains cross-PRD roadmap and sequencing work.
+- \`90-archive/\` contains retired material that must remain recoverable.
+- Existing \`canonical/\`, \`roadmaps/\`, \`plans/\`, \`decisions/\`, and \`sources/\` directories are read-only compatibility roots; do not route new writes there.
 - \`meta/\` contains wiki operating rules, decision policy, bootstrap, lint, hook, and migration decisions.
-- \`sources/\` contains external reference summaries and source notes.
 - \`inbox/\` and migration inbox files contain candidates, not canonical truth.
-- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in \`canonical/\` or \`decisions/\`; use root \`AGENTS.md\`, compatibility instruction files, hooks, rules, or skills instead.
+- Do not store non-project LLM memory, assistant preferences, collaboration reminders, or workflow instructions in project truth or decision docs; use root \`AGENTS.md\`, compatibility instruction files, hooks, rules, or skills instead.
 - During migration review, preserve useful meaning while converting it to the current wiki structure. Legacy files, sections, blocks, and wording may be retained when review confirms they belong in the new topic shape and remain current project truth. Do not link to or cite \`wiki_legacy*\` from the new wiki; cite current-project evidence when possible and keep unresolved or ambiguous material in migration inboxes.
 
 Classification rules:
 
 - Before adding or consolidating project content, classify it with \`meta/document-taxonomy.md\`.
-- Write current agreement to the narrowest durable canonical document that fits the taxonomy; do not append unrelated material to \`canonical/project-brief.md\`.
-- Put broad future work in \`roadmaps/\` and detailed execution plans in \`plans/\`, not \`canonical/\`.
-- When roadmap or plan work is completed, update canonical truth first, preserve rationale/evidence where needed, then remove the completed roadmap/plan content.
+- Identify the owning service and stable PRD ID before selecting the document area.
+- Write current agreement to the narrowest durable service, PRD, or shared document; do not append unrelated material to a PRD hub.
+- Put PRD-specific future work in its \`11-plans/\` area and cross-PRD work in \`30-portfolio/\`.
+- Put decisions and evidence beside the PRD in \`09-decisions/\` and \`10-sources/\`.
+- When work completes, update current service/PRD truth first and preserve rationale/evidence before retiring the plan.
 - If one input crosses several lifecycle areas, split it into separate canonical updates and link the related pages.
 - If the input explains why a direction changed, update the relevant decision log or Decision Pack in addition to canonical truth.
 - If an external artifact is the better source of truth (for example Figma, OpenAPI, ERD, issue tracker, or code), keep a concise canonical summary and link the external source as the authoritative location.
 
 Update rules:
 
-- Every wiki knowledge markdown file should include compact metadata with \`status\`, \`updated\`, \`scope\`, \`read_budget\`, \`decision_ref\`, and \`review_trigger\`. This \`wiki/AGENTS.md\` instruction file is excluded from that wiki-page metadata requirement.
-- Put a compact TL;DR near the top of canonical, decision, meta, source, inbox, and migration pages.
+- Every wiki knowledge markdown file should include compact metadata with \`status\`, \`updated\`, \`scope\`, \`type\`, \`read_budget\`, \`decision_ref\`, \`review_trigger\`, and \`owner\`. Service and PRD pages also require matching \`service\` and, for PRDs, \`prd_id\`. This \`wiki/AGENTS.md\` instruction file is excluded.
+- Put a compact TL;DR near the top of service, PRD, shared, decision, meta, source, inbox, and migration pages.
 - Update \`startup.md\` when session-start summary, recent important decisions, open questions, routing hints, or project-language choice changes.
 - Update \`index.md\` when adding, moving, removing, or materially changing wiki pages.
-- Use \`decisions/log.md\` for trivial timestamped project decisions, Decision Packs for grouped topic decisions, and Full ADRs only for product direction, architecture, public API, data model, security/permission, SEO contract, high migration-cost, or likely-to-be-challenged decisions.
-- Initialize \`canonical/glossary.md\` only when terminology becomes useful.
+- Keep decision records in the owning PRD's \`09-decisions/\` area; use Decision Packs or ADRs according to impact.
+- Initialize \`20-shared/glossary.md\` when terminology becomes useful.
 - Keep migration inbox statuses as \`pending\`, \`adopted\`, \`rejected\`, \`resolved\`, or \`needs-human-review\`.
 
 Commit rules:
@@ -191,42 +197,53 @@ Commit rules:
 - Hand-write wiki trailers when project policy requires them; keep them accurate and evidence-backed.
 <!-- PROJECT-WIKI-INTERNAL:END -->`;
 
-export const metadata = (scope: string, budget: WikiBudget, decisionRef: string, trigger: string, status: WikiStatus = "active"): string => `---
+export interface WikiMetadataOptions {
+  owner?: string;
+  prdId?: string;
+  service?: string;
+  type?: string;
+}
+
+export const metadata = (scope: string, budget: WikiBudget, decisionRef: string, trigger: string, status: WikiStatus = "active", options: WikiMetadataOptions = {}): string => `---
 status: ${status}
 updated: ${today}
 scope: ${scope}
+type: ${options.type ?? scope}
 read_budget: ${budget}
 decision_ref: ${decisionRef}
 review_trigger: ${trigger}
+owner: ${options.owner ?? "unassigned"}${options.service ? `\nservice: ${options.service}` : ""}${options.prdId ? `\nprd_id: ${options.prdId}` : ""}
 ---
 `;
 
-export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-ops-v1-decisions.md", "session-start summary, routing, language policy, or open project state changes")}
+export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-ops-v2-decisions.md", "session-start summary, service/PRD routing, language policy, or open project state changes", "active", { type: "router" })}
 # Startup Context
 
 ## TL;DR
 
-- This project is in an initial planning state unless the canonical wiki says otherwise.
-- Project truth lives in \`wiki/canonical/\`, future work in \`wiki/roadmaps/\` and \`wiki/plans/\`, project decisions in \`wiki/decisions/\`, and sources in \`wiki/sources/\`.
+- This project is in an initial planning state until services and PRDs are registered.
+- Project truth lives under \`wiki/10-services/\` and \`wiki/20-shared/\`; cross-PRD future work lives in \`wiki/30-portfolio/\`.
+- Start at \`wiki/00-index/\`, then follow service -> PRD/initiative -> document area.
 - Wiki operating rules and wiki operating decisions live in \`wiki/meta/\`.
 - At session start, read only this file and \`wiki/index.md\` first; use the index as a route table, open matching detail files directly, and avoid broad repo/wiki search unless no route matches.
-- Project canonical content language is not fixed by this bootstrap. The LLM should choose the language that best matches the user and project context.
-- Completed roadmaps/plans are removed after truth/rationale/evidence capture.
+- Existing lifecycle roots, when present, are compatibility pages for reading and migration only.
 - Update the wiki in the same turn when project-planning content changes.
 - Classify new project-planning content with \`wiki/meta/document-taxonomy.md\` before writing or consolidating it.
 
 ## Read On Demand
 
 - [[index]]: document router.
+- [[00-index/README]]: service and PRD navigation entry point.
+- [[00-index/service-map]]: registered service boundaries.
+- [[00-index/prd-registry]]: registered PRDs and initiative hubs.
 - [[meta/document-taxonomy]]: read only when classifying or reorganizing project wiki content.
 
 ## Project State
 
-- Problem/opportunity: not selected yet.
-- Target users: not selected yet.
-- Core scenario: not selected yet.
-- Success criteria: not selected yet.
-- Initial scope: not selected yet.
+- Registered services: none yet.
+- Registered PRDs: none yet.
+- Shared contracts: none yet.
+- Portfolio work: none yet.
 - Project content language: to be selected from user/project context.
 
 ## Recent Project Decisions
@@ -235,9 +252,9 @@ export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-op
 
 ## Wiki Operating Pointers
 
-- Decision recording follows [[meta/decision-policy]].
+- Decision recording follows [[01-governance/README]] and [[meta/decision-policy]].
 - Wiki operation follows [[meta/operating-model]].
-- Wiki operating decisions are recorded only in [[meta/wiki-ops-v1-decisions]], not in project decision logs.
+- Wiki operating decisions are recorded only in [[meta/wiki-ops-v2-decisions]], not in product decision areas.
 
 ## Token Discipline
 
@@ -246,26 +263,36 @@ export const startup = `${metadata("startup-router", "short", "wiki/meta/wiki-op
 - Long decision history is not injected wholesale; read only relevant Decision Packs or ADRs.
 `;
 
-export const index = `${metadata("wiki-router", "short", "wiki/meta/wiki-ops-v1-decisions.md", "wiki page added, moved, removed, or routing changes")}
+export const index = `${metadata("wiki-router", "short", "wiki/meta/wiki-ops-v2-decisions.md", "service, PRD, document area, or routing link changes", "active", { type: "router" })}
 # Wiki Index
 
-## How To Use This Index
+## Use
 
-This is a route table, not a page inventory. Open the matching route first; use broad wiki search or file listing only when no route matches or evidence conflicts.
+Use \`service -> PRD/initiative -> document area -> focused artifact\`. This is a route table, not a page inventory.
+
+## Primary Routes
+
+- [[00-index/README]] - navigation entry point.
+- [[00-index/service-map]] - service registry.
+- [[00-index/prd-registry]] - PRD registry.
+- [[01-governance/README]] - source-of-truth and writing rules.
+- [[10-services/README]] - service hubs.
+- [[20-shared/README]] - cross-service contracts and terminology.
+- [[30-portfolio/README]] - cross-PRD roadmap and sequencing.
+- [[90-archive/README]] - retired material.
 
 ## Language Policy
 
-- Operating documents generated by this bootstrap are English by default.
-- Project canonical content language is chosen by the LLM from the user's language, project context, and surrounding materials.
-- Keep the chosen project language consistent unless the user asks to switch.
+- Generated operating pages are English by default.
+- Product content follows the user, project, and surrounding source material unless the user requests another language.
 
-## Boundary Rule
+## Storage Contract
 
-- \`wiki/canonical/\`: current accepted project truth only.
-- \`wiki/roadmaps/\`: broad future scope only; \`wiki/plans/\`: detailed execution only.
-- \`wiki/decisions/\`: project decision history only.
-- Wiki operating rules and wiki operating decisions live in \`wiki/meta/\`.
-- Non-project LLM memory, collaboration reminders, and workflow instructions belong in \`AGENTS.md\`, \`wiki/AGENTS.md\`, hooks, or skills, not in project canonical/decision docs.
+- Service-wide truth: \`wiki/10-services/<service>/\`.
+- PRD truth and lifecycle artifacts: \`wiki/10-services/<service>/prds/<PRD-ID-slug>/\`.
+- Shared truth: \`wiki/20-shared/\`.
+- Cross-PRD future work: \`wiki/30-portfolio/\`.
+- Existing \`canonical/\`, \`roadmaps/\`, \`plans/\`, \`decisions/\`, and \`sources/\` roots are read-only compatibility pages when present.
 
 ## Startup
 
@@ -273,25 +300,6 @@ This is a route table, not a page inventory. Open the matching route first; use 
   - Read: every session start or compact project state lookup.
   - Update: startup summary, recent decisions, open questions, routes, language policy.
   - Token budget: short.
-
-## Canonical
-
-No empty canonical starter pages are created by default. Create focused pages under \`wiki/canonical/\` only when durable project truth exists, then route them here or with \`--refresh-index\`.
-
-## Decisions
-
-- [[decisions/recent]]
-  - Read: recent important project decisions.
-  - Update: a decision belongs in startup context.
-  - Token budget: short.
-- [[decisions/README]]
-  - Read: decision directory structure or decision routing conventions.
-  - Update: decision directory conventions change.
-  - Token budget: short.
-- [[decisions/log]]
-  - Read: project decision timing matters.
-  - Update: a trivial decision needs timestamp tracking.
-  - Token budget: on-demand.
 
 ## Wiki Meta
 
@@ -307,32 +315,25 @@ No empty canonical starter pages are created by default. Create focused pages un
   - Read: decision level, ADR need, canonical/decision split.
   - Update: decision classification or ADR criteria changes.
   - Token budget: medium.
-- [[meta/wiki-ops-v1-decisions]]
+- [[meta/wiki-ops-v2-decisions]]
   - Read: wiki operating decisions, rejected alternatives, rationale.
   - Update when: wiki operating decisions change.
   - Token budget: medium.
-
-## Sources
-
-- [[sources/karpathy-llm-wiki]]
-  - Read: source pattern and LLM Wiki rationale.
-  - Update: source links, interpretation, application notes.
-  - Token budget: short.
 `;
 
-export const glossary = `${metadata("project-canonical", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "project terms, roles, states, permissions, events, entities, API names, DB names, or UI labels are added or renamed")}
+export const glossary = `${metadata("shared-glossary", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "shared terms, roles, states, permissions, events, entities, API names, DB names, or UI labels change", "active", { type: "shared" })}
 # Glossary
 
 ## TL;DR
 
 - This file is the naming contract for project/product terminology.
 - Do not store wiki operating terms, LLM collaboration instructions, or general working memory here.
-- Prefer canonical terms from this file for API, database, UI, and policy wording.
+- Prefer shared terms from this file for API, database, UI, and policy wording.
 - Use the project language chosen in [[startup]] unless the user says otherwise.
 
 ## Terms
 
-| Term | Definition | Avoid | Related Canonical Doc | Status |
+| Term | Definition | Avoid | Related Service/PRD Doc | Status |
 | --- | --- | --- | --- | --- |
 |  |  |  |  | proposed |
 `;
@@ -340,7 +341,7 @@ export const glossary = `${metadata("project-canonical", "medium", "wiki/meta/wi
 export const glossaryIndexBlock = `<!-- PROJECT-WIKI-GLOSSARY:START -->
 ## Glossary
 
-- [[canonical/glossary]]
+- [[20-shared/glossary]]
   - Read: terms, roles, states, permissions, events, API/DB/UI names, naming conflicts.
   - Update: core term is added, renamed, or deprecated.
   - Token budget: medium.
@@ -350,8 +351,8 @@ export const inboxIndexBlock = `<!-- PROJECT-WIKI-INBOX:START -->
 ## Inbox
 
 - [[inbox/project-candidates]]
-  - Read: captured project candidates not yet adopted.
-  - Update: \`--capture-inbox\` adds a candidate or status changes.
+  - Read: captured project candidates not yet adopted, classified by service, PRD, and type when known.
+  - Update: \`--capture-inbox\` adds a candidate or its ownership/status changes.
   - Token budget: on-demand.
 <!-- PROJECT-WIKI-INBOX:END -->`;
 
@@ -592,6 +593,201 @@ review_trigger: what should cause this page to change
 ## Open Questions
 \`\`\`
 `;
+
+// V2 is the only write contract used by fresh bootstrap and update. The legacy
+// exports below remain available solely so migration can recognize old generated
+// starters without recreating lifecycle-root directories.
+export const wikiOperatingModelV2 = `${metadata("wiki-meta", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "service/PRD structure, hooks, bootstrap, migration, language, or token policy changes", "active", { type: "wiki-meta" })}
+# Wiki Operating Model
+
+## TL;DR
+
+- The writable knowledge model is service -> PRD/initiative -> document area.
+- Current truth belongs under \`10-services/\` or \`20-shared/\`; cross-PRD future work belongs under \`30-portfolio/\`.
+- Existing lifecycle roots are read-only compatibility inputs and are never created by fresh bootstrap.
+- Startup hooks inject only \`startup.md\` and \`index.md\`.
+
+## Routing
+
+1. Register the service in [[00-index/service-map]].
+2. Register each stable PRD ID in [[00-index/prd-registry]].
+3. Route service-wide truth through \`10-services/<service>/\`.
+4. Route initiative artifacts through \`10-services/<service>/prds/<PRD-ID-slug>/\`.
+5. Use \`20-shared/\` only when more than one service or PRD owns the contract.
+6. Use \`30-portfolio/\` for sequencing across PRDs.
+
+## PRD Areas
+
+| Area | Purpose |
+| --- | --- |
+| \`01-discovery/\` | problem, users, evidence, opportunity |
+| \`02-requirements/\` | accepted requirements and policy |
+| \`03-design/\` | UX, architecture, data, and API design |
+| \`04-delivery/\` | implementation and rollout state |
+| \`05-validation/\` | QA, acceptance, and evidence |
+| \`06-operations/\` | runbooks and production operation |
+| \`07-metrics/\` | KPI definitions and observed signals |
+| \`08-roadmap/\` | PRD-local future direction |
+| \`09-decisions/\` | rationale and ADRs |
+| \`10-sources/\` | external and measured evidence |
+| \`11-plans/\` | detailed execution plans |
+
+## Metadata
+
+Knowledge pages use \`status\`, \`updated\`, \`scope\`, \`type\`, \`read_budget\`, \`decision_ref\`, \`review_trigger\`, and \`owner\`. Service pages require matching \`service\`; PRD pages also require matching \`prd_id\`.
+
+## Compatibility
+
+Queries, links, impact, neighborhood, migration review, and coverage continue to read existing \`canonical/\`, \`roadmaps/\`, \`plans/\`, \`decisions/\`, and \`sources/\` pages. New writes and migration targets use only the v2 writable roots.
+`;
+
+export const decisionPolicyV2 = `${metadata("wiki-meta", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "decision levels, ownership, or ADR criteria change", "active", { type: "wiki-meta" })}
+# Decision Policy
+
+## TL;DR
+
+- Put a decision beside its owning PRD in \`09-decisions/\`.
+- Put service-wide or cross-service governance decisions in the narrowest owning service or shared area.
+- Use a short decision record for reversible choices, a Decision Pack for related choices, and a full ADR for high-cost or likely-to-be-challenged changes.
+- \`decision_ref\` points from current truth to its rationale.
+
+## Levels
+
+1. Current-truth-only edit: no durable rationale is needed.
+2. Decision note: timing or a rejected alternative matters.
+3. Decision Pack: several choices share one topic and revisit trigger.
+4. Full ADR: product direction, architecture, public API, data model, security, permissions, compliance, or migration cost is material.
+`;
+
+export const documentTaxonomyV2 = `${metadata("wiki-meta", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "service/PRD information architecture or classification rules change", "active", { type: "wiki-meta" })}
+# Document Taxonomy
+
+## TL;DR
+
+- Identify service, PRD ID, document area, lifecycle state, and owner before writing.
+- Use service scope only for truth shared by all of that service's PRDs.
+- Use \`20-shared/\` only for contracts genuinely shared across services or PRDs.
+- Legacy lifecycle roots are compatibility inputs, not valid targets for new content.
+
+## Classification Order
+
+1. Which service owns the content?
+2. Is there a stable PRD/initiative ID?
+3. Which PRD area from \`01-discovery\` through \`11-plans\` owns it?
+4. Is it current truth, future work, rationale, evidence, or an unresolved candidate?
+5. Who owns review and what event triggers an update?
+
+Unknown ownership stays in \`inbox/\` or migration review with \`owner: unassigned\` and \`needs-human-review\`; it does not become current truth automatically.
+`;
+
+export const v2StarterFiles = {
+  "wiki/README.md": `${metadata("wiki-entry", "short", "wiki/meta/wiki-ops-v2-decisions.md", "top-level wiki structure changes", "active", { type: "wiki-entry" })}
+# Project Wiki
+
+Start with [[startup]], [[index]], or [[00-index/README]]. Durable product knowledge is organized by owning service and PRD.
+`,
+  "wiki/00-index/README.md": `${metadata("wiki-index", "short", "wiki/meta/wiki-ops-v2-decisions.md", "service or PRD routing changes", "active", { type: "router" })}
+# Navigation
+
+## TL;DR
+
+- Start with the service map, then choose a registered PRD hub.
+- Use shared or portfolio routes only when ownership crosses PRDs.
+
+- [[00-index/service-map]]
+- [[00-index/prd-registry]]
+- [[10-services/README]]
+- [[20-shared/README]]
+- [[30-portfolio/README]]
+`,
+  "wiki/00-index/service-map.md": `${metadata("service-registry", "short", "wiki/meta/wiki-ops-v2-decisions.md", "a service is added, renamed, retired, or changes ownership", "active", { type: "router" })}
+# Service Map
+
+## TL;DR
+
+- No services are registered yet.
+- Add a stable lowercase service slug and link its hub before creating PRDs.
+
+| Service | Owner | Hub | Status |
+| --- | --- | --- | --- |
+| none | - | - | - |
+`,
+  "wiki/00-index/prd-registry.md": `${metadata("prd-registry", "short", "wiki/meta/wiki-ops-v2-decisions.md", "a PRD is added, renamed, retired, or changes ownership/status", "active", { type: "router" })}
+# PRD Registry
+
+## TL;DR
+
+- No PRDs are registered yet.
+- PRD IDs are stable; rename only the slug portion of \`PRD-NNN-slug\`.
+
+| PRD ID | Service | Owner | Hub | Status |
+| --- | --- | --- | --- | --- |
+| none | - | - | - | - |
+`,
+  "wiki/01-governance/README.md": `${metadata("documentation-governance", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "source-of-truth, ownership, metadata, or review rules change", "active", { type: "governance" })}
+# Documentation Governance
+
+## TL;DR
+
+- Register service and PRD ownership before creating durable product pages.
+- Current truth lives in service, PRD, or shared areas; plans, decisions, and sources remain beside their owner.
+- Existing lifecycle roots are read-only compatibility pages.
+
+See [[meta/operating-model]], [[meta/document-taxonomy]], and [[meta/decision-policy]].
+`,
+  "wiki/10-services/README.md": `${metadata("service-registry", "short", "wiki/meta/wiki-ops-v2-decisions.md", "service hubs are added, moved, or retired", "active", { type: "service-registry" })}
+# Services
+
+## TL;DR
+
+- No service hubs exist yet.
+- Create \`10-services/<service>/README.md\` and \`service-overview.md\` only after registration.
+`,
+  "wiki/20-shared/README.md": `${metadata("shared-index", "short", "wiki/meta/wiki-ops-v2-decisions.md", "shared contracts or terminology change", "active", { type: "shared" })}
+# Shared
+
+## TL;DR
+
+- Keep only contracts or terminology owned by more than one service or PRD here.
+- Prefer the narrowest service or PRD owner when sharing is not real.
+`,
+  "wiki/30-portfolio/README.md": `${metadata("portfolio", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "cross-PRD priorities, sequencing, or dependencies change", "active", { type: "portfolio" })}
+# Portfolio
+
+## TL;DR
+
+- No cross-PRD roadmap items are registered yet.
+- PRD-local plans belong in the owning PRD's \`11-plans/\` area.
+`,
+  "wiki/90-archive/README.md": `${metadata("archive", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "retention rules or archived routes change", "active", { type: "archive" })}
+# Archive
+
+## TL;DR
+
+- Retired material remains recoverable here but is never active truth.
+- Record the replacement route and retirement reason when archiving a page.
+`,
+  "wiki/meta/document-taxonomy.md": documentTaxonomyV2,
+  "wiki/meta/wiki-ops-v2-decisions.md": `${metadata("wiki-meta-decisions", "medium", "self", "service/PRD wiki operating decisions change", "active", { type: "wiki-meta" })}
+# Wiki Operations v2 Decisions
+
+## TL;DR
+
+- The accepted write model is service -> PRD/initiative -> document area.
+- Lifecycle roots remain read-compatible but are not created or accepted as new targets.
+- Fresh bootstrap creates neutral hubs and does not invent a service or PRD.
+
+Status: accepted
+
+| Date | Decision | Rationale | Revisit Trigger |
+| --- | --- | --- | --- |
+| ${today} | Organize durable knowledge by service and stable PRD ID. | Ownership and retrieval remain local as PRD count grows. | Teams cannot assign stable service or PRD ownership. |
+| ${today} | Keep decisions, sources, plans, and roadmap material beside the owning PRD. | One PRD hub exposes its full context without lifecycle-root scattering. | Cross-PRD ownership is more common than PRD ownership. |
+| ${today} | Preserve lifecycle roots for reads and migration only. | Existing projects remain usable without making old paths the write contract. | Compatibility cost exceeds migration value. |
+`,
+};
+
+export const v2DefaultStarterFilePaths = new Set(Object.keys(v2StarterFiles));
 
 export const starterFiles = {
   "wiki/README.md": `${metadata("wiki-entry", "short", "wiki/meta/wiki-ops-v1-decisions.md", "top-level wiki structure changes")}

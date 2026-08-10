@@ -341,11 +341,16 @@ function runInitCommand() {
     const results = [];
     if (migrationState)
         results.push(["migration prepare", migrationState.note]);
-    (0, workspace_1.mkdirp)("wiki/canonical");
-    (0, workspace_1.mkdirp)("wiki/decisions");
+    (0, workspace_1.mkdirp)("wiki/00-index");
+    (0, workspace_1.mkdirp)("wiki/01-governance");
+    (0, workspace_1.mkdirp)("wiki/10-services");
+    (0, workspace_1.mkdirp)("wiki/20-shared");
+    (0, workspace_1.mkdirp)("wiki/30-portfolio");
+    (0, workspace_1.mkdirp)("wiki/90-archive");
     (0, workspace_1.mkdirp)("wiki/inbox");
+    (0, workspace_1.mkdirp)("wiki/indexes");
     (0, workspace_1.mkdirp)("wiki/meta");
-    (0, workspace_1.mkdirp)("wiki/sources");
+    (0, workspace_1.mkdirp)("wiki/migration");
     if (writeCodexSurface)
         (0, workspace_1.mkdirp)(".codex/hooks");
     if (writeClaudeSurface)
@@ -433,19 +438,16 @@ function runInitCommand() {
     // starter files: templates are written only when the file is absent, never rebuilt.
     results.push(["wiki/startup.md", (0, workspace_1.writeStarter)("wiki/startup.md", templates_1.startup)]);
     results.push(["wiki/index.md", (0, workspace_1.writeStarter)("wiki/index.md", templates_1.index)]);
-    results.push(["wiki/meta/operating-model.md", (0, workspace_1.writeManaged)("wiki/meta/operating-model.md", templates_1.wikiOperatingModel)]);
-    results.push(["wiki/meta/decision-policy.md", (0, workspace_1.writeManaged)("wiki/meta/decision-policy.md", templates_1.decisionPolicy)]);
-    results.push(["wiki/canonical/wiki-operating-model.md", (0, workspace_1.deleteIfGenerated)("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);
-    results.push(["wiki/canonical/decision-policy.md", (0, workspace_1.deleteIfGenerated)("wiki/canonical/decision-policy.md", ["# Decision Policy"])]);
-    results.push(["wiki/decisions/wiki-v1-decisions.md", (0, workspace_1.deleteIfGenerated)("wiki/decisions/wiki-v1-decisions.md", ["# Wiki v1 Decisions", "# Wiki Operations v1 Decisions"])]);
-    for (const [relativePath, content] of Object.entries(templates_1.starterFiles)) {
-        if (!templates_1.defaultStarterFilePaths.has(relativePath))
+    results.push(["wiki/meta/operating-model.md", (0, workspace_1.writeStarter)("wiki/meta/operating-model.md", templates_1.wikiOperatingModelV2)]);
+    results.push(["wiki/meta/decision-policy.md", (0, workspace_1.writeStarter)("wiki/meta/decision-policy.md", templates_1.decisionPolicyV2)]);
+    for (const [relativePath, content] of Object.entries(templates_1.v2StarterFiles)) {
+        if (!templates_1.v2DefaultStarterFilePaths.has(relativePath))
             continue;
         results.push([relativePath, (0, workspace_1.writeStarter)(relativePath, content)]);
     }
-    results.push(["wiki/meta/wiki-ops-v1-decisions.md", (0, workspace_1.writeManaged)("wiki/meta/wiki-ops-v1-decisions.md", templates_1.starterFiles["wiki/meta/wiki-ops-v1-decisions.md"])]);
+    results.push(["wiki/meta/wiki-ops-v2-decisions.md", (0, workspace_1.writeStarter)("wiki/meta/wiki-ops-v2-decisions.md", templates_1.v2StarterFiles["wiki/meta/wiki-ops-v2-decisions.md"])]);
     if (args_1.glossaryMode) {
-        results.push(["wiki/canonical/glossary.md", (0, workspace_1.writeStarter)("wiki/canonical/glossary.md", templates_1.glossary)]);
+        results.push(["wiki/20-shared/glossary.md", (0, workspace_1.writeStarter)("wiki/20-shared/glossary.md", templates_1.glossary)]);
         results.push(["wiki/index.md glossary router", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->", templates_1.glossaryIndexBlock)]);
     }
     if (args_1.captureInboxMode) {

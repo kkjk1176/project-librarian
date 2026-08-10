@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildPruneCandidate, collectLinkDiagnostics, collectQualityDiagnostics } = require("../../dist/modes.js");
+const { buildPruneCandidate, collectLinkDiagnostics, collectMigrationQualityDiagnostics, collectQualityDiagnostics } = require("../../dist/modes.js");
 const { staleReviewAge, staleReviewAgeDays } = require("../../dist/wiki-diagnostics.js");
 
 function wikiFile(path, { updated }) {
@@ -78,6 +78,34 @@ function corpus(pages) {
     fileSet: new Set(pages.map((item) => item.file)),
     pages,
     textByFile: new Map(pages.map((item) => [item.file, item.text])),
+  };
+}
+
+function v2Page(file, { body = "", owner = "product", prdId = "", service = "", type = "shared" } = {}) {
+  return {
+    file,
+    text: [
+      "---",
+      "status: active",
+      "updated: 2026-08-09",
+      "scope: v2-fixture",
+      `type: ${type}`,
+      "read_budget: short",
+      "decision_ref: none",
+      "review_trigger: fixture changes",
+      `owner: ${owner}`,
+      ...(service ? [`service: ${service}`] : []),
+      ...(prdId ? [`prd_id: ${prdId}`] : []),
+      "---",
+      "",
+      "# V2 Fixture",
+      "",
+      "## TL;DR",
+      "",
+      "- Diagnostic fixture.",
+      "",
+      body,
+    ].join("\n"),
   };
 }
 
@@ -157,6 +185,99 @@ test("topology diagnostics keep generated, routine canonical, and historical pag
   ];
   const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
   assert.equal(diagnostics.some((diagnostic) => ["hub-overload", "missing-evidence-link", "stale-fanout"].includes(diagnostic.code)), false);
+});
+
+test("v2 diagnostics detect duplicate PRD IDs, registry drift, and PRD area/type mismatch", () => {
+  const fixturePages = [
+    v2Page("wiki/00-index/prd-registry.md", { body: "- [[10-services/payments/prds/PRD-012-checkout/README]]", type: "router" }),
+    v2Page("wiki/00-index/service-map.md", { body: "- [[10-services/payments/README]]\n- [[10-services/orders/README]]", type: "router" }),
+    v2Page("wiki/10-services/payments/README.md", { service: "payments", type: "service-hub" }),
+    v2Page("wiki/10-services/orders/README.md", { service: "orders", type: "service-hub" }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/README.md", { prdId: "PRD-012", service: "payments", type: "prd-hub" }),
+    v2Page("wiki/10-services/orders/prds/PRD-012-order-checkout/README.md", { prdId: "PRD-012", service: "orders", type: "prd-hub" }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/03-design/api.md", { prdId: "PRD-012", service: "payments", type: "requirements" }),
+  ];
+  const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "duplicate-prd-id"));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "registry-hub-mismatch" && /orders\/prds/.test(diagnostic.file)));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "area-type-mismatch" && diagnostic.file.endsWith("03-design/api.md")));
+});
+
+test("v2 diagnostics count only PRD root README files as PRD hubs", () => {
+  const fixturePages = [
+    v2Page("wiki/00-index/prd-registry.md", {
+      body: [
+        "| PRD ID | Service | Owner | Hub | Status |",
+        "| --- | --- | --- | --- | --- |",
+        "| PRD-012 | payments | checkout | [[10-services/payments/prds/PRD-012-checkout/README]] | active |",
+      ].join("\n"),
+      type: "router",
+    }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/README.md", { prdId: "PRD-012", service: "payments", type: "prd-hub" }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/01-discovery/README.md", { prdId: "PRD-012", service: "payments", type: "discovery" }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/02-requirements/README.md", { prdId: "PRD-012", service: "payments", type: "requirements" }),
+  ];
+
+  const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === "duplicate-prd-id"), false);
+});
+
+test("v2 diagnostics validate registry table identity and missing registered service hubs", () => {
+  const fixturePages = [
+    v2Page("wiki/00-index/prd-registry.md", {
+      body: [
+        "| PRD ID | Service | Owner | Hub | Status |",
+        "| --- | --- | --- | --- | --- |",
+        "| PRD-012 | payments | checkout | [[10-services/orders/prds/PRD-099-wrong/README]] | active |",
+        "| PRD-012 | payments | checkout | [[10-services/payments/prds/PRD-012-checkout/README]] | active |",
+      ].join("\n"),
+      type: "router",
+    }),
+    v2Page("wiki/00-index/service-map.md", {
+      body: [
+        "| Service | Owner | Hub | Status |",
+        "| --- | --- | --- | --- |",
+        "| payments | platform | [[10-services/payments/README]] | active |",
+        "| missing | platform | [[10-services/missing/README]] | active |",
+      ].join("\n"),
+      type: "router",
+    }),
+    v2Page("wiki/10-services/payments/README.md", { service: "payments", type: "service-hub" }),
+    v2Page("wiki/10-services/payments/prds/PRD-012-checkout/README.md", { prdId: "PRD-012", service: "payments", type: "prd-hub" }),
+  ];
+
+  const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "duplicate-prd-id" && diagnostic.file === "wiki/00-index/prd-registry.md"));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "registry-entry-mismatch" && /PRD-012/.test(diagnostic.message)));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "registry-hub-mismatch" && /registered service hub is missing/.test(diagnostic.message)));
+});
+
+test("historical legacy pages are excluded from reachability noise while active legacy remains visible", () => {
+  const fixturePages = [
+    page("wiki/startup.md", { body: "- [[index]]", scope: "startup-router", title: "Startup" }),
+    page("wiki/index.md", { body: "- [[20-shared/README]]", scope: "wiki-router", title: "Index" }),
+    v2Page("wiki/20-shared/README.md", { type: "shared" }),
+    page("wiki/canonical/active-a.md", { body: "- [[canonical/active-b]]", status: "active", title: "Active A" }),
+    page("wiki/canonical/active-b.md", { body: "- [[canonical/active-a]]", status: "active", title: "Active B" }),
+    page("wiki/canonical/superseded-a.md", { body: "- [[canonical/superseded-b]]", status: "superseded", title: "Superseded A" }),
+    page("wiki/canonical/superseded-b.md", { body: "- [[canonical/superseded-a]]", status: "compatibility", title: "Superseded B" }),
+    page("wiki/canonical/archived.md", { status: "archived", title: "Archived" }),
+  ];
+
+  const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
+  const reachability = diagnostics.filter((diagnostic) => ["orphan-page", "router-unreachable", "router-depth-exceeded"].includes(diagnostic.code));
+  assert(reachability.some((diagnostic) => diagnostic.file === "wiki/canonical/active-a.md"));
+  assert(reachability.some((diagnostic) => diagnostic.file === "wiki/canonical/active-b.md"));
+  assert.equal(reachability.some((diagnostic) => /superseded|archived/.test(diagnostic.file)), false);
+});
+
+test("migration quality rejects v2 truth that depends on preserved legacy roots", () => {
+  const diagnostics = collectMigrationQualityDiagnostics(corpus([
+    v2Page("wiki/20-shared/bad-reference.md", { body: "Read wiki_legacy/canonical/old.md as the current source of truth.", type: "shared" }),
+    v2Page("wiki/meta/migration-note.md", { body: "The preserved source is wiki_legacy/canonical/old.md.", type: "wiki-meta" }),
+  ]));
+  assert(diagnostics.some((diagnostic) => diagnostic.code === "migration-legacy-reference" && diagnostic.file === "wiki/20-shared/bad-reference.md"));
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.file === "wiki/meta/migration-note.md"), false);
 });
 
 test("strict prune candidates omit age-only pages", () => {

@@ -52,25 +52,17 @@ test("bootstrap creates router templates when absent", () => {
     assert.match(readFile(root, "wiki/startup.md"), /open matching detail files directly/);
     assert.match(readFile(root, "wiki/startup.md"), /meta\/document-taxonomy/);
     assert.match(readFile(root, "wiki/index.md"), /# Wiki Index/);
-    assert.match(readFile(root, "wiki/index.md"), /Open the matching route first/);
+    assert.match(readFile(root, "wiki/index.md"), /service -> PRD\/initiative -> document area/);
     assert.match(readFile(root, "wiki/index.md"), /## Language Policy/);
-    assert.match(readFile(root, "wiki/index.md"), /decisions\/README/);
+    assert.match(readFile(root, "wiki/index.md"), /00-index\/prd-registry/);
     assert.match(readFile(root, "AGENTS.md"), /Classify new project-planning content with `wiki\/meta\/document-taxonomy.md`/);
     assert.match(readFile(root, "wiki/index.md"), /meta\/document-taxonomy/);
     assert.match(readFile(root, "wiki/AGENTS.md"), /Before adding or consolidating project content/);
     assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /# Document Taxonomy/);
-    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Canonical vs Roadmap vs Plan Boundary/);
-    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /wiki\/roadmaps\//);
-    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /wiki\/plans\//);
-    for (const emptyStarter of [
-      "wiki/canonical/project-brief.md",
-      "wiki/canonical/open-questions.md",
-      "wiki/canonical/assumptions.md",
-      "wiki/canonical/risks.md",
-      "wiki/decisions/decision-pack-template.md",
-      "wiki/decisions/full-adr-template.md",
-    ]) {
-      assert.equal(fs.existsSync(path.join(root, emptyStarter)), false, `${emptyStarter} should not be created without content`);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Identify service, PRD ID, document area/);
+    assert.match(readFile(root, "wiki/meta/document-taxonomy.md"), /Legacy lifecycle roots are compatibility inputs/);
+    for (const legacyRoot of ["canonical", "roadmaps", "plans", "decisions", "sources"]) {
+      assert.equal(fs.existsSync(path.join(root, "wiki", legacyRoot)), false, `${legacyRoot} should not be created by fresh bootstrap`);
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -82,7 +74,7 @@ test("re-bootstrap preserves customized startup.md and index.md", () => {
   try {
     runCli(root);
     appendLine(root, "wiki/startup.md", "- CUSTOM-STARTUP-FACT: keep this router line.");
-    appendLine(root, "wiki/index.md", "- [[canonical/custom-route]]: custom route added by the project. Budget: short.");
+    appendLine(root, "wiki/index.md", "- [[20-shared/custom-route]]: custom route added by the project. Budget: short.");
     const customizedStartup = readFile(root, "wiki/startup.md");
     const customizedIndex = readFile(root, "wiki/index.md");
     runCli(root);
@@ -100,14 +92,16 @@ test("--refresh-index preserves customized routers while updating the auto-index
     appendLine(root, "wiki/startup.md", "- CUSTOM-STARTUP-FACT: keep this during refresh-index.");
     appendLine(root, "wiki/index.md", "- CUSTOM-INDEX-ROUTE: keep this during refresh-index.");
     const customizedStartup = readFile(root, "wiki/startup.md");
-    fs.writeFileSync(path.join(root, "wiki", "canonical", "extra-page.md"), [
+    fs.writeFileSync(path.join(root, "wiki", "20-shared", "extra-page.md"), [
       "---",
       "status: active",
       "updated: 2026-06-10",
-      "scope: project-canonical",
+      "scope: shared-contract",
+      "type: shared",
       "read_budget: short",
       "decision_ref: none",
       "review_trigger: regression fixture",
+      "owner: platform",
       "---",
       "",
       "# Extra Page",
@@ -136,8 +130,48 @@ test("--refresh-index preserves customized routers while updating the auto-index
     assert.equal(readFile(root, "wiki/startup.md"), customizedStartup);
     const index = readFile(root, "wiki/index.md");
     assert.match(index, /CUSTOM-INDEX-ROUTE: keep this during refresh-index\./);
-    assert.match(index, /canonical\/extra-page/);
+    assert.match(index, /20-shared\/extra-page/);
     assert.match(index, /PROJECT-WIKI-AUTO-INDEX:START/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--refresh-index excludes legacy lifecycle pages and removes generated legacy routers", () => {
+  const root = makeTmpDir("router-refresh-legacy-boundary-");
+  try {
+    runCli(root);
+    fs.mkdirSync(path.join(root, "wiki", "canonical"), { recursive: true });
+    fs.writeFileSync(path.join(root, "wiki", "canonical", "legacy-truth.md"), [
+      "---",
+      "status: active",
+      "updated: 2026-08-09",
+      "scope: project-canonical",
+      "type: canonical",
+      "read_budget: short",
+      "decision_ref: none",
+      "review_trigger: compatibility fixture",
+      "---",
+      "",
+      "# Legacy Truth",
+      "",
+      "Explicit legacy lookup token: legacy-lookup-compatible.",
+    ].join("\n"));
+    fs.mkdirSync(path.join(root, "wiki", "indexes"), { recursive: true });
+    fs.writeFileSync(path.join(root, "wiki", "indexes", "auto-legacy-canonical.md"), [
+      "<!-- PROJECT-WIKI-SCOPED-AUTO-INDEX -->",
+      "# Stale Legacy Router",
+      "",
+      "- [[canonical/legacy-truth]]",
+    ].join("\n"));
+
+    runCli(root, ["--refresh-index"]);
+
+    const index = readFile(root, "wiki/index.md");
+    assert.doesNotMatch(index, /canonical\/legacy-truth/);
+    assert.doesNotMatch(index, /auto-legacy-canonical/);
+    assert.equal(fs.existsSync(path.join(root, "wiki", "indexes", "auto-legacy-canonical.md")), false);
+    assert.match(runCli(root, ["--query", "legacy-lookup-compatible"]), /wiki\/canonical\/legacy-truth\.md/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -147,30 +181,34 @@ test("--refresh-index does not duplicate pages reached through a scoped router",
   const root = makeTmpDir("router-indirect-refresh-");
   try {
     runCli(root);
-    appendLine(root, "wiki/decisions/README.md", "- Routed ADR: [[decisions/adr-001-routed-decision]].");
-    fs.writeFileSync(path.join(root, "wiki", "decisions", "adr-001-routed-decision.md"), [
+    appendLine(root, "wiki/20-shared/README.md", "- Routed contract: [[20-shared/routed-contract]].");
+    fs.writeFileSync(path.join(root, "wiki", "20-shared", "routed-contract.md"), [
       "---",
       "status: accepted",
       "updated: 2026-07-15",
-      "scope: project-decisions",
+      "scope: shared-contract",
+      "type: shared",
       "read_budget: medium",
       "decision_ref: none",
       "review_trigger: regression fixture",
+      "owner: platform",
       "---",
       "",
-      "# ADR 001: Routed Decision",
+      "# Routed Contract",
       "",
-      "This page is already reachable through the hand-written decisions router.",
+      "This page is already reachable through the hand-written shared router.",
       "",
     ].join("\n"));
-    fs.writeFileSync(path.join(root, "wiki", "canonical", "unrouted-page.md"), [
+    fs.writeFileSync(path.join(root, "wiki", "30-portfolio", "unrouted-page.md"), [
       "---",
       "status: active",
       "updated: 2026-07-15",
-      "scope: project-canonical",
+      "scope: portfolio",
+      "type: portfolio",
       "read_budget: short",
       "decision_ref: none",
       "review_trigger: regression fixture",
+      "owner: product",
       "---",
       "",
       "# Unrouted Page",
@@ -182,8 +220,8 @@ test("--refresh-index does not duplicate pages reached through a scoped router",
     runCli(root, ["--refresh-index"]);
 
     const index = readFile(root, "wiki/index.md");
-    assert.doesNotMatch(index, /decisions\/adr-001-routed-decision/);
-    assert.match(index, /canonical\/unrouted-page/);
+    assert.doesNotMatch(index, /20-shared\/routed-contract/);
+    assert.match(index, /30-portfolio\/unrouted-page/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -195,14 +233,16 @@ test("--refresh-index splits oversized scoped auto routers", () => {
     runCli(root);
     for (let index = 1; index <= 120; index += 1) {
       const suffix = String(index).padStart(3, "0");
-      fs.writeFileSync(path.join(root, "wiki", "canonical", `generated-budget-route-${suffix}.md`), [
+      fs.writeFileSync(path.join(root, "wiki", "20-shared", `generated-budget-route-${suffix}.md`), [
         "---",
         "status: active",
         "updated: 2026-06-18",
-        "scope: project-canonical",
+        "scope: shared-contract",
+        "type: shared",
         "read_budget: medium",
         "decision_ref: none",
         "review_trigger: regression fixture",
+        "owner: platform",
         "---",
         "",
         `# Generated Budget Route ${suffix}`,
@@ -218,9 +258,9 @@ test("--refresh-index splits oversized scoped auto routers", () => {
 
     const indexText = readFile(root, "wiki/index.md");
     const scopedRouters = fs.readdirSync(path.join(root, "wiki", "indexes"))
-      .filter((file) => /^auto-canonical-\d+\.md$/.test(file))
+      .filter((file) => /^auto-shared-\d+\.md$/.test(file))
       .sort();
-    assert(scopedRouters.length > 1, "expected canonical scoped router to split into multiple files");
+    assert(scopedRouters.length > 1, "expected shared scoped router to split into multiple files");
     for (const router of scopedRouters) {
       const relativePath = `wiki/indexes/${router}`;
       const linkTarget = relativePath.replace(/^wiki\//, "").replace(/\.md$/, "");
@@ -232,18 +272,20 @@ test("--refresh-index splits oversized scoped auto routers", () => {
   }
 });
 
-test("re-bootstrap preserves user-created canonical pages", () => {
+test("re-bootstrap preserves user-created shared truth pages", () => {
   const root = makeTmpDir("starter-preserve-");
   try {
     runCli(root);
-    fs.writeFileSync(path.join(root, "wiki", "canonical", "project-brief.md"), [
+    fs.writeFileSync(path.join(root, "wiki", "20-shared", "project-brief.md"), [
       "---",
       "status: active",
       "updated: 2026-06-14",
-      "scope: project-canonical",
+      "scope: shared-contract",
+      "type: shared",
       "read_budget: medium",
       "decision_ref: none",
       "review_trigger: project direction changes",
+      "owner: product",
       "---",
       "",
       "# Project Brief",
@@ -253,11 +295,11 @@ test("re-bootstrap preserves user-created canonical pages", () => {
       "- CUSTOM-BRIEF-FACT: project truth added after bootstrap.",
       "",
     ].join("\n"));
-    const customized = readFile(root, "wiki/canonical/project-brief.md");
+    const customized = readFile(root, "wiki/20-shared/project-brief.md");
     runCli(root);
-    assert.equal(readFile(root, "wiki/canonical/project-brief.md"), customized);
+    assert.equal(readFile(root, "wiki/20-shared/project-brief.md"), customized);
     runCli(root, ["--refresh-index"]);
-    assert.match(readFile(root, "wiki/index.md"), /canonical\/project-brief/);
+    assert.match(readFile(root, "wiki/index.md"), /20-shared\/project-brief/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

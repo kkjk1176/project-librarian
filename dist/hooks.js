@@ -349,10 +349,10 @@ const inclusionNotice = missingFiles.length === 0
 const additionalContext = [
   "[Project wiki startup review]",
   ...inclusionNotice,
-  "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read detailed project canonical, decision, or meta files on demand.",
-  "Project canonical content language is selected from user/project context; do not assume a fixed default language.",
+  "Use ./wiki as the project-planning source of truth only. Start with compact routing context; read the owning service, PRD current-truth, shared, portfolio, decision, source, or meta files on demand.",
+  "Project current-truth content language is selected from user/project context; do not assume a fixed default language.",
   "When project planning content is added, changed, or removed, update ./wiki in the same turn.",
-  "Do not put non-project LLM memory or collaboration instructions in project canonical/decision docs; use AGENTS.md, wiki/AGENTS.md, hooks, or skills.",
+  "Do not put non-project LLM memory or collaboration instructions in service/PRD current-truth or decision docs; use AGENTS.md, wiki/AGENTS.md, hooks, or skills.",
   "",
   ...sections,
   handoffPointer,
@@ -445,7 +445,13 @@ function wikiScope(files) {
     if (!scopes.includes(name)) scopes.push(name);
   };
   for (const file of files) {
-    if (file.startsWith("wiki/canonical/")) add("canonical");
+    if (file.startsWith("wiki/00-index/")) add("index");
+    else if (file.startsWith("wiki/01-governance/")) add("governance");
+    else if (file.startsWith("wiki/10-services/")) add("services-prds");
+    else if (file.startsWith("wiki/20-shared/")) add("shared");
+    else if (file.startsWith("wiki/30-portfolio/")) add("portfolio");
+    else if (file.startsWith("wiki/90-archive/")) add("archive");
+    else if (file.startsWith("wiki/canonical/")) add("legacy-canonical");
     else if (file.startsWith("wiki/decisions/")) add("decisions");
     else if (file.startsWith("wiki/meta/")) add("meta");
     else if (file.startsWith("wiki/sources/")) add("sources");
@@ -528,11 +534,11 @@ if (wikiFiles.length === 0) process.exit(0);
 let message = fs.readFileSync(messagePath, "utf8");
 if (/^Wiki-scope:/m.test(message)) process.exit(0);
 
-const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || file === "wiki/meta/wiki-ops-v1-decisions.md");
+const decisionRefs = wikiFiles.filter((file) => file.startsWith("wiki/decisions/") || /\/09-decisions\//.test(file) || file === "wiki/meta/wiki-ops-v1-decisions.md" || file === "wiki/meta/wiki-ops-v2-decisions.md");
 const validation = validationTrailers();
 const trailers = [
   ["Wiki-scope", wikiScope(wikiFiles)],
-  ["Canonical-updated", truncateList(wikiFiles.filter((file) => file.startsWith("wiki/canonical/") && !file.endsWith("/migration-inbox.md")))],
+  ["Canonical-updated", truncateList(wikiFiles.filter((file) => (file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/canonical/")) && !file.includes("/migration-") && !file.endsWith("/migration-inbox.md")))],
   ["Decision-ref", truncateList(decisionRefs)],
   ["Startup-updated", wikiFiles.includes("wiki/startup.md") ? "yes" : "no"],
   ["Index-updated", wikiFiles.includes("wiki/index.md") ? "yes" : "no"],

@@ -56,6 +56,7 @@ const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 const path_ignore_policy_1 = require("./path-ignore-policy");
 const workspace_1 = require("./workspace");
+const wiki_layout_1 = require("./wiki-layout");
 exports.standardWikiFiles = new Set([
     "AGENTS.md",
     "CLAUDE.md",
@@ -75,7 +76,19 @@ exports.standardWikiFiles = new Set([
     "wiki/README.md",
     "wiki/startup.md",
     "wiki/index.md",
+    "wiki/00-index/README.md",
+    "wiki/00-index/service-map.md",
+    "wiki/00-index/prd-registry.md",
+    "wiki/01-governance/README.md",
+    "wiki/10-services/README.md",
+    "wiki/20-shared/README.md",
+    "wiki/20-shared/glossary.md",
+    "wiki/30-portfolio/README.md",
+    "wiki/90-archive/README.md",
     "wiki/inbox/project-candidates.md",
+    "wiki/inbox/migration-canonical.md",
+    "wiki/inbox/migration-decisions.md",
+    "wiki/inbox/migration-sources.md",
     "wiki/migration/inventory.md",
     "wiki/migration/unit-map.md",
     "wiki/migration/split-plan.md",
@@ -94,6 +107,7 @@ exports.standardWikiFiles = new Set([
     "wiki/meta/decision-policy.md",
     "wiki/meta/document-taxonomy.md",
     "wiki/meta/wiki-ops-v1-decisions.md",
+    "wiki/meta/wiki-ops-v2-decisions.md",
     "wiki/sources/karpathy-llm-wiki.md",
     "wiki/sources/migration-inbox.md",
     "tools/project-librarian/SKILL.md",
@@ -372,7 +386,7 @@ function hasGlossaryNeedSignal(text) {
 }
 function hasGlossaryTable(text) {
     const body = (0, workspace_1.stripMetadataHeader)(text);
-    return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
+    return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related (?:Canonical|Service\/PRD) Doc\s*\|\s*Status\s*\|/.test(body);
 }
 // First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
 // page's one-line summary without opening the page. Pages without a TL;DR section
@@ -385,7 +399,7 @@ function firstTldrBullet(text) {
     return bullet ? bullet.replace(/^\s*-\s*/, "").trim().slice(0, 160) : "";
 }
 function canonicalBodyForLint() {
-    return (0, workspace_1.walkFilesUnder)("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")
+    return (0, workspace_1.walkFilesUnder)("wiki", (file) => /\.(md|mdx)$/i.test(file) && (0, wiki_layout_1.isCurrentTruthPath)(file) && !file.endsWith("/glossary.md"))
         .map((file) => (0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file)))
         .join("\n");
 }

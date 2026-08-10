@@ -65,7 +65,7 @@ Project Librarian은 작은 첫 읽기와 더 깊은 정본으로 가는 경로�
 | 표면 | 에이전트가 얻는 것 |
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | 짧은 세션 시작 요약과 라우터. 관련 계획 페이지만 읽습니다. |
-| `wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, `wiki/decisions/` | 현재 정본, 미래 범위, 실행 계획, 지속되는 근거를 분리합니다. |
+| `wiki/00-index/`, `wiki/10-services/`, `wiki/20-shared/`, `wiki/30-portfolio/` | 서비스와 PRD로 현재 정본을 라우팅하고, 공유 계약과 PRD 간 순서를 명확히 분리합니다. |
 | 에이전트 훅과 규칙 | Codex, Claude Code, Cursor, Gemini CLI가 같은 위키 우선 계약에서 시작합니다. |
 | `.project-wiki/code-evidence.sqlite` | 영향, 소유권, route, symbol, import, workspace graph 질문을 위한 선택적 재생성 코드 근거. |
 | 진단 및 마이그레이션 모드 | 링크 확인, 품질 확인, 마이그레이션 검토 파일, 오래된 신호 보고, 이슈 초안. |
@@ -94,7 +94,7 @@ Project Librarian은 작은 첫 읽기와 더 깊은 정본으로 가는 경로�
 | 기존 문서/위키 마이그레이션 | "Project Librarian으로 기존 docs/wiki 내용을 마이그레이션해줘." |
 | 진단 실행 | "Project Librarian 진단을 실행해줘." |
 | 프로젝트 기억 검색 | "Project Librarian 위키에서 authentication decisions를 찾아줘." |
-| 가까운 위키 맥락 찾기 | "canonical/project-brief의 Project Librarian wiki neighborhood를 보여줘." |
+| 가까운 위키 맥락 찾기 | "PRD-002 wiki lifecycle hub의 Project Librarian wiki neighborhood를 보여줘." |
 | 코드 근거 구축 | "Project Librarian 코드 근거를 `src`에 대해 구축해줘." |
 | 코드 영향 확인 | "`healthHandler`에 대한 Project Librarian 영향 근거를 보여줘." |
 | 세션 핸드오프 저장 | "현재 작업에 대한 Project Librarian 세션 핸드오프를 저장해줘." |
