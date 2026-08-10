@@ -364,6 +364,10 @@ function issueReportTitle(): string {
   return "Report project-librarian problem or side effect";
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
 function issueDraftMarkdown(): string {
   const gitRepo = isGitRepository();
   const statusLines = gitRepo ? gitOutput(["status", "--short"]).split(/\r?\n/).filter(Boolean) : [];
@@ -454,7 +458,7 @@ ${markdownList(verification, "Add the exact validation commands and results befo
 ## Notes
 
 - This draft is read-only and does not create a GitHub issue.
-- To create a GitHub issue after explicit user approval, use \`project-librarian --issue-create --issue-title "${title.replace(/"/g, "\\\"")}"\` or \`gh issue create --title "${title.replace(/"/g, "\\\"")}" --body-file <draft.md>\`.
+- To create a GitHub issue after explicit user approval, use \`project-librarian --issue-create --issue-title ${shellQuote(title)}\` or \`gh issue create --title ${shellQuote(title)} --body-file <draft.md>\`.
 - If local git changes are present, try to reproduce on a clean checkout before filing when practical.
 `;
 }
