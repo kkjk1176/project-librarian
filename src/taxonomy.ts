@@ -153,7 +153,20 @@ function areaScore(area: TaxonomyArea, haystack: string): number {
 }
 
 function targetPath(storage: MigrationStorage, base: string, targetSlug: string): string {
-  return `wiki/${storage}/${slugPart(base, 32)}-${targetSlug}.md`;
+  if (storage === "meta") return `wiki/meta/${slugPart(base, 32)}-${targetSlug}.md`;
+  return `unassigned/${slugPart(base, 32)}-${targetSlug}.md`;
+}
+
+export function migrationDocumentTypeForArea(area: string): string {
+  if (area === "research-sources") return "source";
+  if (area === "decision-record") return "decision";
+  if (["strategy", "product-requirements", "policy"].includes(area)) return "requirements";
+  if (["user-flow", "ux-content", "design-system", "data-analytics", "api-contract", "engineering-architecture", "security-legal"].includes(area)) return "design";
+  if (area === "qa") return "validation";
+  if (area === "release-ops") return "operations";
+  if (area === "business-ops") return "operations";
+  if (area === "wiki-meta") return "wiki-meta";
+  return "discovery";
 }
 
 export function classifyMigrationUnit(input: {
@@ -186,14 +199,18 @@ export function classifyMigrationUnit(input: {
   const secondScore = scored[1]?.score ?? 0;
   const confidence: MigrationConfidence = bestScore >= 3 && bestScore > secondScore ? "high" : bestScore >= 1 && bestScore >= secondScore ? "medium" : "low";
   const base = legacyStem(input.legacyPath);
-  const reason = confidence === "low"
-    ? "no strong taxonomy signal; human review required"
+  const semanticReason = confidence === "low"
+    ? "no strong taxonomy signal"
     : `matched ${best.label}${secondScore > 0 && bestScore === secondScore ? " with overlapping signals" : ""}`;
+  const target = targetPath(best.storage, base, best.targetSlug);
+  const reason = target.startsWith("unassigned/")
+    ? `${semanticReason}; ownership unassigned, human review required before selecting a registered service/PRD target`
+    : semanticReason;
   return {
     area: best.id,
     label: best.label,
     storage: best.storage,
-    target: targetPath(best.storage, base, best.targetSlug),
+    target,
     confidence,
     reason,
   };

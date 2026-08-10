@@ -69,8 +69,8 @@ npx project-librarian@latest install --scope project --agents all
 | 링크와 문서 품질 점검 | "Project Librarian 진단을 실행해줘." | `--doctor` |
 | 진단 전 라우팅 갱신 | "Project Librarian 라우팅을 갱신한 뒤 진단을 실행해줘." | `--doctor --fix` |
 | 위키 내용 검색 | "Project Librarian 위키에서 authentication decisions를 찾아줘." | `--query "authentication decisions"` |
-| 페이지 영향도 확인 | "decisions/release-policy의 Project Librarian 위키 영향도를 보여줘." | `--wiki-impact "decisions/release-policy"` |
-| 가까운 위키 맥락 찾기 | "canonical/project-brief의 Project Librarian wiki neighborhood를 보여줘." | `--wiki-neighborhood "canonical/project-brief"` |
+| 페이지 영향도 확인 | "payments checkout PRD hub의 Project Librarian 위키 영향도를 보여줘." | `--wiki-impact "10-services/payments/prds/PRD-012-checkout"` |
+| 가까운 위키 맥락 찾기 | "payments checkout PRD hub의 Project Librarian wiki neighborhood를 보여줘." | `--wiki-neighborhood "10-services/payments/prds/PRD-012-checkout"` |
 | 후보 메모 저장 | "이 내용을 Project Librarian 후보 메모로 저장해줘: <내용>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | 세션 핸드오프 저장 | "현재 작업을 Project Librarian 세션 핸드오프로 저장해줘." | `--handoff-save --goal "..." --state "..." --next "..."` |
 | 핸드오프 보기 | "마지막 Project Librarian 세션 핸드오프를 보여줘." | `--handoff-show` |
@@ -132,14 +132,13 @@ git 훅 파일:
 
 위키 디렉터리:
 
-- `wiki/canonical/`
-- `wiki/roadmaps/`
-- `wiki/plans/`
-- `wiki/decisions/`
-- `wiki/inbox/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/migration/`
+- `wiki/00-index/` — 서비스 맵과 PRD 레지스트리
+- `wiki/01-governance/` — 정본과 작성 규칙
+- `wiki/10-services/<service>/prds/<PRD-ID-slug>/01-discovery/`부터 `11-plans/` — 서비스와 이니셔티브 문서
+- `wiki/20-shared/` — 공유 계약과 용어집
+- `wiki/30-portfolio/` — PRD 간 순서와 로드맵
+- `wiki/90-archive/` — 보존하는 은퇴 자료
+- `wiki/inbox/`, `wiki/indexes/`, `wiki/meta/`, `wiki/migration/` — 후보, 생성 라우팅, 운영, 마이그레이션 검토
 
 시드 위키 페이지와 라우터:
 
@@ -147,7 +146,7 @@ git 훅 파일:
 - `wiki/index.md`
 - `wiki/meta/document-taxonomy.md`
 
-실제 내용이 없는 빈 프로젝트 문서나 ADR 템플릿은 기본 생성하지 않습니다. 나중에 실제 내용이 생기면 문서를 만들고 `--refresh-index`로 라우팅할 수 있습니다.
+새 설정은 공통 v2 허브만 만들고 서비스, PRD, 빈 lifecycle 폴더를 임의로 만들지 않습니다. 집중 문서를 만들기 전에 서비스와 PRD를 등록합니다.
 
 MCP 서버 등록은 Claude Code(`.mcp.json`), Cursor(`.cursor/mcp.json`), Gemini CLI(`.gemini/settings.json`)의 `mcpServers`에 기존 값을 보존하며 병합합니다. 폐기 가능한 코드 근거 캐시는 `.project-wiki/code-evidence.sqlite`입니다.
 
@@ -155,13 +154,13 @@ MCP 서버 등록은 Claude Code(`.mcp.json`), Cursor(`.cursor/mcp.json`), Gemin
 
 1. 부트스트랩은 기존 내용을 보존하는 위키 구조와 marker-bounded 에이전트 지침 섹션을 만듭니다.
 2. 세션 시작 훅은 문자 예산이 적용된 `wiki/startup.md`와 `wiki/index.md`만 주입합니다.
-3. 실제 내용이 없는 양식 전용 페이지는 만들지 않습니다.
-4. 자세한 계획 정본은 에이전트가 필요할 때 읽는 canonical, decision, source, meta 페이지에 둡니다.
+3. 새 설정은 서비스와 PRD를 임의로 만들지 않고, 소유자와 PRD 등록이 확인된 뒤 집중 v2 문서를 만듭니다.
+4. 자세한 계획 정본은 소유 서비스/PRD, 공유 영역, 포트폴리오 영역 또는 위키 메타에 두고 필요할 때만 읽습니다.
 5. 새 프로젝트 계획 내용은 작성하거나 취합하기 전에 분류해 상위/하위 문서 관계가 보이도록 유지합니다.
 6. `--refresh-index`는 새로 발견한 위키 페이지를 라우팅합니다. route가 많으면 `wiki/indexes/auto-*.md` 범위별 라우터로 나눕니다.
 7. `--code-index`는 `.project-wiki/` 아래 폐기 가능한 SQLite 근거 캐시를 만듭니다.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, `--code-query`는 계획 업데이트에 쓸 코드 기반 근거를 노출합니다.
-9. 위키 생산자는 canonical markdown/YAML 스키마를 계속 쓰고, 진단/MCP 같은 읽기 전용 소비자는 원본 문서를 변경하지 않고 검사합니다.
+9. 위키 생산자는 서비스/PRD v2 markdown/YAML 스키마를 계속 쓰고, 진단/MCP 같은 읽기 전용 소비자는 원본 문서를 변경하지 않고 검사합니다.
 10. 진단은 깨진 링크, 중복 route, orphan page, topology warning, stale page, TL;DR 누락, 근거 공백, 마이그레이션 정책 위반을 보고합니다.
 
 마이그레이션은 검토 우선입니다. `--migrate`는 기존 `wiki/`를 `wiki_legacy*`로 보존하고, 양식 전용 파일은 건너뛰며, 여러 성격이 섞인 기존 페이지를 의미 단위로 나눕니다. 이후 각 단위를 분류해 `wiki/migration/` 아래 검토 파일을 작성합니다.

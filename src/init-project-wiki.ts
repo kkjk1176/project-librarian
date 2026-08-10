@@ -7,9 +7,9 @@ import { hasSharedProjectSkillInstall, installedProjectSkillSurfaces, runInstall
 import { appendCaptureInbox, buildRefreshIndexBlock, runDoctorMode, runIssueCreateMode, runIssueDraftMode, runLinkCheckMode, runLintMode, runMigrationDoctorMode, runMigrationLintMode, runMigrationQualityCheckMode, runPruneCheckMode, runQualityCheckMode, runQueryMode, runWikiImpactMode, runWikiNeighborhoodMode } from "./modes";
 import { prepareMigrationMode, runMigrationMode, runReviewMigrationMode } from "./migration";
 import { runHandoffClearMode, runHandoffInjectionDisableMode, runHandoffInjectionEnableMode, runHandoffInjectionStatusMode, runHandoffPromoteInboxMode, runHandoffSaveMode, runHandoffShowMode, runHandoffStatusMode } from "./session-handoff";
-import { agentsSection, claudeSection, cursorRule, decisionPolicy, defaultStarterFilePaths, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, starterFiles, startup, wikiAgentsSection, wikiOperatingModel } from "./templates";
+import { agentsSection, claudeSection, cursorRule, decisionPolicyV2, extractStartupTldr, geminiSection, glossary, glossaryIndexBlock, inboxIndexBlock, index, startup, v2DefaultStarterFilePaths, v2StarterFiles, wikiAgentsSection, wikiOperatingModelV2 } from "./templates";
 import type { MigrationState, ResultRow } from "./types";
-import { deleteIfGenerated, exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
+import { exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 type CodeIndexModule = typeof import("./code-index");
 
@@ -369,11 +369,16 @@ const migrationState: MigrationState | null = migrateMode ? prepareMigrationMode
 const results: ResultRow[] = [];
 if (migrationState) results.push(["migration prepare", migrationState.note]);
 
-mkdirp("wiki/canonical");
-mkdirp("wiki/decisions");
+mkdirp("wiki/00-index");
+mkdirp("wiki/01-governance");
+mkdirp("wiki/10-services");
+mkdirp("wiki/20-shared");
+mkdirp("wiki/30-portfolio");
+mkdirp("wiki/90-archive");
 mkdirp("wiki/inbox");
+mkdirp("wiki/indexes");
 mkdirp("wiki/meta");
-mkdirp("wiki/sources");
+mkdirp("wiki/migration");
 if (writeCodexSurface) mkdirp(".codex/hooks");
 if (writeClaudeSurface) mkdirp(".claude/hooks");
 if (writeCursorSurface) {
@@ -447,18 +452,15 @@ if (writeClaudeSurface || writeCursorSurface || writeGeminiSurface) {
 // starter files: templates are written only when the file is absent, never rebuilt.
 results.push(["wiki/startup.md", writeStarter("wiki/startup.md", startup)]);
 results.push(["wiki/index.md", writeStarter("wiki/index.md", index)]);
-results.push(["wiki/meta/operating-model.md", writeManaged("wiki/meta/operating-model.md", wikiOperatingModel)]);
-results.push(["wiki/meta/decision-policy.md", writeManaged("wiki/meta/decision-policy.md", decisionPolicy)]);
-results.push(["wiki/canonical/wiki-operating-model.md", deleteIfGenerated("wiki/canonical/wiki-operating-model.md", ["# Wiki Operating Model"])]);
-results.push(["wiki/canonical/decision-policy.md", deleteIfGenerated("wiki/canonical/decision-policy.md", ["# Decision Policy"])]);
-results.push(["wiki/decisions/wiki-v1-decisions.md", deleteIfGenerated("wiki/decisions/wiki-v1-decisions.md", ["# Wiki v1 Decisions", "# Wiki Operations v1 Decisions"])]);
-for (const [relativePath, content] of Object.entries(starterFiles)) {
-  if (!defaultStarterFilePaths.has(relativePath)) continue;
+results.push(["wiki/meta/operating-model.md", writeStarter("wiki/meta/operating-model.md", wikiOperatingModelV2)]);
+results.push(["wiki/meta/decision-policy.md", writeStarter("wiki/meta/decision-policy.md", decisionPolicyV2)]);
+for (const [relativePath, content] of Object.entries(v2StarterFiles)) {
+  if (!v2DefaultStarterFilePaths.has(relativePath)) continue;
   results.push([relativePath, writeStarter(relativePath, content)]);
 }
-results.push(["wiki/meta/wiki-ops-v1-decisions.md", writeManaged("wiki/meta/wiki-ops-v1-decisions.md", starterFiles["wiki/meta/wiki-ops-v1-decisions.md"])]);
+results.push(["wiki/meta/wiki-ops-v2-decisions.md", writeStarter("wiki/meta/wiki-ops-v2-decisions.md", v2StarterFiles["wiki/meta/wiki-ops-v2-decisions.md"])]);
 if (glossaryMode) {
-  results.push(["wiki/canonical/glossary.md", writeStarter("wiki/canonical/glossary.md", glossary)]);
+  results.push(["wiki/20-shared/glossary.md", writeStarter("wiki/20-shared/glossary.md", glossary)]);
   results.push(["wiki/index.md glossary router", upsertMarkedSection("wiki/index.md", "<!-- PROJECT-WIKI-GLOSSARY:START -->", "<!-- PROJECT-WIKI-GLOSSARY:END -->", glossaryIndexBlock)]);
 }
 if (captureInboxMode) {

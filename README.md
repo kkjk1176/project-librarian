@@ -65,7 +65,7 @@ Project Librarian gives agents a small first read and reliable routes to deeper 
 | Surface | What It Gives The Agent |
 | --- | --- |
 | `wiki/startup.md` + `wiki/index.md` | A compact session-start summary and router, so only relevant planning pages are read. |
-| `wiki/canonical/`, `wiki/roadmaps/`, `wiki/plans/`, `wiki/decisions/` | Current truth, future scope, execution plans, and durable rationale stay separated. |
+| `wiki/00-index/`, `wiki/10-services/`, `wiki/20-shared/`, `wiki/30-portfolio/` | Current truth is routed by service and PRD; shared contracts and cross-PRD sequencing remain explicit. |
 | Agent hooks and rules | Codex, Claude Code, Cursor, and Gemini CLI start from the same wiki-first contract. |
 | `.project-wiki/code-evidence.sqlite` | Optional, regenerable code evidence for impact, ownership, routes, symbols, imports, and workspace graph questions. |
 | Diagnostics and migration modes | Link checks, quality checks, migration review files, stale-signal reports, and issue drafts. |
@@ -78,7 +78,7 @@ The core idea is not "write more docs." It is "keep the first agent read small, 
 - **One setup, four agents.** Codex, Claude Code, Cursor, and Gemini CLI share the same repo-local memory contract.
 - **Structured wiki writing.** New project content is classified before it is written or consolidated, so PRDs, policies, UX, data, APIs, QA, release, and operations notes do not collapse into one catch-all page.
 - **Measured claims.** Benchmark wins and losses are published together, with claim boundaries attached.
-- **Local session handoff.** `--handoff-save` stores generated resume notes under `.project-wiki/session/` without turning execution memory into canonical project truth.
+- **Local session handoff.** `--handoff-save` stores generated resume notes under `.project-wiki/session/` without turning execution memory into reviewed current project truth.
 - **Answer-shaped wiki topology.** `--wiki-impact`, `--wiki-neighborhood`, and topology diagnostics expose backlinks, decision evidence, router depth, and nearby read order without a graph visualizer.
 - **Optional code evidence.** A SQLite index plus answer-shaped MCP tools answer expensive traversal questions on large repositories without adding an MCP SDK dependency.
 - **Safe to re-run.** Bootstrap is idempotent and preservation-first.
@@ -94,7 +94,7 @@ Ask your agent for the outcome you want; the installed skill maps the request to
 | Migrate existing docs/wiki content | "Use Project Librarian to migrate the existing docs/wiki content." |
 | Run diagnostics | "Run Project Librarian diagnostics." |
 | Search project memory | "Search the Project Librarian wiki for authentication decisions." |
-| Find nearby wiki context | "Show Project Librarian wiki neighborhood for canonical/project-brief." |
+| Find nearby wiki context | "Show Project Librarian wiki neighborhood for the PRD-002 wiki lifecycle hub." |
 | Build code evidence | "Build Project Librarian code evidence for `src`." |
 | Inspect code impact | "Show Project Librarian impact evidence for `healthHandler`." |
 | Save a handoff | "Save a Project Librarian session handoff for the current work." |

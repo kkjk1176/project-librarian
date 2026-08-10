@@ -37,6 +37,8 @@ exports.ignoredDirs = exports.standardWikiFiles = void 0;
 exports.walkMarkdownFiles = walkMarkdownFiles;
 exports.firstHeading = firstHeading;
 exports.compactSummary = compactSummary;
+exports.markdownBlockSnippet = markdownBlockSnippet;
+exports.extractMarkdownBlocks = extractMarkdownBlocks;
 exports.splitMarkdownRow = splitMarkdownRow;
 exports.parseMarkdownTableRows = parseMarkdownTableRows;
 exports.wikiMarkdownFiles = wikiMarkdownFiles;
@@ -46,16 +48,19 @@ exports.extractWikiLinks = extractWikiLinks;
 exports.wikiTitleForFile = wikiTitleForFile;
 exports.metadataSummary = metadataSummary;
 exports.stripMarkedSection = stripMarkedSection;
-exports.extractMarkedSection = extractMarkedSection;
-exports.withPreservedMarkedSections = withPreservedMarkedSections;
 exports.hasGlossaryNeedSignal = hasGlossaryNeedSignal;
 exports.hasGlossaryTable = hasGlossaryTable;
+exports.firstTldrBullet = firstTldrBullet;
 exports.canonicalBodyForLint = canonicalBodyForLint;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
+const path_ignore_policy_1 = require("./path-ignore-policy");
 const workspace_1 = require("./workspace");
+const wiki_layout_1 = require("./wiki-layout");
 exports.standardWikiFiles = new Set([
     "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
     "wiki/AGENTS.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
@@ -63,36 +68,53 @@ exports.standardWikiFiles = new Set([
     ".codex/hooks/wiki-session-start.js",
     ".claude/settings.json",
     ".claude/hooks/wiki-session-start.js",
+    ".cursor/rules/project-librarian.mdc",
+    ".cursor/hooks.json",
+    ".cursor/hooks/wiki-session-start.js",
+    ".gemini/settings.json",
+    ".gemini/hooks/wiki-session-start.js",
     "wiki/README.md",
     "wiki/startup.md",
     "wiki/index.md",
+    "wiki/00-index/README.md",
+    "wiki/00-index/service-map.md",
+    "wiki/00-index/prd-registry.md",
+    "wiki/01-governance/README.md",
+    "wiki/10-services/README.md",
+    "wiki/20-shared/README.md",
+    "wiki/20-shared/glossary.md",
+    "wiki/30-portfolio/README.md",
+    "wiki/90-archive/README.md",
     "wiki/inbox/project-candidates.md",
+    "wiki/inbox/migration-canonical.md",
+    "wiki/inbox/migration-decisions.md",
+    "wiki/inbox/migration-sources.md",
     "wiki/migration/inventory.md",
+    "wiki/migration/unit-map.md",
+    "wiki/migration/split-plan.md",
+    "wiki/migration/coverage.md",
     "wiki/migration/plan.md",
     "wiki/migration/review.md",
     "wiki/migration/verification.md",
-    "wiki/canonical/project-brief.md",
+    "wiki/migration/bulk-review.md",
     "wiki/canonical/glossary.md",
-    "wiki/canonical/open-questions.md",
-    "wiki/canonical/assumptions.md",
-    "wiki/canonical/risks.md",
     "wiki/canonical/migration-inbox.md",
     "wiki/decisions/README.md",
     "wiki/decisions/log.md",
     "wiki/decisions/recent.md",
-    "wiki/decisions/decision-pack-template.md",
-    "wiki/decisions/full-adr-template.md",
     "wiki/decisions/migration-inbox.md",
     "wiki/meta/operating-model.md",
     "wiki/meta/decision-policy.md",
+    "wiki/meta/document-taxonomy.md",
     "wiki/meta/wiki-ops-v1-decisions.md",
+    "wiki/meta/wiki-ops-v2-decisions.md",
     "wiki/sources/karpathy-llm-wiki.md",
     "wiki/sources/migration-inbox.md",
-    "tools/project-wiki-bootstrap/SKILL.md",
-    "tools/project-wiki-bootstrap/agents/openai.yaml",
-    "tools/project-wiki-bootstrap/dist/init-project-wiki.js",
+    "tools/project-librarian/SKILL.md",
+    "tools/project-librarian/agents/openai.yaml",
+    "tools/project-librarian/dist/init-project-wiki.js",
 ]);
-exports.ignoredDirs = new Set([".git", ".codex", ".claude", "node_modules", ".next", "dist", "build", "coverage", "vendor", "tmp", "temp"]);
+exports.ignoredDirs = (0, path_ignore_policy_1.ignoredDirectorySet)();
 function walkMarkdownFiles(dir = workspace_1.root, acc = [], baseDir = workspace_1.root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name);
@@ -103,7 +125,7 @@ function walkMarkdownFiles(dir = workspace_1.root, acc = [], baseDir = workspace
         if (entry.isDirectory()) {
             if (exports.ignoredDirs.has(entry.name))
                 continue;
-            if (relativePath === "tools/project-wiki-bootstrap")
+            if (relativePath === "tools/project-librarian")
                 continue;
             if (relativePath.startsWith("wiki/migration"))
                 continue;
@@ -128,6 +150,109 @@ function compactSummary(text) {
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 180);
+}
+function slugForBlockId(value) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "block";
+}
+function isMarkdownHeading(line) {
+    return line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+}
+function isMarkdownTableSeparator(cells) {
+    return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s/g, "")));
+}
+function normalizeBlockText(text) {
+    return text.replace(/\s+/g, " ").trim();
+}
+function blockId(kind, line, text) {
+    return `${kind}:${line}:${slugForBlockId(text)}`;
+}
+function markdownBlockSnippet(block, maxLength = 180) {
+    const prefix = block.headingPath.length > 0 && block.kind !== "heading" ? `${block.headingPath.join(" > ")}: ` : "";
+    return `${prefix}${normalizeBlockText(block.text)}`.slice(0, maxLength);
+}
+function extractMarkdownBlocks(text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const lines = body.split(/\r?\n/);
+    const blocks = [];
+    const headingPath = [];
+    let paragraph = null;
+    let fence = null;
+    function addBlock(kind, line, blockText) {
+        const normalized = normalizeBlockText(blockText);
+        if (!normalized)
+            return;
+        blocks.push({
+            headingPath: [...headingPath],
+            id: blockId(kind, line, normalized),
+            kind,
+            line,
+            text: normalized,
+        });
+    }
+    function flushParagraph() {
+        if (!paragraph)
+            return;
+        addBlock("paragraph", paragraph.line, paragraph.lines.join(" "));
+        paragraph = null;
+    }
+    lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        const trimmed = line.trim();
+        const fenceMatch = trimmed.match(/^(```+|~~~+)\s*(.*)$/);
+        if (fence) {
+            const closingFence = fenceMatch?.[1] ?? "";
+            if (closingFence.startsWith(fence.fence.slice(0, 3)) && closingFence.length >= fence.fence.length) {
+                const sample = fence.lines.map((item) => item.trim()).filter(Boolean).slice(0, 3).join(" ");
+                addBlock("code_fence", fence.line, `code fence${fence.lang ? ` ${fence.lang}` : ""}: ${sample}`);
+                fence = null;
+            }
+            else {
+                fence.lines.push(line);
+            }
+            return;
+        }
+        if (fenceMatch) {
+            flushParagraph();
+            fence = { fence: fenceMatch[1] ?? "```", lang: (fenceMatch[2] ?? "").trim(), line: lineNumber, lines: [] };
+            return;
+        }
+        if (!trimmed) {
+            flushParagraph();
+            return;
+        }
+        const heading = isMarkdownHeading(line);
+        if (heading?.[1] && heading[2]) {
+            flushParagraph();
+            const level = heading[1].length;
+            const title = heading[2].trim();
+            headingPath.splice(level - 1);
+            headingPath[level - 1] = title;
+            addBlock("heading", lineNumber, title);
+            return;
+        }
+        if (/^\s{0,3}([-*+]|\d+\.)\s+\S/.test(line)) {
+            flushParagraph();
+            addBlock("list_item", lineNumber, trimmed);
+            return;
+        }
+        if (/^\|.+\|$/.test(trimmed)) {
+            flushParagraph();
+            const cells = splitMarkdownRow(line);
+            if (!isMarkdownTableSeparator(cells))
+                addBlock("table_row", lineNumber, cells.join(" | "));
+            return;
+        }
+        if (!paragraph)
+            paragraph = { line: lineNumber, lines: [] };
+        paragraph.lines.push(trimmed);
+    });
+    const unclosedFence = fence;
+    if (unclosedFence) {
+        const sample = unclosedFence.lines.map((item) => item.trim()).filter(Boolean).slice(0, 3).join(" ");
+        addBlock("code_fence", unclosedFence.line, `code fence${unclosedFence.lang ? ` ${unclosedFence.lang}` : ""}: ${sample}`);
+    }
+    flushParagraph();
+    return blocks;
 }
 function splitMarkdownRow(line) {
     const trimmed = line.trim();
@@ -256,34 +381,25 @@ function stripMarkedSection(text, startMarker, endMarker) {
         return text;
     return `${text.slice(0, start).trimEnd()}\n\n${text.slice(end + endMarker.length).trimStart()}`.trim() + "\n";
 }
-function extractMarkedSection(text, startMarker, endMarker) {
-    const start = text.indexOf(startMarker);
-    const end = text.indexOf(endMarker);
-    if (start < 0 || end <= start)
-        return "";
-    return text.slice(start, end + endMarker.length).trim();
-}
-function withPreservedMarkedSections(relativePath, base, markerPairs) {
-    if (!(0, workspace_1.exists)(relativePath))
-        return base;
-    const current = (0, workspace_1.read)(relativePath);
-    const preserved = markerPairs
-        .map(([startMarker, endMarker]) => extractMarkedSection(current, startMarker, endMarker))
-        .filter(Boolean)
-        .filter((section) => !base.includes(section));
-    if (preserved.length === 0)
-        return base;
-    return `${base.trimEnd()}\n\n${preserved.join("\n\n")}\n`;
-}
 function hasGlossaryNeedSignal(text) {
     return /(^|\n)##\s+(Glossary|Terms|Roles|Entities|Data Model|State Model|Permissions|Events|용어|역할|엔티티|상태 모델|권한|이벤트)(\s|$)|`[^`]+`\s*(term|role|state|permission|event|entity|API|DB|UI|용어|역할|상태|권한|이벤트|엔티티)/i.test(text);
 }
 function hasGlossaryTable(text) {
     const body = (0, workspace_1.stripMetadataHeader)(text);
-    return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related Canonical Doc\s*\|\s*Status\s*\|/.test(body);
+    return /\|\s*Term\s*\|\s*Definition\s*\|\s*Avoid\s*\|\s*Related (?:Canonical|Service\/PRD) Doc\s*\|\s*Status\s*\|/.test(body);
+}
+// First "## TL;DR" bullet for answer-shaped query envelopes: gives an agent the
+// page's one-line summary without opening the page. Pages without a TL;DR section
+// return "" and the envelope simply omits the line — quality-check separately
+// flags the missing TL;DR, so this is optional enrichment, not a fallback path.
+function firstTldrBullet(text) {
+    const body = (0, workspace_1.stripMetadataHeader)(text);
+    const match = body.match(/^##\s+TL;DR[^\n]*\n([\s\S]*?)(?=\n##\s|(?![\s\S]))/m);
+    const bullet = match?.[1]?.split(/\r?\n/).find((line) => /^\s*-\s+\S/.test(line));
+    return bullet ? bullet.replace(/^\s*-\s*/, "").trim().slice(0, 160) : "";
 }
 function canonicalBodyForLint() {
-    return (0, workspace_1.walkFilesUnder)("wiki/canonical", (file) => /\.(md|mdx)$/i.test(file) && file !== "wiki/canonical/glossary.md")
+    return (0, workspace_1.walkFilesUnder)("wiki", (file) => /\.(md|mdx)$/i.test(file) && (0, wiki_layout_1.isCurrentTruthPath)(file) && !file.endsWith("/glossary.md"))
         .map((file) => (0, workspace_1.stripMetadataHeader)((0, workspace_1.read)(file)))
         .join("\n");
 }

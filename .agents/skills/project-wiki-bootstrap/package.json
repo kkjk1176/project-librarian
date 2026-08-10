@@ -34,7 +34,7 @@
     "project-wiki-bootstrap": "dist/init-project-wiki.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   },
   "scripts": {
     "benchmark": "node benchmarks/project-metrics.js",
@@ -51,5 +51,24 @@
   "devDependencies": {
     "@types/node": "^25.9.2",
     "typescript": "^6.0.3"
-  }
+  },
+  "dependencies": {
+    "typescript": "^6.0.3"
+  },
+  "optionalDependencies": {
+    "@sengac/tree-sitter": "^0.25.15",
+    "@sengac/tree-sitter-c": "^0.25.15",
+    "@sengac/tree-sitter-c-sharp": "^0.25.15",
+    "@sengac/tree-sitter-cpp": "^0.25.15",
+    "@sengac/tree-sitter-go": "^0.25.15",
+    "@sengac/tree-sitter-java": "^0.25.15",
+    "@sengac/tree-sitter-javascript": "^0.25.15",
+    "@sengac/tree-sitter-kotlin": "^0.4.6",
+    "@sengac/tree-sitter-php": "^0.25.15",
+    "@sengac/tree-sitter-python": "^0.25.15",
+    "@sengac/tree-sitter-rust": "^0.25.15",
+    "@sengac/tree-sitter-swift": "^0.25.15",
+    "@sengac/tree-sitter-typescript": "^0.25.15"
+  },
+  "projectLibrarianRuntimeVersion": "0.6.4"
 }

@@ -1,6 +1,7 @@
 import type { WikiLinkReference } from "./types";
 import { extractWikiLinks, normalizeWikiLinkTarget, wikiTitleForFile } from "./wiki-files";
 import { metadataValue } from "./workspace";
+import { classifyWikiPath, wikiRoutePriority } from "./wiki-layout";
 
 // Wiki link graph: the code-evidence edges/impact model applied to the wiki's own
 // link structure (2026-06-12 method-transfer decision). Everything here is a pure
@@ -27,6 +28,14 @@ export interface WikiGraph {
 // so the real-wiki budget is three hops from wiki/startup.md.
 export const wikiRouterRoot = "wiki/startup.md";
 export const wikiRouterDepthBudget = 3;
+export function wikiRouterDepthBudgetForFile(file: string): number {
+  const layout = classifyWikiPath(file);
+  if (layout.prdRoot && layout.type !== "prd-hub") return 5;
+  if (layout.prdRoot) return 4;
+  if (layout.service) return 3;
+  if (layout.version === "v2" && ["index", "services", "shared", "portfolio", "governance"].includes(layout.area)) return 3;
+  return wikiRouterDepthBudget;
+}
 // startup is the BFS root; README is a human entry document that is deliberately
 // unrouted (the same exemption the orphan-page rule uses).
 export const wikiRouterExemptPages: Set<string> = new Set([wikiRouterRoot, "wiki/README.md"]);
@@ -176,7 +185,7 @@ export function wikiImpactAnswer(pages: WikiPageInput[], term: string, graph: Wi
     lines.push(`  outgoing links (${outgoing.length}): ${sampled(outgoing, impactListCap)}`);
     lines.push(depth === undefined
       ? `  router: unreachable from ${wikiRouterRoot}`
-      : `  router: reachable at depth ${depth} (budget ${wikiRouterDepthBudget})`);
+      : `  router: reachable at depth ${depth} (budget ${wikiRouterDepthBudgetForFile(match.file)})`);
   }
   return finalizeWikiAnswer(lines.join("\n"));
 }
@@ -184,6 +193,7 @@ export function wikiImpactAnswer(pages: WikiPageInput[], term: string, graph: Wi
 const neighborhoodReadCap = 5;
 
 function pageClassPriority(file: string, scope: string): number {
+  if (classifyWikiPath(file).version === "v2") return wikiRoutePriority(file);
   if (file.startsWith("wiki/decisions/") || /decision/.test(scope)) return 90;
   if (file.startsWith("wiki/sources/") || /source/.test(scope)) return 80;
   if (file.startsWith("wiki/canonical/") || /canonical/.test(scope)) return 70;

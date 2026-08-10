@@ -271,7 +271,7 @@ const PROMPTS = [
                 "1. Read project-librarian://wiki/startup, project-librarian://wiki/index, and project-librarian://code/status before deciding the work path.",
                 "2. Inspect repo, wiki, package scripts, CI, tests, release gates, generated surfaces, dependencies, and code-structure evidence relevant to the request.",
                 "3. Produce a ranked backlog with concrete file/command evidence, confidence, risk, and a verification path for each candidate.",
-                "4. Persist a durable plan under wiki/plans/ when project-planning state changes, then refresh the wiki index and run lint when practical.",
+                "4. Persist PRD-specific plans under the owning PRD's 11-plans/ area and cross-PRD plans under wiki/30-portfolio/ when project-planning state changes, then refresh the wiki index and run lint when practical.",
                 "5. If execution is requested, implement safe high-priority items first, update generated outputs, and verify with targeted tests plus the smallest broad gate that proves the claim.",
                 `Request: ${request}`,
                 `Scope: ${scope}`,

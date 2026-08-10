@@ -3,9 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.topologyFanoutThreshold = exports.topologyHubOverloadThreshold = exports.staleReviewAgeDays = void 0;
 exports.staleReviewAge = staleReviewAge;
 exports.collectTopologyDiagnostics = collectTopologyDiagnostics;
+const wiki_files_1 = require("./wiki-files");
 const wiki_corpus_1 = require("./wiki-corpus");
 const wiki_graph_1 = require("./wiki-graph");
 const workspace_1 = require("./workspace");
+const wiki_layout_1 = require("./wiki-layout");
 exports.staleReviewAgeDays = 30;
 exports.topologyHubOverloadThreshold = 60;
 exports.topologyFanoutThreshold = 8;
@@ -30,7 +32,7 @@ function isGeneratedScopedRouter(file) {
     return /^wiki\/indexes\/auto-[a-z0-9-]+(?:-\d+)?\.md$/.test(file);
 }
 function isCanonicalTruthPage(file, text) {
-    return file.startsWith("wiki/canonical/") && (0, workspace_1.metadataValue)(text, "status") === "active";
+    return (0, wiki_layout_1.isCurrentTruthPath)(file) && (0, workspace_1.metadataValue)(text, "status") === "active";
 }
 function hasEvidenceClaimSignal(body) {
     return /\b(source-backed|source backed|research-backed|external research|paper-backed|evidence-backed)\b/i.test(body);
@@ -44,7 +46,7 @@ function hasFocusedAuthoritySignal(text, body) {
 }
 function hasEvidenceLink(file, corpus, graph = (0, wiki_corpus_1.wikiCorpusGraph)(corpus)) {
     const outgoingLinks = graph.outgoingLinks.get(file) ?? [];
-    const sourceLink = outgoingLinks.some((link) => link.normalizedTarget.startsWith("wiki/sources/") && corpus.fileSet.has(link.normalizedTarget));
+    const sourceLink = outgoingLinks.some((link) => (0, wiki_layout_1.isSourcePath)(link.normalizedTarget) && corpus.fileSet.has(link.normalizedTarget));
     const decisionRef = graph.outgoingDecisionRef.get(file);
     return sourceLink || Boolean(decisionRef && corpus.fileSet.has(decisionRef));
 }
@@ -60,11 +62,123 @@ function isBroadReviewTrigger(trigger) {
 }
 function isTopologyHub(file) {
     return file === "wiki/index.md"
+        || file.startsWith("wiki/00-index/")
         || file.startsWith("wiki/meta/")
+        || /^wiki\/10-services\/[^/]+\/(?:README|prds\/[^/]+\/README)\.md$/.test(file)
         || /^wiki\/indexes\/(?!auto-)[^/]+\.md$/.test(file);
 }
-function collectTopologyDiagnostics(corpus) {
+function registryRows(text, columns, header) {
+    return (0, wiki_files_1.parseMarkdownTableRows)(text, columns)
+        .filter((cells) => (cells[0] ?? "").trim().toLowerCase() !== header.toLowerCase());
+}
+function registryHub(sourceFile, cell) {
+    const wikiLink = cell.match(/\[\[([^\]\n]+)\]\]/)?.[1] ?? "";
+    const markdownLink = cell.match(/\[[^\]\n]+\]\(([^)\n]+)\)/)?.[1] ?? "";
+    const target = wikiLink || markdownLink;
+    return target ? (0, wiki_files_1.normalizeWikiLinkTarget)(sourceFile, target) : "";
+}
+function collectLayoutDiagnostics(corpus) {
     const diagnostics = [];
+    const prdHubs = corpus.files.filter((file) => /^wiki\/10-services\/[^/]+\/prds\/PRD-\d+[^/]*\/README\.md$/i.test(file));
+    const serviceHubs = corpus.files.filter((file) => /^wiki\/10-services\/[^/]+\/README\.md$/.test(file));
+    const prdById = new Map();
+    for (const file of corpus.files) {
+        const text = (0, wiki_corpus_1.wikiCorpusText)(corpus, file);
+        for (const message of (0, wiki_layout_1.validateWikiMetadataContext)(file, text)) {
+            diagnostics.push({
+                code: message.startsWith("type must be") ? "area-type-mismatch" : "metadata-context-mismatch",
+                severity: "warn",
+                file,
+                message,
+            });
+        }
+    }
+    for (const file of prdHubs) {
+        const classification = (0, wiki_layout_1.classifyWikiPath)(file);
+        if (classification.prdId) {
+            prdById.set(classification.prdId, [...(prdById.get(classification.prdId) ?? []), file]);
+        }
+    }
+    for (const [prdId, hubs] of prdById) {
+        if (hubs.length < 2)
+            continue;
+        for (const file of hubs) {
+            diagnostics.push({
+                code: "duplicate-prd-id",
+                severity: "error",
+                file,
+                message: `${prdId} is also used by ${hubs.filter((hub) => hub !== file).join(", ")}`,
+            });
+        }
+    }
+    const prdRegistryFile = "wiki/00-index/prd-registry.md";
+    const prdRegistryRows = corpus.fileSet.has(prdRegistryFile)
+        ? registryRows((0, wiki_corpus_1.wikiCorpusText)(corpus, prdRegistryFile), 5, "PRD ID")
+        : [];
+    const registeredPrdHubs = new Set();
+    const registryPrdIds = new Map();
+    for (const row of prdRegistryRows) {
+        const prdId = (row[0] ?? "").trim().toUpperCase();
+        const service = (row[1] ?? "").trim();
+        const hub = registryHub(prdRegistryFile, row[3] ?? "");
+        if (prdId)
+            registryPrdIds.set(prdId, (registryPrdIds.get(prdId) ?? 0) + 1);
+        if (!hub) {
+            diagnostics.push({ code: "registry-entry-mismatch", severity: "error", file: prdRegistryFile, message: `${prdId || "registry row"} has no valid PRD hub link` });
+            continue;
+        }
+        registeredPrdHubs.add(hub);
+        const layout = (0, wiki_layout_1.classifyWikiPath)(hub);
+        if (layout.type !== "prd-hub" || layout.prdId !== prdId || layout.service !== service) {
+            diagnostics.push({
+                code: "registry-entry-mismatch",
+                severity: "error",
+                file: prdRegistryFile,
+                message: `${prdId || "registry row"} service/hub identity does not match ${hub}`,
+            });
+        }
+    }
+    for (const [prdId, count] of registryPrdIds) {
+        if (count > 1)
+            diagnostics.push({ code: "duplicate-prd-id", severity: "error", file: prdRegistryFile, message: `${prdId} appears in ${count} registry rows` });
+    }
+    for (const file of prdHubs) {
+        if (!registeredPrdHubs.has(file))
+            diagnostics.push({ code: "registry-hub-mismatch", severity: "warn", file, message: "PRD hub is not linked from wiki/00-index/prd-registry.md" });
+    }
+    for (const file of registeredPrdHubs) {
+        if (/^wiki\/10-services\/[^/]+\/prds\//.test(file) && !corpus.fileSet.has(file))
+            diagnostics.push({ code: "registry-hub-mismatch", severity: "error", file: "wiki/00-index/prd-registry.md", message: `registered PRD hub is missing: ${file}` });
+    }
+    const serviceMapFile = "wiki/00-index/service-map.md";
+    const serviceRows = corpus.fileSet.has(serviceMapFile)
+        ? registryRows((0, wiki_corpus_1.wikiCorpusText)(corpus, serviceMapFile), 4, "Service")
+        : [];
+    const registeredServiceHubs = new Set();
+    for (const row of serviceRows) {
+        const service = (row[0] ?? "").trim();
+        const hub = registryHub(serviceMapFile, row[2] ?? "");
+        if (!hub) {
+            diagnostics.push({ code: "registry-entry-mismatch", severity: "error", file: serviceMapFile, message: `${service || "registry row"} has no valid service hub link` });
+            continue;
+        }
+        registeredServiceHubs.add(hub);
+        const layout = (0, wiki_layout_1.classifyWikiPath)(hub);
+        if (layout.type !== "service-hub" || layout.service !== service) {
+            diagnostics.push({ code: "registry-entry-mismatch", severity: "error", file: serviceMapFile, message: `${service || "registry row"} does not match service hub ${hub}` });
+        }
+        if (!corpus.fileSet.has(hub)) {
+            diagnostics.push({ code: "registry-hub-mismatch", severity: "error", file: serviceMapFile, message: `registered service hub is missing: ${hub}` });
+        }
+    }
+    for (const file of serviceHubs) {
+        if (!registeredServiceHubs.has(file))
+            diagnostics.push({ code: "registry-hub-mismatch", severity: "warn", file, message: "service hub is not linked from wiki/00-index/service-map.md" });
+    }
+    return diagnostics;
+}
+function collectTopologyDiagnostics(corpus) {
+    const diagnostics = collectLayoutDiagnostics(corpus);
     const graph = (0, wiki_corpus_1.wikiCorpusGraph)(corpus);
     for (const file of corpus.files) {
         if (isGeneratedScopedRouter(file))
@@ -93,7 +207,7 @@ function collectTopologyDiagnostics(corpus) {
                     code: "weak-authority-route",
                     severity: "warn",
                     file,
-                    message: "active canonical page with authority signals is routed only by generated auto-index pages; add a focused route when this truth is durable",
+                    message: "active truth with authority signals is routed only by generated auto-index pages; add a focused service, PRD, or shared route",
                 });
             }
             if (hasEvidenceClaimSignal(body) && !hasEvidenceLink(file, corpus, graph)) {
@@ -101,7 +215,7 @@ function collectTopologyDiagnostics(corpus) {
                     code: "missing-evidence-link",
                     severity: "warn",
                     file,
-                    message: "canonical page makes a source-backed claim but has no source link or decision_ref evidence link",
+                    message: "current-truth page makes a source-backed claim but has no owning PRD/shared source link or decision_ref evidence link",
                 });
             }
         }

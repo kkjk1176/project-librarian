@@ -67,8 +67,8 @@ Wiki setup and maintenance:
 | Check links and document quality | "Run Project Librarian diagnostics." | `--doctor` |
 | Refresh generated routing before diagnostics | "Refresh Project Librarian routing and then run diagnostics." | `--doctor --fix` |
 | Search project wiki content | "Search the Project Librarian wiki for authentication decisions." | `--query "authentication decisions"` |
-| Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for decisions/release-policy." | `--wiki-impact "decisions/release-policy"` |
-| Find nearby wiki context | "Show Project Librarian wiki neighborhood for canonical/project-brief." | `--wiki-neighborhood "canonical/project-brief"` |
+| Show backlinks and decision citations for a page | "Show Project Librarian wiki impact for the payments checkout PRD hub." | `--wiki-impact "10-services/payments/prds/PRD-012-checkout"` |
+| Find nearby wiki context | "Show Project Librarian wiki neighborhood for the payments checkout PRD hub." | `--wiki-neighborhood "10-services/payments/prds/PRD-012-checkout"` |
 | Capture a candidate note | "Capture this as a Project Librarian candidate note: <details>." | `--capture-inbox --title "Candidate" --content "Details"` |
 | Save a session handoff | "Save a Project Librarian session handoff for the current work." | `--handoff-save --goal "..." --state "..." --next "..."` |
 | Resume from a handoff | "Show the last Project Librarian session handoff." | `--handoff-show` |
@@ -130,14 +130,13 @@ Git hook files:
 
 Wiki directories:
 
-- `wiki/canonical/`
-- `wiki/roadmaps/`
-- `wiki/plans/`
-- `wiki/decisions/`
-- `wiki/inbox/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/migration/`
+- `wiki/00-index/` — service map and PRD registry.
+- `wiki/01-governance/` — source-of-truth and writing rules.
+- `wiki/10-services/<service>/prds/<PRD-ID-slug>/01-discovery/` through `11-plans/` — service and initiative documentation.
+- `wiki/20-shared/` — shared contracts and glossary.
+- `wiki/30-portfolio/` — cross-PRD sequencing and roadmap.
+- `wiki/90-archive/` — retained retired material.
+- `wiki/inbox/`, `wiki/indexes/`, `wiki/meta/`, and `wiki/migration/` — candidates, generated routing, operations, and migration review.
 
 Seed wiki pages and routers:
 
@@ -145,7 +144,7 @@ Seed wiki pages and routers:
 - `wiki/index.md`
 - `wiki/meta/document-taxonomy.md`
 
-Empty project pages such as `canonical/project-brief.md`, `canonical/open-questions.md`, `canonical/assumptions.md`, `canonical/risks.md`, and ADR templates are not created until there is real content to store. The router can discover them later with `--refresh-index`. During migration, form-only legacy templates are recorded as skipped in `wiki/migration/inventory.md` instead of becoming review rows or new wiki pages.
+Fresh setup creates only common v2 hubs; it does not invent services, PRDs, or empty lifecycle folders. Register a service and PRD before creating its focused artifacts. During migration, form-only legacy templates are recorded as skipped in `wiki/migration/inventory.md` instead of becoming review rows or new wiki pages.
 
 MCP server registration is a preservation-first merge into `mcpServers` for Claude Code (`.mcp.json`), Cursor (`.cursor/mcp.json`), and Gemini CLI (`.gemini/settings.json`). The disposable code-evidence cache is `.project-wiki/code-evidence.sqlite`.
 
@@ -153,13 +152,13 @@ MCP server registration is a preservation-first merge into `mcpServers` for Clau
 
 1. Bootstrap creates a preservation-first wiki structure and marker-bounded agent instruction sections.
 2. Session-start hooks inject only `wiki/startup.md` and `wiki/index.md`, with character budgets.
-3. Bootstrap avoids empty form-only project pages; focused canonical, decision, source, and meta pages are created when content actually exists.
-4. Detailed planning truth stays in canonical, decision, source, and meta pages that agents read on demand.
+3. Fresh setup avoids invented services and PRDs; focused v2 documents are created after ownership and PRD registration are known.
+4. Detailed planning truth stays under the owning service/PRD, shared area, portfolio area, or wiki meta pages and is read on demand.
 5. New project-planning content is classified before it is written or consolidated, keeping upstream/downstream document relationships visible.
 6. `--refresh-index` routes newly discovered wiki pages; large route sets are split into `wiki/indexes/auto-*.md` scoped routers.
 7. `--code-index` creates a disposable SQLite evidence cache under `.project-wiki/`.
 8. `--code-report`, `--code-impact`, `--code-context-pack`, `--code-search-symbol`, and `--code-query` expose code-backed evidence for planning updates.
-9. Wiki producers keep writing the canonical markdown/YAML schema, while read-only consumers such as diagnostics and MCP inspect source documents without mutating them.
+9. Wiki producers keep writing the service/PRD v2 markdown/YAML schema, while read-only consumers such as diagnostics and MCP inspect source documents without mutating them.
 10. Diagnostics report broken links, duplicate routes, orphan pages, topology warnings, stale pages, missing TL;DRs, evidence gaps, and migration policy violations.
 
 Migration is intentionally review-first. `--migrate` preserves an existing `wiki/` as `wiki_legacy*`, skips form-only/template legacy files, splits mixed legacy pages into meaning units, classifies each unit through the document taxonomy, and writes review files under `wiki/migration/`:

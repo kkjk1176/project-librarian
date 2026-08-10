@@ -13,7 +13,7 @@
 
 - `wiki/startup.md`: 現在のプロジェクト要約
 - `wiki/index.md`: 次に読む詳細ページのルーター
-- `wiki/canonical/`、`wiki/decisions/`、`wiki/sources/`、`wiki/meta/`: 必要なときだけ読む詳細コンテキスト
+- `wiki/00-index/`、所有する `wiki/10-services/<service>/` PRD ハブ、`wiki/20-shared/`、`wiki/30-portfolio/`、`wiki/meta/`: 必要なときだけ読む詳細コンテキスト
 
 ## 得られるもの
 
@@ -100,7 +100,7 @@ Wiki コマンド:
 - 候補メモを `wiki/inbox/project-candidates.md` に保存
 - stale または undecided 状態の wiki ページの報告
 - skill 使用中に見つかった問題や副作用の GitHub issue body ドラフトを作成
-- `wiki/canonical/glossary.md` の作成
+- `wiki/20-shared/glossary.md` の作成
 - 既存 markdown 文書の review 用 inbox への移行
 - コードを分析し、根拠のあるプロジェクト情報を wiki に反映
 
@@ -158,12 +158,9 @@ GitHub repository でユーザーが明示的に許可した場合は、GitHub C
 
 wiki ディレクトリ:
 
-- `wiki/canonical/`
-- `wiki/decisions/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/inbox/`
-- `wiki/migration/`
+- `wiki/00-index/`、`wiki/01-governance/`、`wiki/10-services/`
+- `wiki/20-shared/`、`wiki/30-portfolio/`、`wiki/90-archive/`
+- `wiki/inbox/`、`wiki/indexes/`、`wiki/meta/`、`wiki/migration/`
 
 ## Code Evidence Index
 

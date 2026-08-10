@@ -92,9 +92,9 @@ grep -q -- "--handoff-injection-enable" help.log
 grep -q -- "--handoff-injection-disable" help.log
 grep -q -- "--handoff-injection-status" help.log
 grep -q "project-librarian mcp" help.log
-grep -q "Skill problem reporting contract" "$ROOT/SKILL.md"
-grep -Fq 'run `$PROJECT_LIBRARIAN --issue-draft --issue-title' "$ROOT/SKILL.md"
-grep -q "Do not manually recreate bootstrap or migration output as a fallback" "$ROOT/SKILL.md"
+grep -q "## Issue reporting" "$ROOT/SKILL.md"
+grep -Fq -- '--issue-draft --issue-title' "$ROOT/SKILL.md"
+grep -q "Migration is review-first" "$ROOT/SKILL.md"
 if node "$CLI" --incremental > lone-incremental.log 2>&1; then
   echo "expected --incremental without --code-index to fail" >&2
   exit 1
@@ -249,7 +249,7 @@ node -e 'const s=require("./.cursor/hooks.json"); if (!Array.isArray(s.hooks.ses
 node -e 'const s=require("./.gemini/settings.json"); const command="node \"$GEMINI_PROJECT_DIR/.gemini/hooks/wiki-session-start.js\""; const ms=new Set((s.hooks.SessionStart||[]).filter(e=>(e.hooks||[]).some(h=>h.command===command)).map(e=>e.matcher)); for (const m of ["startup","resume","clear"]) if (!ms.has(m)) process.exit(1)'
 grep -q "Read On Demand" wiki/startup.md
 grep -q "Language Policy" wiki/index.md
-grep -q "Project canonical content language" wiki/startup.md
+grep -q "Project content language" wiki/startup.md
 grep -q "@AGENTS.md" CLAUDE.md
 grep -q "@AGENTS.md" GEMINI.md
 grep -q "alwaysApply: true" .cursor/rules/project-librarian.mdc
@@ -257,7 +257,7 @@ grep -q "@AGENTS.md" .cursor/rules/project-librarian.mdc
 # B1 fallback: managed AGENTS.md carries the auto-synced startup TL;DR sub-block,
 # and the synced bullets match the startup.md TL;DR (first TL;DR bullet sample).
 grep -q "Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)" AGENTS.md
-grep -q "This project is in an initial planning state unless the canonical wiki says otherwise." AGENTS.md
+grep -q "This project is in an initial planning state until services and PRDs are registered." AGENTS.md
 # B4 trust contract: single authoritative-wiki sentence, gated on B2 (shipped together).
 grep -q "Wiki decision documents are authoritative for project decisions" AGENTS.md
 grep -q -- "--doctor\` router-truth rule guards against stale routers" AGENTS.md
@@ -354,7 +354,7 @@ node "$CLI" --handoff-clear > handoff-clear.log
 grep -q "last-handoff.md=removed" handoff-clear.log
 
 node "$CLI" --glossary-init
-test -f wiki/canonical/glossary.md
+test -f wiki/20-shared/glossary.md
 node "$CLI" --refresh-index
 node "$CLI" --capture-inbox --title "Smoke" --content "Candidate content"
 node "$CLI" --capture-inbox > capture-inbox-empty-rerun.log
@@ -369,15 +369,19 @@ mkdir "$TMPDIR/scoped-index"
 cd "$TMPDIR/scoped-index"
 node "$CLI"
 for app in 0 1 2; do
+  mkdir -p "wiki/10-services/app-${app}/operations"
   for page in $(seq 1 18); do
-    cat > "wiki/canonical/apps-app-${app}-topic-${page}.md" <<EOF
+    cat > "wiki/10-services/app-${app}/operations/topic-${page}.md" <<EOF
 ---
 status: active
 updated: $(date +%F)
-scope: project-canonical
+scope: service-operations
+type: operations
 read_budget: medium
 decision_ref: none
 review_trigger: smoke scoped route
+owner: operations
+service: app-${app}
 ---
 
 # App ${app} Topic ${page}
@@ -390,11 +394,11 @@ EOF
 done
 node "$CLI" --refresh-index > scoped-refresh.log
 grep -q "wiki/index.md auto-discovered pages" scoped-refresh.log
-test -f wiki/indexes/auto-apps-app-0.md
-test -f wiki/indexes/auto-apps-app-1.md
-test -f wiki/indexes/auto-apps-app-2.md
-grep -q "\[\[indexes/auto-apps-app-0\]\]" wiki/index.md
-grep -q "\[\[canonical/apps-app-0-topic-1\]\]" wiki/indexes/auto-apps-app-0.md
+test -f wiki/indexes/auto-app-0.md
+test -f wiki/indexes/auto-app-1.md
+test -f wiki/indexes/auto-app-2.md
+grep -q "\[\[indexes/auto-app-0\]\]" wiki/index.md
+grep -q "\[\[10-services/app-0/operations/topic-1\]\]" wiki/indexes/auto-app-0.md
 node -e 'const fs=require("fs"); if (fs.readFileSync("wiki/index.md","utf8").length > 4500) process.exit(1)'
 node "$CLI" --link-check > scoped-link-check.log
 grep -q "0 warnings" scoped-link-check.log
@@ -483,15 +487,16 @@ node "$CLI"
 node "$CLI" --link-check > link-check-ok.log
 grep -q "Project wiki link-check" link-check-ok.log
 grep -q "passed:" link-check-ok.log
-mkdir -p wiki/canonical
-cat > wiki/canonical/project-brief.md <<EOF
+cat > wiki/20-shared/project-brief.md <<EOF
 ---
 status: active
 updated: $TODAY
-scope: project-canonical
+scope: shared-contract
+type: shared
 read_budget: medium
 decision_ref: none
 review_trigger: smoke diagnostics fixture
+owner: product
 ---
 
 # Project Brief
@@ -502,7 +507,7 @@ review_trigger: smoke diagnostics fixture
 
 Image asset probe: ![diagram](assets/diagram.png)
 PDF asset probe: [spec](assets/spec.pdf)
-Angle markdown probe: [decisions](<../decisions/README.md>)
+Angle markdown probe: [decision policy](<../meta/decision-policy.md>)
 Root wiki probe: [startup](/wiki/startup.md)
 EOF
 node "$CLI" --refresh-index > refresh-project-brief.log
@@ -528,17 +533,18 @@ if node "$CLI" --fix > bad-fix.log 2>&1; then
 fi
 grep -q -- "--fix is only supported with --doctor" bad-fix.log
 # Wiki impact: answer-first backlink/decision_ref/routing envelope for a page.
-node "$CLI" --wiki-impact canonical/project-brief > wiki-impact.log
-grep -q "Wiki impact \"canonical/project-brief\":" wiki-impact.log
+node "$CLI" --wiki-impact 20-shared/project-brief > wiki-impact.log
+grep -q "Wiki impact \"20-shared/project-brief\":" wiki-impact.log
 grep -q "incoming links" wiki-impact.log
 grep -q "router: reachable at depth" wiki-impact.log
 # Wiki neighborhood: bounded nearby read order without writing graph artifacts.
-node "$CLI" --wiki-neighborhood canonical/project-brief > wiki-neighborhood.log
-grep -q "Wiki neighborhood \"canonical/project-brief\":" wiki-neighborhood.log
+node "$CLI" --wiki-neighborhood 20-shared/project-brief > wiki-neighborhood.log
+grep -q "Wiki neighborhood \"20-shared/project-brief\":" wiki-neighborhood.log
 grep -q "Read order:" wiki-neighborhood.log
-grep -q "wiki/canonical/project-brief.md" wiki-neighborhood.log
+grep -q "wiki/20-shared/project-brief.md" wiki-neighborhood.log
 # Router reachability (A1 promoted to the real wiki): a linked-but-disconnected
 # island warns router-unreachable while link-check still passes (warn severity).
+mkdir -p wiki/canonical
 cat > wiki/canonical/island-a.md <<'EOF'
 # Island A
 
@@ -556,7 +562,19 @@ grep -q "passed:" island-link-check.log
 rm wiki/canonical/island-a.md wiki/canonical/island-b.md
 # B2 router-truth rule: a dated decision-log entry while startup/recent still say
 # "None yet." is an error-level contradiction that fails --doctor and names both sides.
-node -e 'const fs=require("fs"); const f="wiki/decisions/log.md"; fs.writeFileSync(f, fs.readFileSync(f,"utf8").replace("No project decisions yet.", "- 2026-06-10 | metrics | benchmark evidence policy adopted | canonical: [[canonical/project-brief]]"));'
+mkdir -p wiki/decisions
+cat > wiki/decisions/log.md <<'EOF'
+# Legacy Decision Log
+
+- 2026-06-10 | metrics | benchmark evidence policy adopted | compatibility record
+EOF
+cat > wiki/decisions/recent.md <<'EOF'
+# Recent Project Decisions
+
+## Decisions
+
+- None yet.
+EOF
 if node "$CLI" --doctor > doctor-router-truth.log 2>&1; then
   echo "expected --doctor to fail on a router-truth contradiction" >&2
   exit 1
@@ -565,28 +583,30 @@ grep -q "router-truth-contradiction" doctor-router-truth.log
 grep -q "wiki/decisions/recent.md" doctor-router-truth.log
 grep -q "wiki/startup.md" doctor-router-truth.log
 grep -q "wiki/decisions/log.md holds a dated decision entry" doctor-router-truth.log
-cat >> wiki/canonical/project-brief.md <<'EOF'
+cat >> wiki/20-shared/project-brief.md <<'EOF'
 
-Broken route probe: [[canonical/missing-page]]
+Broken route probe: [[20-shared/missing-page]]
 EOF
 if node "$CLI" --link-check > broken-link.log 2>&1; then
   echo "expected --link-check to fail on broken wiki links" >&2
   exit 1
 fi
 grep -q "broken-link" broken-link.log
-grep -q "wiki/canonical/missing-page.md" broken-link.log
+grep -q "wiki/20-shared/missing-page.md" broken-link.log
 
 mkdir "$TMPDIR/wiki-diagnostics-fix"
 cd "$TMPDIR/wiki-diagnostics-fix"
 node "$CLI"
-cat > wiki/canonical/custom-quality.md <<'EOF'
+cat > wiki/20-shared/custom-quality.md <<'EOF'
 ---
 status: active
 updated: 2026-06-08
-scope: project-canonical
+scope: shared-contract
+type: shared
 read_budget: short
 decision_ref: none
 review_trigger: custom quality page changes
+owner: product
 ---
 
 # Custom Quality Page
@@ -595,11 +615,11 @@ This intentionally lacks a TL;DR for quality-check coverage.
 EOF
 node "$CLI" --doctor --fix > doctor-fix.log
 grep -q "updated wiki/index.md auto-discovered pages" doctor-fix.log
-grep -q "\[\[canonical/custom-quality\]\]" wiki/index.md
+grep -q "\[\[20-shared/custom-quality\]\]" wiki/index.md
 grep -q "missing-tldr" doctor-fix.log
 cat >> wiki/index.md <<'EOF'
 
-Duplicate route probe: [[canonical/custom-quality]]
+Duplicate route probe: [[20-shared/custom-quality]]
 EOF
 node "$CLI" --link-check > duplicate-route.log
 grep -q "duplicate-route" duplicate-route.log
@@ -665,7 +685,7 @@ grep -q "&#91;legacy markdown link&#93;(legacy-only.md)" wiki/migration/coverage
 node "$CLI" --link-check > migration-link-check.log
 grep -q "passed:" migration-link-check.log
 node "$CLI" --migration-lint > migration-lint-pipe.log
-grep -q "migration-pending-unit" migration-lint-pipe.log
+grep -q "0 warnings" migration-lint-pipe.log
 mkdir wiki_legacy_stale
 cat > wiki_legacy_stale/stale.md <<'EOF'
 # Stale Legacy Root
@@ -677,28 +697,20 @@ if grep -q "stale.md" migration-active-root.log; then
   echo "expected migration lint to scope expected units to the current verification legacy root" >&2
   exit 1
 fi
-node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
 node "$CLI" --review-migration > review-migration-pipe.log
-grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
-grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/review.md
-grep -q "Open rows: 0" wiki/migration/bulk-review.md
-grep -q "Content-bearing low rows | 0 | 0" wiki/migration/bulk-review.md
+grep -q "semantic migration complete: no" wiki/migration/verification.md
+grep -q "semantic migration complete: no" wiki/migration/review.md
+grep -q "needs-human-review" wiki/migration/coverage.md
 grep -q "For a fresh rebuild request" wiki/migration/review.md
 grep -q 'spec\\|decision.md' wiki/migration/review.md
 test ! -e wiki/canonical/migration-inbox.md
-test ! -e wiki/decisions/migration-inbox.md
-test ! -e wiki/sources/migration-inbox.md
+test -e wiki/inbox/migration-decisions.md
 test -e wiki_legacy
 test -e wiki/migration/coverage.md
-if grep -Fq "[[decisions/migration-inbox]]" wiki/index.md; then
-  echo "expected completed migration cleanup to remove pruned inbox links" >&2
-  exit 1
-fi
-grep -q "Generated file-level migration inboxes were pruned" wiki/index.md
-node "$CLI" --link-check > migration-complete-link-check.log
-grep -q "passed:" migration-complete-link-check.log
-node "$CLI" --migration-doctor > migration-complete-doctor.log
-grep -q "passed:" migration-complete-doctor.log
+node "$CLI" --link-check > migration-open-link-check.log
+grep -q "passed:" migration-open-link-check.log
+node "$CLI" --migration-doctor > migration-open-doctor.log
+grep -q "passed:" migration-open-doctor.log
 node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let removed=false; const kept=lines.filter((line)=>{ if (!removed && /^\| spec\\\|decision\.md#u/.test(line)) { removed=true; return false; } return true; }); fs.writeFileSync(file, kept.join("\n"));'
 if node "$CLI" --migration-lint > migration-lint-missing-unit.log 2>&1; then
   echo "expected --migration-lint to fail when coverage ledger drops a legacy meaning unit" >&2
@@ -736,18 +748,17 @@ grep -q "qa-test-plan" wiki/migration/split-plan.md
 grep -q "API Contract" wiki/migration/unit-map.md
 grep -q "User Flow / Journey" wiki/migration/unit-map.md
 node "$CLI" --migration-lint > migration-mixed-lint.log
-grep -q "migration-pending-unit" migration-mixed-lint.log
-node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let changed=false; const next=lines.map((line)=>{ if (!changed && /^\| mixed-page\.md#u/.test(line) && line.includes("| pending |")) { changed=true; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[6]="wiki/canonical/reviewed-retarget-product-requirements.md"; cells[7]="reviewed low-confidence content; retargeted for semantic rewrite"; cells[10]="reviewed source context; taxonomy target assigned"; return `| ${cells.join(" | ")} |`; } return line; }); if (!changed) process.exit(1); fs.writeFileSync(file, next.join("\n"));'
+grep -q "0 warnings" migration-mixed-lint.log
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/); let changed=false; const next=lines.map((line)=>{ if (!changed && /^\| mixed-page\.md#u/.test(line) && line.includes("| needs-human-review |")) { changed=true; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[6]="wiki/20-shared/reviewed-retarget-product-requirements.md"; cells[7]="reviewed low-confidence content; retargeted for semantic rewrite"; cells[10]="reviewed source context; taxonomy target assigned"; return `| ${cells.join(" | ")} |`; } return line; }); if (!changed) process.exit(1); fs.writeFileSync(file, next.join("\n"));'
 node "$CLI" --migration-lint > migration-reviewed-retarget.log
 if grep -q "migration-pending-target-drift" migration-reviewed-retarget.log; then
   echo "expected --migration-lint to allow reviewed pending retargets" >&2
   exit 1
 fi
-node -e 'const fs=require("fs"); const file="wiki/canonical/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node -e 'const fs=require("fs"); const file="wiki/inbox/migration-canonical.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| needs-human-review \|/g, "| adopted |"));'
 node "$CLI" --review-migration > migration-mixed-review-file-level.log
 grep -q "semantic migration complete: no" wiki/migration/verification.md
-grep -q "file-level inbox row ignored for mixed-target legacy source" wiki/migration/review.md
-node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; const lines=fs.readFileSync(file,"utf8").split(/\n/).map((line)=>/^\| mixed-page\.md#u/.test(line) ? line.replace("| pending |", "| adopted |").replace("| needs-human-review |", "| adopted |") : line); fs.writeFileSync(file, lines.join("\n"));'
+node -e 'const fs=require("fs"); const file="wiki/migration/coverage.md"; let index=0; const lines=fs.readFileSync(file,"utf8").split(/\n/).map((line)=>{ if (!/^\| mixed-page\.md#u/.test(line)) return line; index += 1; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[5]="adopted"; cells[6]=`wiki/20-shared/migrated-unit-${index}.md`; cells[7]="reviewed unit target"; cells[10]="reviewed source context; v2 target assigned"; return `| ${cells.join(" | ")} |`; }); fs.writeFileSync(file, lines.join("\n"));'
 node "$CLI" --review-migration > migration-mixed-review-coverage.log
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
 node -e 'const fs=require("fs"); const file="wiki/migration/split-plan.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| ([0-9]+) \| mixed-page\.md#u/, "| 99 | mixed-page.md#u"));'
@@ -756,7 +767,7 @@ if node "$CLI" --migration-lint > migration-split-plan-bad-count.log 2>&1; then
   exit 1
 fi
 grep -q "migration-split-plan-count-mismatch" migration-split-plan-bad-count.log
-node -e 'const fs=require("fs"); const file="wiki/migration/unit-map.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| (high|medium|low) \| wiki\//, "| impossible | wiki/"));'
+node -e 'const fs=require("fs"); const file="wiki/migration/unit-map.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace(/\| (high|medium|low) \| (?:wiki\/|unassigned\/)/, "| impossible | unassigned/"));'
 if node "$CLI" --migration-lint > migration-unit-map-bad-confidence.log 2>&1; then
   echo "expected --migration-lint to fail when unit-map confidence is invalid" >&2
   exit 1
@@ -772,6 +783,7 @@ cat > wiki/decision.md <<'EOF'
 Decision: the migration cleanup must keep manually repurposed pages even when their filename is migration-inbox.md.
 EOF
 node "$CLI" --migrate > migration-junk-protection.log
+mkdir -p wiki/canonical
 cat > wiki/canonical/migration-inbox.md <<EOF
 ---
 status: active
@@ -788,12 +800,12 @@ review_trigger: retained migrated project content changes
 
 - This page has been manually repurposed into project content and must not be pruned as generated migration scaffolding.
 EOF
-node -e 'const fs=require("fs"); const file="wiki/decisions/migration-inbox.md"; fs.writeFileSync(file, fs.readFileSync(file,"utf8").replace("| pending |", "| adopted |"));'
+node -e 'const fs=require("fs"); const inbox="wiki/inbox/migration-decisions.md"; fs.writeFileSync(inbox, fs.readFileSync(inbox,"utf8").replace(/\| needs-human-review \|/g, "| adopted |")); const coverage="wiki/migration/coverage.md"; let index=0; const rows=fs.readFileSync(coverage,"utf8").split(/\n/).map((line)=>{ if (!/^\| decision\.md#u/.test(line)) return line; index += 1; const cells=line.slice(1,-1).split(" | ").map((cell)=>cell.trim()); cells[5]="adopted"; cells[6]=`wiki/20-shared/junk-protection-unit-${index}.md`; cells[7]="reviewed unit target"; cells[10]="reviewed source context; v2 target assigned"; return `| ${cells.join(" | ")} |`; }); fs.writeFileSync(coverage, rows.join("\n"));'
 node "$CLI" --review-migration > migration-junk-protection-review.log
 grep -Eq "semantic migration complete: yes, for the .* migration batch.* only" wiki/migration/verification.md
 test -e wiki/canonical/migration-inbox.md
-test ! -e wiki/decisions/migration-inbox.md
-test ! -e wiki/sources/migration-inbox.md
+test ! -e wiki/inbox/migration-decisions.md
+test ! -e wiki/inbox/migration-sources.md
 grep -Fq "[[canonical/migration-inbox]]" wiki/index.md
 node "$CLI" --link-check > migration-junk-protection-link-check.log
 grep -q "passed:" migration-junk-protection-link-check.log
@@ -823,14 +835,16 @@ review_trigger: legacy product plan changes
 Legacy Project Alpha serves billing administrators who reconcile imported invoices, approve payouts, and export financial reports. Its success criteria, domain terms, workflows, and release constraints belong to the current migration batch. A migration reviewer must verify useful meaning against the current wiki policy and structure before keeping this file in the new canonical wiki. The copied text includes specific roles, workflow names, product promises, and operational constraints that are still accepted as current project truth.
 EOF
 node "$CLI" --migrate > migration-copy-bootstrap.log
-cat > wiki/canonical/product-plan.md <<'EOF'
+cat > wiki/20-shared/product-plan.md <<'EOF'
 ---
 status: active
 updated: 2026-06-09
-scope: project-canonical
+scope: shared-contract
+type: shared
 read_budget: medium
 decision_ref: none
 review_trigger: migrated product plan changes
+owner: product
 ---
 
 # Product Plan
@@ -892,14 +906,16 @@ review_trigger: legacy operations changes
 - Juliet verification marks ambiguous legacy material for human review instead of dropping it.
 EOF
 node "$CLI" --migrate > migration-retained-wording-bootstrap.log
-cat > wiki/canonical/operations-rules.md <<'EOF'
+cat > wiki/20-shared/operations-rules.md <<'EOF'
 ---
 status: active
 updated: 2026-06-09
-scope: project-canonical
+scope: shared-contract
+type: shared
 read_budget: medium
 decision_ref: none
 review_trigger: operations rules change
+owner: operations
 ---
 
 # Operations Rules
@@ -958,14 +974,16 @@ review_trigger: legacy source changes
 Current project truth should be migrated into the new wiki instead of requiring readers to inspect preserved legacy files.
 EOF
 node "$CLI" --migrate > migration-legacy-reference-bootstrap.log
-cat > wiki/canonical/bad-reference.md <<'EOF'
+cat > wiki/20-shared/bad-reference.md <<'EOF'
 ---
 status: active
 updated: 2026-06-09
-scope: project-canonical
+scope: shared-contract
+type: shared
 read_budget: medium
 decision_ref: none
 review_trigger: migrated reference changes
+owner: product
 ---
 
 # Bad Reference

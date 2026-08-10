@@ -13,7 +13,7 @@
 
 - `wiki/startup.md`: 현재 프로젝트 요약
 - `wiki/index.md`: 다음에 읽을 상세 문서 라우터
-- `wiki/canonical/`, `wiki/decisions/`, `wiki/sources/`, `wiki/meta/`: 필요할 때만 읽는 상세 컨텍스트
+- `wiki/00-index/`, 소유 `wiki/10-services/<service>/` PRD 허브, `wiki/20-shared/`, `wiki/30-portfolio/`, `wiki/meta/`: 필요할 때만 읽는 상세 컨텍스트
 
 ## 얻는 것
 
@@ -23,7 +23,7 @@ Project Wiki Bootstrap은 코딩 에이전트가 예측 가능하게 읽을 수 
 
 - Codex와 Claude Code용 wiki-first 프로젝트 지시문
 - compact 시작 컨텍스트만 로드하는 session-start hook
-- 현재 프로젝트 사실, 가정, 리스크, 결정, source를 담는 canonical 문서
+- 현재 정본, 결정, 근거, 계획을 분리하는 서비스와 PRD 허브
 - 깨진 링크, 중복 route, orphan page, stale signal, 품질 gap을 찾는 wiki diagnostics
 - 기존 markdown 문서를 옮기기 위한 migration 지원
 - 큰 저장소에서 코드 근거 기반 wiki 갱신을 돕는 선택적 code evidence index
@@ -100,7 +100,7 @@ Wiki 명령:
 - 후보 메모를 `wiki/inbox/project-candidates.md`에 저장
 - stale 또는 undecided 상태의 wiki 문서 보고
 - 스킬 사용 중 발견한 문제나 부작용을 GitHub issue 본문 초안으로 작성
-- `wiki/canonical/glossary.md` 생성
+- `wiki/20-shared/glossary.md` 생성
 - 기존 markdown 문서를 검토 가능한 inbox로 마이그레이션
 - 코드를 분석해 근거가 있는 프로젝트 정보를 wiki에 반영
 
@@ -172,12 +172,9 @@ npx project-wiki-bootstrap --issue-create --issue-title "Report unexpected wiki 
 
 wiki 디렉터리:
 
-- `wiki/canonical/`
-- `wiki/decisions/`
-- `wiki/meta/`
-- `wiki/sources/`
-- `wiki/inbox/`
-- `wiki/migration/`
+- `wiki/00-index/`, `wiki/01-governance/`, `wiki/10-services/`
+- `wiki/20-shared/`, `wiki/30-portfolio/`, `wiki/90-archive/`
+- `wiki/inbox/`, `wiki/indexes/`, `wiki/meta/`, `wiki/migration/`
 
 ## Code Evidence Index
 

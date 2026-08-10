@@ -38,6 +38,7 @@ exports.classifyMarkdown = classifyMarkdown;
 exports.formOnlyMigrationDocumentReason = formOnlyMigrationDocumentReason;
 exports.extractMigrationUnits = extractMigrationUnits;
 exports.loadMigrationUnitContext = loadMigrationUnitContext;
+exports.migrationTargetErrors = migrationTargetErrors;
 exports.collectMigrationCoverageDiagnostics = collectMigrationCoverageDiagnostics;
 exports.collectMigrationUnitMapDiagnostics = collectMigrationUnitMapDiagnostics;
 exports.collectMigrationSplitPlanDiagnostics = collectMigrationSplitPlanDiagnostics;
@@ -62,6 +63,7 @@ const taxonomy_1 = require("./taxonomy");
 const workspace_1 = require("./workspace");
 const templates_1 = require("./templates");
 const wiki_files_1 = require("./wiki-files");
+const wiki_layout_1 = require("./wiki-layout");
 function classifyMarkdown(relativePath, text) {
     const haystack = `${relativePath}\n${text.slice(0, 8000)}`.toLowerCase();
     const hasDecisionSignal = /\b(adr|decision|decisions|rejected|alternative|tradeoff|rationale)\b|결정|기각|대안|재검토/.test(haystack);
@@ -213,9 +215,12 @@ function coverageTableRows(units) {
     if (units.length === 0)
         return "| none | - | - | - | - | pending | - | - | - | - | - |\n";
     return units.map((unit) => {
-        const status = unit.classification.confidence === "low" ? "needs-human-review" : "pending";
+        const status = unitNeedsHumanReview(unit) ? "needs-human-review" : "pending";
         return `| ${markdownTableCell(unit.id)} | ${markdownTableCell(unit.legacyPath)} | ${unit.type} | ${plainMarkdownTableCell(unit.heading || "-")} | ${plainMarkdownTableCell(unit.summary)} | ${status} | ${markdownTableCell(unit.classification.target)} | - | ${markdownTableCell(unit.classification.label)} | ${unit.classification.confidence} | ${plainMarkdownTableCell(unit.classification.reason)} |`;
     }).join("\n") + "\n";
+}
+function unitNeedsHumanReview(unit) {
+    return unit.classification.confidence === "low" || unit.classification.target.startsWith("unassigned/");
 }
 function coverageRowsFromUnits(units) {
     return units.map((unit) => ({
@@ -224,7 +229,7 @@ function coverageRowsFromUnits(units) {
         type: unit.type,
         heading: unit.heading || "-",
         summary: unit.summary,
-        status: unit.classification.confidence === "low" ? "needs-human-review" : "pending",
+        status: unitNeedsHumanReview(unit) ? "needs-human-review" : "pending",
         target: unit.classification.target,
         note: "-",
         area: unit.classification.label,
@@ -267,7 +272,7 @@ function unitMapRows(units) {
     if (units.length === 0)
         return "| none | - | - | - | - | - | - | - | - | - |\n";
     return units.map((unit) => {
-        const status = unit.classification.confidence === "low" ? "needs-human-review" : "pending";
+        const status = unitNeedsHumanReview(unit) ? "needs-human-review" : "pending";
         return `| ${markdownTableCell(unit.id)} | ${markdownTableCell(unit.legacyPath)} | ${plainMarkdownTableCell(unit.headingPath.join(" > ") || "-")} | ${markdownTableCell(unit.classification.label)} | ${unit.classification.storage} | ${unit.classification.confidence} | ${markdownTableCell(unit.classification.target)} | ${plainMarkdownTableCell(unit.classification.reason)} | ${plainMarkdownTableCell(unit.summary)} | ${status} |`;
     }).join("\n") + "\n";
 }
@@ -355,12 +360,58 @@ function isMigrationStorage(value) {
     return ["canonical", "decisions", "sources", "meta"].includes(value);
 }
 exports.generatedMigrationInboxFiles = [
+    "wiki/inbox/migration-canonical.md",
+    "wiki/inbox/migration-decisions.md",
+    "wiki/inbox/migration-sources.md",
+];
+const legacyMigrationInboxFiles = [
     "wiki/canonical/migration-inbox.md",
     "wiki/decisions/migration-inbox.md",
     "wiki/sources/migration-inbox.md",
 ];
-function isNewWikiTarget(value) {
-    return /^wiki\/(canonical|decisions|sources|meta)\//.test(value);
+const compatibleMigrationInboxFiles = [...exports.generatedMigrationInboxFiles, ...legacyMigrationInboxFiles];
+function migrationRegistrations() {
+    const services = new Set();
+    const prds = new Set();
+    for (const file of ["wiki/00-index/service-map.md", "wiki/00-index/prd-registry.md"]) {
+        if (!(0, workspace_1.exists)(file))
+            continue;
+        const text = (0, workspace_1.read)(file);
+        for (const match of text.matchAll(/(?:wiki\/)?10-services\/([^/\]\s|)]+)(?:\/prds\/((PRD-\d+)[^/\]\s|)]*))?/gi)) {
+            const service = match[1] ?? "";
+            const prdRoot = match[2] ?? "";
+            if (service)
+                services.add(service);
+            if (service && prdRoot)
+                prds.add(`${service}/${prdRoot}`);
+        }
+    }
+    return { services, prds };
+}
+function targetHasSymlink(value) {
+    let current = workspace_1.root;
+    for (const part of value.split("/").filter(Boolean)) {
+        current = path.join(current, part);
+        if (!fs.existsSync(current))
+            continue;
+        if (fs.lstatSync(current).isSymbolicLink())
+            return true;
+    }
+    return false;
+}
+function migrationTargetErrors(value, unit) {
+    const options = unit
+        ? (/^wiki\/10-services\/[^/]+\/prds\//.test(value)
+            ? { activeTruth: !["research-sources", "decision-record"].includes(unit.classification.area), documentType: (0, taxonomy_1.migrationDocumentTypeForArea)(unit.classification.area) }
+            : { activeTruth: !["research-sources", "decision-record"].includes(unit.classification.area) })
+        : {};
+    const errors = (0, wiki_layout_1.validateMigrationTarget)(value, migrationRegistrations(), options);
+    if (targetHasSymlink(value))
+        errors.push(`migration target refuses a symlinked path: ${value}`);
+    return errors;
+}
+function isMigrationSuggestion(value) {
+    return value.startsWith("unassigned/") || migrationTargetErrors(value).length === 0;
 }
 function expectedUnitMap(units) {
     return new Map(units.map((unit) => [unit.id, unit]));
@@ -421,8 +472,10 @@ function collectMigrationCoverageDiagnostics(context = loadMigrationUnitContext(
         if (confidence && !isMigrationConfidence(confidence)) {
             diagnostics.push({ code: "migration-invalid-confidence", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} has invalid confidence: ${confidence}` });
         }
-        if (["adopted", "merged"].includes(status) && !isNewWikiTarget(target)) {
-            diagnostics.push({ code: "migration-missing-target", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} is ${status} but target is not a new wiki page` });
+        if (["adopted", "merged"].includes(status)) {
+            const targetErrors = migrationTargetErrors(target, expectedUnit);
+            for (const message of targetErrors)
+                diagnostics.push({ code: "migration-invalid-target", severity: "error", file: "wiki/migration/coverage.md", message: `unit ${id} is ${status}: ${message}` });
         }
         if (status === "pending" && expectedUnit && target && target !== expectedUnit.classification.target && !isReviewedCoverageRetarget(cells)) {
             diagnostics.push({ code: "migration-pending-target-drift", severity: "warn", file: "wiki/migration/coverage.md", message: `pending unit ${id} target differs from generated taxonomy target ${expectedUnit.classification.target}` });
@@ -487,8 +540,8 @@ function collectMigrationUnitMapDiagnostics(context = loadMigrationUnitContext()
         if (!isMigrationCoverageStatus(status)) {
             diagnostics.push({ code: "migration-unit-map-invalid-status", severity: "error", file, message: `unit ${id} has invalid status: ${status || "(blank)"}` });
         }
-        if (!isNewWikiTarget(target)) {
-            diagnostics.push({ code: "migration-unit-map-invalid-target", severity: "error", file, message: `unit ${id} target is not under wiki/canonical, wiki/decisions, wiki/sources, or wiki/meta` });
+        if (!isMigrationSuggestion(target)) {
+            diagnostics.push({ code: "migration-unit-map-invalid-target", severity: "error", file, message: `unit ${id} target is neither unassigned nor a registered v2 writable target` });
         }
         if (expectedUnit) {
             if (area !== expectedUnit.classification.label) {
@@ -544,8 +597,8 @@ function collectMigrationSplitPlanDiagnostics(context = loadMigrationUnitContext
             diagnostics.push({ code: "migration-split-plan-duplicate-target", severity: "error", file, message: `duplicate split-plan target row: ${target}` });
         }
         seenTargets.add(target);
-        if (!isNewWikiTarget(target)) {
-            diagnostics.push({ code: "migration-split-plan-invalid-target", severity: "error", file, message: `split-plan target is not under wiki/canonical, wiki/decisions, wiki/sources, or wiki/meta: ${target || "(blank)"}` });
+        if (!isMigrationSuggestion(target)) {
+            diagnostics.push({ code: "migration-split-plan-invalid-target", severity: "error", file, message: `split-plan target is neither unassigned nor a registered v2 writable target: ${target || "(blank)"}` });
         }
         if (!isMigrationStorage(storage)) {
             diagnostics.push({ code: "migration-split-plan-invalid-storage", severity: "error", file, message: `target ${target || "(blank)"} has invalid storage: ${storage || "(blank)"}` });
@@ -587,17 +640,17 @@ function collectMigrationSplitPlanDiagnostics(context = loadMigrationUnitContext
 function markdownTableRows(items) {
     if (items.length === 0)
         return "| none | - | - | - |\n";
-    return items.map((item) => `| ${markdownTableCell(item.path)} | ${plainMarkdownTableCell(item.title)} | ${plainMarkdownTableCell(item.summary)} | pending |`).join("\n") + "\n";
+    return items.map((item) => `| ${markdownTableCell(item.path)} | ${plainMarkdownTableCell(item.title)} | ${plainMarkdownTableCell(item.summary)} | needs-human-review |`).join("\n") + "\n";
 }
 function buildInbox(title, description, items) {
-    return `${(0, templates_1.metadata)("migration-inbox", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "migration candidates are adopted or rescanned")}
+    return `${(0, templates_1.metadata)("migration-inbox", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "migration candidate ownership, target, status, or source scan changes", "active", { type: "candidate" })}
 # ${title}
 
 ## TL;DR
 
 - ${description}
 - Original files are preserved under a \`wiki_legacy\` directory.
-- Review each item, rewrite useful meaning into canonical/decision/source/meta docs, then set status to adopted/rejected/resolved/needs-human-review.
+- Ownership starts unassigned. Register the owning service and PRD, choose a valid v2 target, then set status to adopted/rejected/resolved/needs-human-review.
 - Status values: pending, adopted, rejected, resolved, needs-human-review.
 
 | Source | Title | Summary | Status |
@@ -621,7 +674,7 @@ function isGeneratedFileLevelMigrationInboxText(text) {
     return (headings[0]?.endsWith("Migration Inbox") ?? false) && headings[1] === "TL;DR";
 }
 function isPrunableGeneratedMigrationInbox(relativePath) {
-    if (!exports.generatedMigrationInboxFiles.includes(relativePath))
+    if (!compatibleMigrationInboxFiles.includes(relativePath))
         return false;
     if (!(0, workspace_1.exists)(relativePath))
         return false;
@@ -677,13 +730,13 @@ ${inboxLine}
 }
 function pruneCompletedMigrationJunk(legacyRoot) {
     const results = [];
-    for (const file of exports.generatedMigrationInboxFiles) {
+    for (const file of compatibleMigrationInboxFiles) {
         if (!isPrunableGeneratedMigrationInbox(file))
             continue;
         fs.unlinkSync((0, workspace_1.abs)(file));
         results.push([file, "removed"]);
     }
-    const remainingInboxes = exports.generatedMigrationInboxFiles.filter((file) => (0, workspace_1.exists)(file));
+    const remainingInboxes = compatibleMigrationInboxFiles.filter((file) => (0, workspace_1.exists)(file));
     if ((0, workspace_1.exists)("wiki/startup.md")) {
         results.push(["wiki/startup.md migration state", (0, workspace_1.upsertMarkedSection)("wiki/startup.md", "<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->", completedMigrationStartupBlock(legacyRoot, remainingInboxes))]);
     }
@@ -889,7 +942,7 @@ function bulkReviewSummarySection(plan) {
 `;
 }
 function renderMigrationBulkReviewDocument(plan, batchScope) {
-    return `${(0, templates_1.metadata)("migration-bulk-review", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration coverage or confidence grouping changes")}
+    return `${(0, templates_1.metadata)("migration-bulk-review", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration coverage or confidence grouping changes")}
 # Migration Bulk Review Plan
 
 ## TL;DR
@@ -996,12 +1049,12 @@ function prepareMigrationMode() {
 }
 function migrationTargetForKind(kind) {
     if (kind === "decision")
-        return "wiki/decisions/migration-inbox.md";
+        return "wiki/inbox/migration-decisions.md";
     if (kind === "source")
-        return "wiki/sources/migration-inbox.md";
+        return "wiki/inbox/migration-sources.md";
     if (kind === "meta")
         return "wiki/meta/migration-inbox.md";
-    return "wiki/canonical/migration-inbox.md";
+    return "wiki/inbox/migration-canonical.md";
 }
 function runMigrationMode(migrationState) {
     const legacyPath = migrationState.legacyPath;
@@ -1035,7 +1088,7 @@ function runMigrationMode(migrationState) {
     const skippedRows = skippedFormOnlyFiles.length === 0
         ? "| none | - | - |\n"
         : skippedFormOnlyFiles.map((record) => `| ${markdownTableCell(record.file.path)} | ${markdownTableCell(record.formOnlyReason)} | ${plainMarkdownTableCell((0, wiki_files_1.firstHeading)(record.text, record.file.path))} |`).join("\n") + "\n";
-    const inventory = `${(0, templates_1.metadata)("migration-inventory", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration scan is rerun")}
+    const inventory = `${(0, templates_1.metadata)("migration-inventory", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration scan is rerun")}
 # Migration Inventory
 
 ## TL;DR
@@ -1067,7 +1120,7 @@ ${skippedRows}`;
     const batchScope = migrationBatchScope(legacyPath || "none");
     const initialBulkPlan = buildMigrationBulkReviewPlan(bulkReviewRowsFromCoverage(coverageRowsFromUnits(units)));
     const bulkReview = renderMigrationBulkReviewDocument(initialBulkPlan, batchScope);
-    const coverage = `${(0, templates_1.metadata)("migration-coverage", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration unit coverage statuses change")}
+    const coverage = `${(0, templates_1.metadata)("migration-coverage", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration unit coverage statuses change")}
 # Migration Coverage Ledger
 
 ## TL;DR
@@ -1077,12 +1130,13 @@ ${skippedRows}`;
 - Legacy meaning units: ${units.length}
 - Every legacy heading, paragraph, list item, table row, and code block should remain accounted for.
 - Status values: pending, adopted, merged, superseded, rejected, resolved, needs-human-review.
-- \`adopted\` and \`merged\` rows require a new-wiki target under \`wiki/canonical/\`, \`wiki/decisions/\`, \`wiki/sources/\`, or \`wiki/meta/\`.
+- \`adopted\` and \`merged\` rows require a registered target under \`wiki/10-services/\`, \`wiki/20-shared/\`, \`wiki/30-portfolio/\`, or \`wiki/meta/\`.
+- Unknown ownership remains \`unassigned\` with \`needs-human-review\` until a service and PRD are registered.
 
 | Unit ID | Legacy Source | Type | Heading | Summary | Status | Target | Note | Area | Confidence | Reason |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${coverageTableRows(units)}`;
-    const unitMap = `${(0, templates_1.metadata)("migration-unit-map", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration classification or target suggestions change")}
+    const unitMap = `${(0, templates_1.metadata)("migration-unit-map", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration classification or target suggestions change")}
 # Migration Unit Map
 
 ## TL;DR
@@ -1095,7 +1149,7 @@ ${coverageTableRows(units)}`;
 | Unit ID | Legacy Source | Heading Path | Area | Storage | Confidence | Suggested Target | Reason | Summary | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${unitMapRows(units)}`;
-    const splitPlan = `${(0, templates_1.metadata)("migration-split-plan", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration split grouping changes")}
+    const splitPlan = `${(0, templates_1.metadata)("migration-split-plan", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration split grouping changes")}
 # Migration Split Plan
 
 ## TL;DR
@@ -1107,16 +1161,16 @@ ${unitMapRows(units)}`;
 | Suggested Target | Area | Storage | Lowest Confidence | Unit Count | Legacy Units |
 | --- | --- | --- | --- | ---: | --- |
 ${splitPlanRows(units)}`;
-    const plan = `${(0, templates_1.metadata)("migration-plan", "short", "wiki/meta/wiki-ops-v1-decisions.md", "migration procedure or status changes")}
+    const plan = `${(0, templates_1.metadata)("migration-plan", "short", "wiki/meta/wiki-ops-v2-decisions.md", "migration procedure or status changes")}
 # Migration Plan
 
 ## TL;DR
 
 - Generated: ${workspace_1.today}
 - Preparation: ${migrationState.note}
-- The new \`./wiki\` uses the standard structure.
+- The new \`./wiki\` uses the service/PRD v2 structure.
 - Form-only/template files are recorded in inventory but excluded from meaning-unit migration.
-- Next step: review inbox items and absorb useful meaning into canonical, decisions, sources, or meta docs.
+- Next step: review inbox items, assign service/PRD ownership, and absorb useful meaning into a v2 writable target.
 
 ## Counts
 
@@ -1136,10 +1190,10 @@ ${splitPlanRows(units)}`;
     const verificationRows = units.length === 0
         ? "| none | - | - | pass | - |\n"
         : units.map((unit) => {
-            const semanticStatus = unit.classification.confidence === "low" ? "needs-human-review" : "pending semantic rewrite";
+            const semanticStatus = unitNeedsHumanReview(unit) ? "needs-human-review" : "pending semantic rewrite";
             return `| ${markdownTableCell(unit.id)} | ${(0, taxonomy_1.storageToMigrationKind)(unit.classification.storage)} | ${markdownTableCell(unit.classification.target)} | mapped | ${semanticStatus} |`;
         }).join("\n") + "\n";
-    const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox items are adopted, rejected, or rescanned")}
+    const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration inbox items are adopted, rejected, or rescanned")}
 # Migration Verification
 
 ## TL;DR
@@ -1156,7 +1210,7 @@ ${completionScopeSection(batchScope)}
 | Legacy Source | Classification | New Wiki Target | Coverage | Semantic Status |
 | --- | --- | --- | --- | --- |
 ${verificationRows}`;
-    const review = `${(0, templates_1.metadata)("migration-review", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox statuses change")}
+    const review = `${(0, templates_1.metadata)("migration-review", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration inbox statuses change")}
 # Migration Review
 
 ## TL;DR
@@ -1173,11 +1227,11 @@ ${bulkReviewSummarySection(initialBulkPlan)}
 
 | Legacy Source | Classification | Inbox Status | Semantic Status | Evidence |
 | --- | --- | --- | --- | --- |
-${units.length === 0 ? "| none | - | - | - | - |\n" : units.map((unit) => `| ${markdownTableCell(unit.id)} | ${(0, taxonomy_1.storageToMigrationKind)(unit.classification.storage)} | ${unit.classification.confidence === "low" ? "needs-human-review" : "pending"} | ${unit.classification.confidence === "low" ? "needs-human-review" : "pending semantic rewrite"} | ${plainMarkdownTableCell(unit.classification.reason)} |`).join("\n") + "\n"}`;
+${units.length === 0 ? "| none | - | - | - | - |\n" : units.map((unit) => `| ${markdownTableCell(unit.id)} | ${(0, taxonomy_1.storageToMigrationKind)(unit.classification.storage)} | ${unitNeedsHumanReview(unit) ? "needs-human-review" : "pending"} | ${unitNeedsHumanReview(unit) ? "needs-human-review" : "pending semantic rewrite"} | ${plainMarkdownTableCell(unit.classification.reason)} |`).join("\n") + "\n"}`;
     const migrationStartupBlock = `<!-- PROJECT-WIKI-MIGRATION:START -->
 ## Migration State
 
-- ${workspace_1.today}: preserved existing wiki at \`${legacyPath || "no wiki_legacy"}\` and regenerated the standard wiki structure.
+- ${workspace_1.today}: preserved existing wiki at \`${legacyPath || "no wiki_legacy"}\` and regenerated the service/PRD v2 wiki structure.
 - Scanned ${markdownFiles.length} legacy markdown files, skipped ${skippedFormOnlyFiles.length} form-only/template files, and mapped ${units.length} meaning units; created inventory, unit map, split plan, coverage, verification, review, and inbox files.
 - Do not delete \`${legacyPath || "wiki_legacy"}\` until all migration inbox items are adopted/rejected/resolved and needs-human-review is 0.
 - Migration completion status is scoped to this batch only. For a future fresh rebuild request, treat current \`wiki/\` as the legacy source unless the user says otherwise.
@@ -1193,7 +1247,7 @@ ${units.length === 0 ? "| none | - | - | - | - |\n" : units.map((unit) => `| ${m
 - [[migration/verification]]: current unit coverage and semantic status.
 - [[migration/review]]: regenerated summary from coverage/inbox status.
 - [[migration/bulk-review]]: batch review queues so humans do not inspect every unit one by one.
-- [[canonical/migration-inbox]], [[decisions/migration-inbox]], [[sources/migration-inbox]]: file-level adoption inboxes.
+- [[inbox/migration-canonical]], [[inbox/migration-decisions]], [[inbox/migration-sources]]: file-level adoption inboxes. Existing lifecycle-root inboxes remain read-compatible.
 <!-- PROJECT-WIKI-MIGRATION:END -->`;
     const results = [];
     (0, workspace_1.mkdirp)("wiki/migration");
@@ -1205,9 +1259,9 @@ ${units.length === 0 ? "| none | - | - | - | - |\n" : units.map((unit) => `| ${m
     results.push(["wiki/migration/review.md", (0, workspace_1.writeManaged)("wiki/migration/review.md", review)]);
     results.push(["wiki/migration/verification.md", (0, workspace_1.writeManaged)("wiki/migration/verification.md", verification)]);
     results.push(["wiki/migration/bulk-review.md", (0, workspace_1.writeManaged)("wiki/migration/bulk-review.md", bulkReview)]);
-    results.push(["wiki/canonical/migration-inbox.md", (0, workspace_1.writeManaged)("wiki/canonical/migration-inbox.md", buildInbox("Canonical Migration Inbox", "Legacy content that may belong in current project truth.", byKind.canonical.concat(byKind.other)))]);
-    results.push(["wiki/decisions/migration-inbox.md", (0, workspace_1.writeManaged)("wiki/decisions/migration-inbox.md", buildInbox("Decision Migration Inbox", "Legacy content that may belong in project decision history.", byKind.decision))]);
-    results.push(["wiki/sources/migration-inbox.md", (0, workspace_1.writeManaged)("wiki/sources/migration-inbox.md", buildInbox("Source Migration Inbox", "Legacy content that may belong in source summaries.", byKind.source))]);
+    results.push(["wiki/inbox/migration-canonical.md", (0, workspace_1.writeManaged)("wiki/inbox/migration-canonical.md", buildInbox("Unassigned Truth Migration Inbox", "Legacy content awaiting service/PRD ownership and a v2 current-truth target.", byKind.canonical.concat(byKind.other)))]);
+    results.push(["wiki/inbox/migration-decisions.md", (0, workspace_1.writeManaged)("wiki/inbox/migration-decisions.md", buildInbox("Unassigned Decision Migration Inbox", "Legacy decisions awaiting an owning service/PRD decision area.", byKind.decision))]);
+    results.push(["wiki/inbox/migration-sources.md", (0, workspace_1.writeManaged)("wiki/inbox/migration-sources.md", buildInbox("Unassigned Source Migration Inbox", "Legacy evidence awaiting an owning service/PRD source area.", byKind.source))]);
     results.push(["wiki/startup.md migration state", (0, workspace_1.upsertMarkedSection)("wiki/startup.md", "<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->", migrationStartupBlock)]);
     results.push(["wiki/index.md migration router", (0, workspace_1.upsertMarkedSection)("wiki/index.md", "<!-- PROJECT-WIKI-MIGRATION:START -->", "<!-- PROJECT-WIKI-MIGRATION:END -->", migrationIndexBlock)]);
     return { results, total: markdownFiles.length, legacyPath };
@@ -1230,7 +1284,7 @@ function isMigrationInboxStatus(value) {
     return ["adopted", "rejected", "resolved", "needs-human-review", "pending"].includes(value);
 }
 function migrationInboxStatusMap() {
-    const inboxFiles = ["wiki/canonical/migration-inbox.md", "wiki/decisions/migration-inbox.md", "wiki/sources/migration-inbox.md"];
+    const inboxFiles = [...compatibleMigrationInboxFiles];
     const statuses = new Map();
     for (const file of inboxFiles) {
         if (!(0, workspace_1.exists)(file))
@@ -1342,7 +1396,7 @@ function runReviewMigrationMode() {
     const reviewRows = reviewedRows.length === 0
         ? "| none | - | - | - | - |\n"
         : reviewedRows.map((row) => `| ${markdownTableCell(row.legacyPath)} | ${row.kind} | ${row.inboxStatus} | ${row.semanticStatus} | ${markdownTableCell(row.note)} |`).join("\n") + "\n";
-    const review = `${(0, templates_1.metadata)("migration-review", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox statuses change")}
+    const review = `${(0, templates_1.metadata)("migration-review", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration inbox statuses change")}
 # Migration Review
 
 ## TL;DR
@@ -1366,7 +1420,7 @@ ${reviewRows}`;
     const verificationRowsText = reviewedRows.length === 0
         ? "| none | - | - | pass | - |\n"
         : reviewedRows.map((row) => `| ${markdownTableCell(row.legacyPath)} | ${row.kind} | ${row.target} | ${row.coverage} | ${row.semanticStatus} |`).join("\n") + "\n";
-    const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "migration inbox items are adopted, rejected, resolved, or marked needs-human-review")}
+    const verification = `${(0, templates_1.metadata)("migration-verification", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "migration inbox items are adopted, rejected, resolved, or marked needs-human-review")}
 # Migration Verification
 
 ## TL;DR

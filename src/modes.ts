@@ -10,9 +10,10 @@ import { abs, exists, hasMetadataHeader, isGitRepository, metadataValue, mkdirp,
 import { metadata } from "./templates";
 import { collectMigrationCoverageDiagnostics, collectMigrationSplitPlanDiagnostics, collectMigrationUnitMapDiagnostics, generatedMigrationInboxFiles, loadMigrationUnitContext, migrationSemanticReviewComplete } from "./migration";
 import { canonicalBodyForLint, extractMarkdownBlocks, firstTldrBullet, hasGlossaryNeedSignal, hasGlossaryTable, markdownBlockSnippet, metadataSummary, stripMarkedSection, wikiLinkForFile, wikiMarkdownFiles, wikiTitleForFile } from "./wiki-files";
-import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiReachableDepths, wikiRouterDepthBudget, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
+import { buildWikiGraph, finalizeWikiAnswer, wikiAnswerCharCap, wikiAnswerTruncationNotice, wikiImpactAnswer, wikiNeighborhoodAnswer, wikiQueryGraphEvidence, wikiReachableDepths, wikiRouterDepthBudgetForFile, wikiRouterDepths, wikiRouterExemptPages, wikiRouterRoot } from "./wiki-graph";
 import { loadWikiCorpus, wikiCorpusGraph, wikiCorpusText, type WikiCorpus } from "./wiki-corpus";
 import { collectTopologyDiagnostics, staleReviewAge } from "./wiki-diagnostics";
+import { classifyWikiPath, isCurrentTruthPath, isLegacyLifecyclePath, validateWikiMetadataContext, wikiRoutePriority } from "./wiki-layout";
 
 const scopedAutoIndexThreshold = 40;
 const scopedAutoIndexCharLimit = 7600;
@@ -37,6 +38,11 @@ function slugPart(value: string): string {
 }
 
 function routeAreaForWikiFile(file: string): string {
+  const layout = classifyWikiPath(file);
+  if (layout.prdRoot) return slugPart(`${layout.service}-${layout.prdRoot}`);
+  if (layout.service) return slugPart(layout.service);
+  if (layout.version === "v2" && layout.area !== "other") return slugPart(layout.area);
+  if (layout.legacy) return `legacy-${slugPart(layout.area)}`;
   const base = path.basename(file, path.extname(file));
   const parts = base.split(/[-_]+/).filter(Boolean);
   if (parts.length >= 3 && ["apps", "libs", "packages", "services"].includes(parts[0] ?? "")) return slugPart(parts.slice(0, 3).join("-"));
@@ -62,7 +68,7 @@ function scopedIndexContent(area: string, files: string[], partIndex = 0, partCo
     const meta = metadataSummary(file, read(file));
     return `| ${wikiLinkForFile(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
   }).join("\n");
-  return `${metadata("wiki-router", "medium", "wiki/meta/wiki-ops-v1-decisions.md", "auto-discovered scoped routes change")}${scopedAutoIndexMarker}
+  return `${metadata("wiki-router", "medium", "wiki/meta/wiki-ops-v2-decisions.md", "auto-discovered scoped routes change", "active", { type: "router" })}${scopedAutoIndexMarker}
 # Auto Index: ${title}
 
 ## TL;DR
@@ -129,11 +135,10 @@ export function buildRefreshIndexBlock(): string {
   const indexText = exists("wiki/index.md") ? read("wiki/index.md") : "";
   const comparableIndex = stripMarkedSection(indexText, "<!-- PROJECT-WIKI-AUTO-INDEX:START -->", "<!-- PROJECT-WIKI-AUTO-INDEX:END -->");
   const allFiles = wikiMarkdownFiles();
-  const files = allFiles.filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file));
+  const files = allFiles.filter((file) => !["wiki/index.md", "wiki/startup.md", "wiki/README.md"].includes(file) && !isScopedAutoIndex(file) && !isLegacyLifecyclePath(file));
   const pages = allFiles.map((file) => ({ file, text: file === "wiki/index.md" ? comparableIndex : read(file) }));
   const indexDepths = wikiReachableDepths(buildWikiGraph(pages), "wiki/index.md");
-  const indexDepthBudget = wikiRouterDepthBudget - 1;
-  const missing = files.filter((file) => (indexDepths.get(file) ?? Number.POSITIVE_INFINITY) > indexDepthBudget);
+  const missing = files.filter((file) => (indexDepths.get(file) ?? Number.POSITIVE_INFINITY) > wikiRouterDepthBudgetForFile(file) - 1);
   if (missing.length > scopedAutoIndexThreshold) {
     const summaries = syncScopedAutoIndexes(missing);
     const rows = summaries.map((summary) => `| ${wikiLinkForFile(summary.file)} | ${summary.area} | ${summary.count} |`).join("\n");
@@ -147,18 +152,16 @@ ${rows}
   }
   removeStaleScopedAutoIndexes(new Set());
   const rows = missing.length === 0
-    ? "| none | - | - | - |\n"
+    ? "- none\n"
     : missing.map((file) => {
         const meta = metadataSummary(file, read(file));
-        return `| ${wikiLinkForFile(file)} | ${meta.scope} | ${meta.status} | ${meta.budget} |`;
+        return `- ${wikiLinkForFile(file)} — ${meta.scope}; ${meta.status}; ${meta.budget}`;
       }).join("\n") + "\n";
   return `<!-- PROJECT-WIKI-AUTO-INDEX:START -->
 ## Auto-Discovered Pages
 
-This block is managed by \`--refresh-index\`. Move useful rows into a hand-written section when they become part of the normal route.
+Managed by \`--refresh-index\`; promote normal routes into a hand-written section.
 
-| Document | Scope | Status | Token Budget |
-| --- | --- | --- | --- |
 ${rows}<!-- PROJECT-WIKI-AUTO-INDEX:END -->`;
 }
 
@@ -203,7 +206,8 @@ function querySurfaceScore(file: string, meta: MetadataSummary, rawScore: number
   if (meta.budget === "on-demand" && !hasDeepReferenceQueryIntent(terms)) {
     score = Math.max(1, Math.min(Math.floor(score * 0.5), 24));
   }
-  if (file.startsWith("wiki/canonical/") && meta.status === "active") score += 12;
+  score += wikiRoutePriority(file) - 20;
+  if (isCurrentTruthPath(file) && meta.status === "active") score += 12;
   else if (meta.status === "active") score += 2;
   return score;
 }
@@ -294,21 +298,21 @@ export function runWikiNeighborhoodMode(): void {
 }
 
 export function projectCandidatesContent(): string {
-  return `${metadata("inbox", "on-demand", "wiki/meta/wiki-ops-v1-decisions.md", "candidates are adopted, rejected, or stale")}
+  return `${metadata("inbox", "on-demand", "wiki/meta/wiki-ops-v2-decisions.md", "candidate ownership, classification, adoption, rejection, or staleness changes", "active", { type: "candidate" })}
 # Project Candidates Inbox
 
 ## TL;DR
 
-- This file temporarily stores project-canonical candidates from conversation.
-- This file is not canonical truth.
-- After review, move useful content into canonical/decision/source/meta docs or mark it rejected/resolved.
+- This file temporarily stores unreviewed project candidates from conversation.
+- Service, PRD, type, and owner fields keep routing explicit; unknown ownership remains unassigned.
+- After review, move useful content into the owning service, PRD, shared, portfolio, or meta area.
 
-| Date | Title | Category | Content | Status |
-| --- | --- | --- | --- | --- |
+| Date | Title | Service | PRD | Type | Owner | Content | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
 `;
 }
 
-export function appendProjectCandidate(input: { category?: string; content?: string; title?: string } = {}): FileStatus {
+export function appendProjectCandidate(input: { category?: string; content?: string; owner?: string; prdId?: string; service?: string; title?: string; type?: string } = {}): FileStatus {
   mkdirp("wiki/inbox");
   const relativePath = "wiki/inbox/project-candidates.md";
   const existed = exists(relativePath);
@@ -319,7 +323,11 @@ export function appendProjectCandidate(input: { category?: string; content?: str
   if (!candidateTitle && !candidateContent) return existed ? "exists" : "created";
   const title = (candidateTitle || "Untitled candidate").replace(/\|/g, "/");
   const content = (candidateContent || "").replace(/\r?\n/g, "<br>").replace(/\|/g, "/");
-  const row = `| ${today} | ${title} | ${candidateCategory.replace(/\|/g, "/")} | ${content} | pending |`;
+  const service = (input.service || "unassigned").replace(/\|/g, "/");
+  const prdId = (input.prdId || "unassigned").replace(/\|/g, "/");
+  const type = (input.type || candidateCategory || "candidate").replace(/\|/g, "/");
+  const owner = (input.owner || "unassigned").replace(/\|/g, "/");
+  const row = `| ${today} | ${title} | ${service} | ${prdId} | ${type} | ${owner} | ${content} | pending |`;
   const current = read(relativePath);
   if (current.includes(row)) return "exists";
   write(relativePath, `${current.trimEnd()}\n${row}\n`);
@@ -606,6 +614,8 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
   const orphanExemptions = new Set(["wiki/index.md", "wiki/startup.md", "wiki/README.md"]);
   for (const file of files) {
     if (orphanExemptions.has(file)) continue;
+    const status = metadataValue(wikiCorpusText(corpus, file), "status").toLowerCase();
+    if (isLegacyLifecyclePath(file) && ["superseded", "archived", "compatibility"].includes(status)) continue;
     if ((incoming.get(file) ?? 0) === 0) {
       diagnostics.push({
         code: "orphan-page",
@@ -628,6 +638,8 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
     const depths = wikiRouterDepths(graph);
     for (const file of files) {
       if (wikiRouterExemptPages.has(file)) continue;
+      const status = metadataValue(wikiCorpusText(corpus, file), "status").toLowerCase();
+      if (isLegacyLifecyclePath(file) && ["superseded", "archived", "compatibility"].includes(status)) continue;
       const depth = depths.get(file);
       const isIndex = file === "wiki/index.md";
       if (depth === undefined) {
@@ -646,12 +658,12 @@ export function collectLinkDiagnostics(corpus: WikiCorpus = loadWikiCorpus()): W
             message: `linked only from pages that never connect to ${wikiRouterRoot}; route it from wiki/index.md or a scoped router`,
           });
         }
-      } else if (depth > wikiRouterDepthBudget) {
+      } else if (depth > wikiRouterDepthBudgetForFile(file)) {
         diagnostics.push({
           code: "router-depth-exceeded",
           severity: "warn",
           file,
-          message: `reachable from ${wikiRouterRoot} only at depth ${depth} (budget ${wikiRouterDepthBudget}); add a shorter route`,
+          message: `reachable from ${wikiRouterRoot} only at depth ${depth} (budget ${wikiRouterDepthBudgetForFile(file)}); add a shorter route`,
         });
       }
     }
@@ -669,8 +681,10 @@ function legacyWikiRoots(): string[] {
 }
 
 function shouldGuardAgainstLegacyReference(file: string): boolean {
-  if (!/^wiki\/(?:canonical|decisions|sources)\//.test(file)) return false;
-  return !file.endsWith("/migration-inbox.md");
+  if (file.endsWith("/migration-inbox.md")) return false;
+  if (/^wiki\/(?:canonical|decisions|sources)\//.test(file)) return true;
+  const layout = classifyWikiPath(file);
+  return layout.version === "v2" && (file.startsWith("wiki/10-services/") || file.startsWith("wiki/20-shared/") || file.startsWith("wiki/30-portfolio/"));
 }
 
 function migrationLegacyReferenceDiagnostics(files: string[], corpus?: WikiCorpus): WikiDiagnostic[] {
@@ -704,7 +718,7 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(),
       diagnostics.push({ code: "missing-tldr", severity: "warn", file, message: "add a compact TL;DR near the top" });
     }
     const reviewAge = updated ? staleReviewAge(updated, currentDate) : null;
-    if (status === "active" && reviewAge !== null && /project-canonical|project-decisions|source-summary|wiki-meta/.test(scope)) {
+    if (status === "active" && reviewAge !== null && (isCurrentTruthPath(file) || /project-decisions|source-summary|wiki-meta|prd-|service-|shared/.test(scope))) {
       diagnostics.push({ code: "stale-review", severity: "warn", file, message: `updated ${reviewAge} days ago: ${updated}` });
     }
     if (status === "active" && !/inbox|migration-inbox/.test(scope) && /proposed|undecided|TODO|TBD|미정/i.test(body)) {
@@ -716,8 +730,8 @@ export function collectQualityDiagnostics(corpus: WikiCorpus = loadWikiCorpus(),
     } else if (budget === "medium" && text.length > 8000) {
       diagnostics.push({ code: "budget-drift", severity: "warn", file, message: `${text.length}/8000 chars for medium read_budget` });
     }
-    if (file.startsWith("wiki/canonical/") && /Code-proven behavior:/i.test(body) && !/evidence:\s*`?[\w./-]+/i.test(body)) {
-      diagnostics.push({ code: "missing-evidence", severity: "warn", file, message: "code-proven canonical claims should cite concrete evidence paths" });
+    if (isCurrentTruthPath(file) && /Code-proven behavior:/i.test(body) && !/evidence:\s*`?[\w./-]+/i.test(body)) {
+      diagnostics.push({ code: "missing-evidence", severity: "warn", file, message: "code-proven current-truth claims should cite concrete evidence paths" });
     }
     if (scope === "source-summary" && !/https?:\/\//.test(body)) {
       diagnostics.push({ code: "missing-source-link", severity: "warn", file, message: "source summaries should retain at least one source URL" });
@@ -887,11 +901,17 @@ const commonLintRequiredFiles = [
     "wiki/AGENTS.md",
     "wiki/startup.md",
     "wiki/index.md",
-    "wiki/decisions/log.md",
-    "wiki/decisions/recent.md",
+    "wiki/00-index/README.md",
+    "wiki/00-index/service-map.md",
+    "wiki/00-index/prd-registry.md",
+    "wiki/01-governance/README.md",
+    "wiki/10-services/README.md",
+    "wiki/20-shared/README.md",
+    "wiki/30-portfolio/README.md",
+    "wiki/90-archive/README.md",
     "wiki/meta/operating-model.md",
     "wiki/meta/decision-policy.md",
-    "wiki/meta/wiki-ops-v1-decisions.md",
+    "wiki/meta/wiki-ops-v2-decisions.md",
     ".githooks/prepare-commit-msg",
     ".githooks/wiki-commit-trailers.js",
 ] as const;
@@ -926,6 +946,12 @@ export function runLintMode(corpus?: WikiCorpus): void {
     for (const key of requiredMetadataKeys) {
       if (!metadataValue(text, key)) errors.push(`missing metadata key ${key}: ${file}`);
     }
+    if (classifyWikiPath(file).version === "v2") {
+      for (const key of ["type", "owner"]) {
+        if (!metadataValue(text, key)) errors.push(`missing metadata key ${key}: ${file}`);
+      }
+      for (const message of validateWikiMetadataContext(file, text)) errors.push(`${message}: ${file}`);
+    }
   }
   const startupLength = exists("wiki/startup.md") ? wikiCorpusText(corpus, "wiki/startup.md").length : 0;
   const indexLength = exists("wiki/index.md") ? wikiCorpusText(corpus, "wiki/index.md").length : 0;
@@ -940,9 +966,6 @@ export function runLintMode(corpus?: WikiCorpus): void {
     if (!cursorRule.includes("alwaysApply: true") || !cursorRule.includes("@AGENTS.md")) errors.push("Cursor project rule should always apply and reference AGENTS.md");
   }
   if (exists("wiki/AGENTS.md") && !read("wiki/AGENTS.md").includes("Language policy")) warnings.push("wiki/AGENTS.md is missing language policy");
-  for (const legacyFile of ["wiki/canonical/wiki-operating-model.md", "wiki/canonical/decision-policy.md", "wiki/decisions/wiki-v1-decisions.md"]) {
-    if (exists(legacyFile)) errors.push(`legacy wiki-ops file must move out of project canonical/decisions: ${legacyFile}`);
-  }
   if (exists(".codex/hooks/wiki-session-start.js")) {
     const hook = read(".codex/hooks/wiki-session-start.js");
     if (!hook.includes('["wiki/startup.md", 3500]') || !hook.includes('["wiki/index.md", 4500]')) errors.push("startup hook does not clearly inject only startup/index with expected budgets");
@@ -1030,16 +1053,16 @@ export function runLintMode(corpus?: WikiCorpus): void {
     if (hooksPath !== ".githooks") warnings.push(`git core.hooksPath is not .githooks: ${hooksPath || "unset"}`);
   }
   if (exists("wiki/index.md") && !read("wiki/index.md").includes("## Language Policy")) errors.push("index is missing Language Policy section");
-  if (exists("wiki/canonical/glossary.md")) {
-    const glossaryText = read("wiki/canonical/glossary.md");
-    if (!hasGlossaryTable(glossaryText)) errors.push("glossary is missing required table header: | Term | Definition | Avoid | Related Canonical Doc | Status |");
-    if (exists("wiki/index.md") && !read("wiki/index.md").includes("[[canonical/glossary]]")) errors.push("glossary exists but index is missing glossary routing");
+  if (exists("wiki/20-shared/glossary.md")) {
+    const glossaryText = read("wiki/20-shared/glossary.md");
+    if (!hasGlossaryTable(glossaryText)) errors.push("glossary is missing required table header: | Term | Definition | Avoid | Related Service/PRD Doc | Status |");
+    if (exists("wiki/index.md") && !read("wiki/index.md").includes("[[20-shared/glossary]]")) errors.push("glossary exists but index is missing glossary routing");
   } else if (hasGlossaryNeedSignal(canonicalBodyForLint())) {
-    warnings.push("project canonical docs contain naming/model signals; consider running --glossary-init");
+    warnings.push("service/PRD/shared truth contains naming/model signals; consider running --glossary-init");
   }
-  if (exists("wiki/meta/wiki-ops-v1-decisions.md")) {
-    const ops = read("wiki/meta/wiki-ops-v1-decisions.md");
-    for (const phrase of ["metadata headers", "Read On Demand", "language", "--no-git-config", "needs-human-review", "Wiki-scope"]) {
+  if (exists("wiki/meta/wiki-ops-v2-decisions.md")) {
+    const ops = read("wiki/meta/wiki-ops-v2-decisions.md");
+    for (const phrase of ["service", "PRD", "lifecycle roots"]) {
       if (!ops.includes(phrase)) warnings.push(`wiki ops decision pack may be missing decision phrase: ${phrase}`);
     }
   }
