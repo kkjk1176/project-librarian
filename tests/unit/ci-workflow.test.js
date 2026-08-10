@@ -7,20 +7,17 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..", "..");
 
-test("benchmark workflow gates Node 22 and 24, probes Node 26, and runs coverage thresholds", () => {
-  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "benchmark.yml"), "utf8");
+test("publish workflow runs normal verification and trusted publishing", () => {
+  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "publish.yml"), "utf8");
   assert.match(workflow, /^permissions:\s*\n\s+contents:\s*read/m);
-  assert.doesNotMatch(workflow, /paths:/);
-  assert.match(workflow, /node-version:\s*\$\{\{\s*matrix\.node-version\s*\}\}/);
-  assert.match(workflow, /node-version:\s*"22\.19\.0"[\s\S]*experimental:\s*false/);
-  assert.match(workflow, /node-version:\s*"24\.x"[\s\S]*experimental:\s*false/);
-  assert.match(workflow, /node-version:\s*"26\.x"[\s\S]*experimental:\s*true/);
+  assert.match(workflow, /node-version:\s*"24\.x"/);
   assert.match(workflow, /actions\/checkout@[a-f0-9]{40}/);
   assert.match(workflow, /actions\/setup-node@[a-f0-9]{40}/);
-  assert.match(workflow, /continue-on-error:\s*\$\{\{\s*matrix\.experimental\s*\}\}/);
+  assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run audit:supply-chain/);
-  assert.match(workflow, /npm run check:dist/);
-  assert.match(workflow, /npm run test:coverage/);
+  assert.match(workflow, /npm pack --dry-run --json/);
+  assert.match(workflow, /id-token:\s*write/);
+  assert.match(workflow, /npm publish --access public --ignore-scripts/);
 });
 
 test("security workflows provide CodeQL and dependency review with minimal permissions", () => {

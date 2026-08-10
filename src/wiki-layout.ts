@@ -2,15 +2,6 @@ import { metadataValue } from "./workspace";
 
 export const wikiLayoutVersion = "v2" as const;
 export const legacyLifecycleRoots = ["canonical", "roadmaps", "plans", "decisions", "sources"] as const;
-export const v2WritableRoots = ["10-services", "20-shared", "30-portfolio", "meta"] as const;
-export const protectedMetaOperatingFiles = new Set([
-  "wiki/meta/decision-policy.md",
-  "wiki/meta/document-taxonomy.md",
-  "wiki/meta/operating-model.md",
-  "wiki/meta/wiki-ops-v1-decisions.md",
-  "wiki/meta/wiki-ops-v2-decisions.md",
-]);
-
 export const prdAreaTypes: Readonly<Record<string, string>> = Object.freeze({
   "01-discovery": "discovery",
   "02-requirements": "requirements",
@@ -36,15 +27,6 @@ export interface WikiPathClassification {
   version: "v2" | "legacy" | "other";
 }
 
-export interface WikiRegistrations {
-  services: Set<string>;
-  prds: Set<string>;
-}
-
-export interface MigrationTargetOptions {
-  activeTruth?: boolean;
-  documentType?: string;
-}
 
 function normalizedWikiPath(file: string): string {
   return file.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -101,7 +83,6 @@ export function classifyWikiPath(file: string): WikiPathClassification {
     [/^wiki\/meta\//, "meta", "wiki-meta", false],
     [/^wiki\/inbox\//, "inbox", "candidate", false],
     [/^wiki\/indexes\//, "indexes", "router", false],
-    [/^wiki\/migration\//, "migration", "migration", false],
   ];
   for (const [pattern, area, type, currentTruth] of roots) {
     if (pattern.test(normalized)) return { area, currentTruth, legacy: false, prdId: "", prdRoot: "", service: "", type, version: "v2" };
@@ -161,52 +142,6 @@ export function validateWikiMetadataContext(file: string, text: string): string[
   if (classification.prdId) {
     const prdId = metadataValue(text, "prd_id").toUpperCase();
     if (prdId !== classification.prdId) errors.push(`prd_id must be ${classification.prdId}`);
-  }
-  return errors;
-}
-
-export function validateMigrationTarget(target: string, registrations: WikiRegistrations, options: MigrationTargetOptions = {}): string[] {
-  const normalized = normalizedWikiPath(target);
-  const errors: string[] = [];
-  if (!normalized.startsWith("wiki/") || normalized.includes("../") || normalized.startsWith("/") || !normalized.endsWith(".md")) {
-    return [`migration target must be a contained wiki markdown path: ${target}`];
-  }
-  if (isLegacyLifecyclePath(normalized)) return [`migration target uses a legacy lifecycle root: ${target}`];
-  if (normalized.startsWith("wiki/90-archive/")) {
-    if (options.activeTruth) return [`active truth cannot target the archive: ${target}`];
-    return [`migration target root is not writable: ${target}`];
-  }
-  const root = normalized.split("/")[1] ?? "";
-  if (!(v2WritableRoots as readonly string[]).includes(root)) return [`migration target root is not writable: ${target}`];
-  const classification = classifyWikiPath(normalized);
-  let leafType = classification.type;
-  if (root === "10-services") {
-    const prdLeaf = normalized.match(/^wiki\/10-services\/([^/]+)\/prds\/((PRD-\d+)[^/]*)\/(01-discovery|02-requirements|03-design|04-delivery|05-validation|06-operations|07-metrics|08-roadmap|09-decisions|10-sources|11-plans)\/(.+\.md)$/i);
-    const serviceLeaf = normalized.match(/^wiki\/10-services\/([^/]+)\/(service-overview\.md|(operations|metrics)\/(.+\.md))$/i);
-    if (!prdLeaf && !serviceLeaf) {
-      errors.push(`migration target must be a service or PRD leaf document in a defined v2 area: ${target}`);
-    }
-    if (prdLeaf) leafType = prdAreaTypes[prdLeaf[4] ?? ""] ?? "";
-    if (serviceLeaf) leafType = serviceLeaf[2] === "service-overview.md" ? "service-overview" : (serviceLeaf[3] ?? "").toLowerCase();
-  } else if (root === "20-shared") {
-    if (!/^wiki\/20-shared\/(?!README\.md$).+\.md$/i.test(normalized)) errors.push(`migration target must be a shared leaf document: ${target}`);
-    leafType = "shared";
-  } else if (root === "30-portfolio") {
-    if (!/^wiki\/30-portfolio\/(?!README\.md$).+\.md$/i.test(normalized)) errors.push(`migration target must be a portfolio leaf document: ${target}`);
-    leafType = "portfolio";
-  } else if (root === "meta") {
-    if (!/^wiki\/meta\/(?!README\.md$).+\.md$/i.test(normalized)) errors.push(`migration target must be a meta leaf document: ${target}`);
-    if (protectedMetaOperatingFiles.has(normalized)) errors.push(`migration target is a protected wiki operating file: ${target}`);
-    leafType = "wiki-meta";
-  }
-  if (classification.service && !registrations.services.has(classification.service)) {
-    errors.push(`migration target uses an unregistered service: ${classification.service}`);
-  }
-  if (classification.prdRoot && !registrations.prds.has(`${classification.service}/${classification.prdRoot}`)) {
-    errors.push(`migration target uses an unregistered PRD: ${classification.service}/${classification.prdRoot}`);
-  }
-  if (options.documentType && leafType && leafType !== options.documentType) {
-    errors.push(`migration target area/type mismatch: ${classification.area} requires ${leafType}, received ${options.documentType}`);
   }
   return errors;
 }

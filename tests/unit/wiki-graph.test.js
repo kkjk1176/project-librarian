@@ -1,10 +1,8 @@
 "use strict";
 
-// Wiki link graph method transfer (2026-06-12): the code-evidence edges/impact
-// model applied to the wiki itself. Covers the pure graph helpers in
-// dist/wiki-graph.js, the A1-promoted router reachability diagnostics inside
-// --link-check, the --wiki-impact backlink/decision_ref envelope, and the
-// answer-shaped --query output. All writing CLI runs use tmp dirs.
+// Covers the pure graph helpers in dist/wiki-graph.js, router reachability
+// diagnostics inside --link-check, the --wiki-impact backlink/decision_ref
+// envelope, and answer-shaped --query output. Writing CLI runs use tmp dirs.
 
 const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");
@@ -513,60 +511,6 @@ test("query output reports the strongest section-aware table row match", () => {
     assert.match(output.split(/\r?\n/)[0], /^Project wiki query "SourceHitMetric": best match wiki\/canonical\/retrieval-blocks\.md/);
     assert.match(output, /match: table_row@L\d+: Retrieval Blocks > Evidence Table: SourceHitMetric \| confirms the expected evidence source/);
     assert.doesNotMatch(output, /fenced heading should not become a heading block/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("broad efficiency queries rank active canonical pages ahead of migration ledgers", () => {
-  const root = makeTmpDir("wg-query-ranking-");
-  try {
-    runCli(root);
-    writePage(root, "wiki/canonical/code-efficiency-active.md", [
-      "---",
-      "status: active",
-      "updated: 2026-06-17",
-      "scope: project-canonical",
-      "read_budget: medium",
-      "decision_ref: none",
-      "review_trigger: efficiency query ranking changes",
-      "---",
-      "",
-      "# Code Efficiency Active",
-      "",
-      "## TL;DR",
-      "",
-      "- Active canonical guidance for technology stack efficiency and code evidence.",
-      "",
-      "The active project truth covers technology stack efficiency, runtime storage efficiency, and code evidence.",
-      "",
-    ].join("\n"));
-    writePage(root, "wiki/migration/coverage.md", [
-      "---",
-      "status: active",
-      "updated: 2026-06-17",
-      "scope: migration-ledger",
-      "read_budget: on-demand",
-      "decision_ref: none",
-      "review_trigger: migration audit changes",
-      "---",
-      "",
-      "# Migration Coverage",
-      "",
-      "## TL;DR",
-      "",
-      "- Migration ledger with repeated historical terms.",
-      "",
-      "technology stack efficiency code evidence technology stack efficiency code evidence",
-      "technology stack efficiency code evidence technology stack efficiency code evidence",
-      "",
-    ].join("\n"));
-
-    const broad = runCli(root, ["--query", "technology stack efficiency code evidence"]);
-    assert.match(broad.split(/\r?\n/)[0], /^Project wiki query "technology stack efficiency code evidence": best match wiki\/canonical\/code-efficiency-active\.md/);
-
-    const migrationSpecific = runCli(root, ["--query", "migration coverage technology stack efficiency code evidence"]);
-    assert.match(migrationSpecific.split(/\r?\n/)[0], /^Project wiki query "migration coverage technology stack efficiency code evidence": best match wiki\/migration\/coverage\.md/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

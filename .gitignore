@@ -3,15 +3,7 @@ node_modules/
 .DS_Store
 coverage/
 tmp/
-target/
-native/indexer-rs/target/
-dist/native/
 *.log
-benchmarks/reports/*.json
-benchmarks/reports/*.md
-benchmarks/reports/llm/
-benchmarks/reports/guidance/
-!benchmarks/reports/.gitkeep
 CLAUDE.local.md
 .claude/skills/
 wiki/

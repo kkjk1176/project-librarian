@@ -3,7 +3,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { buildPruneCandidate, collectLinkDiagnostics, collectMigrationQualityDiagnostics, collectQualityDiagnostics } = require("../../dist/modes.js");
+const { buildPruneCandidate, collectLinkDiagnostics, collectQualityDiagnostics } = require("../../dist/modes.js");
 const { staleReviewAge, staleReviewAgeDays } = require("../../dist/wiki-diagnostics.js");
 
 function wikiFile(path, { updated }) {
@@ -180,7 +180,7 @@ test("topology diagnostics keep generated, routine canonical, and historical pag
     page("wiki/indexes/auto-canonical.md", { body: "- [[canonical/routine-generated]]\n" + Array.from({ length: 80 }, (_, index) => `- [[canonical/generated-${index}]]`).join("\n"), scope: "wiki-router", title: "Auto Canonical" }),
     page("wiki/canonical/routine-generated.md", { title: "Routine Generated" }),
     page("wiki/decisions/history.md", { body: "This source-backed historical decision is intentionally not a canonical claim.", scope: "project-decisions", title: "History" }),
-    page("wiki/migration/coverage.md", { body: "source-backed migration row", scope: "migration-ledger", title: "Coverage" }),
+    page("wiki/90-archive/history.md", { body: "source-backed historical row", scope: "archive", title: "History Archive" }),
     ...Array.from({ length: 80 }, (_, index) => page(`wiki/canonical/generated-${index}.md`, { title: `Generated ${index}` })),
   ];
   const diagnostics = collectLinkDiagnostics(corpus(fixturePages));
@@ -269,15 +269,6 @@ test("historical legacy pages are excluded from reachability noise while active 
   assert(reachability.some((diagnostic) => diagnostic.file === "wiki/canonical/active-a.md"));
   assert(reachability.some((diagnostic) => diagnostic.file === "wiki/canonical/active-b.md"));
   assert.equal(reachability.some((diagnostic) => /superseded|archived/.test(diagnostic.file)), false);
-});
-
-test("migration quality rejects v2 truth that depends on preserved legacy roots", () => {
-  const diagnostics = collectMigrationQualityDiagnostics(corpus([
-    v2Page("wiki/20-shared/bad-reference.md", { body: "Read wiki_legacy/canonical/old.md as the current source of truth.", type: "shared" }),
-    v2Page("wiki/meta/migration-note.md", { body: "The preserved source is wiki_legacy/canonical/old.md.", type: "wiki-meta" }),
-  ]));
-  assert(diagnostics.some((diagnostic) => diagnostic.code === "migration-legacy-reference" && diagnostic.file === "wiki/20-shared/bad-reference.md"));
-  assert.equal(diagnostics.some((diagnostic) => diagnostic.file === "wiki/meta/migration-note.md"), false);
 });
 
 test("strict prune candidates omit age-only pages", () => {

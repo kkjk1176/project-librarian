@@ -1,71 +1,64 @@
 # CLI Reference
 
-Use the resolved local runner for automation or direct CLI execution:
+## Commands
 
-```bash
-node .codex/skills/project-librarian/dist/init-project-wiki.js [init|update] [options]
-node .codex/skills/project-librarian/dist/init-project-wiki.js install [--scope user|project] [--agents codex|claude|cursor|gemini|all]
+```text
+project-librarian init [options]
+project-librarian update [options]
+project-librarian install [--scope user|project] [--agents <list>] [--dry-run]
+project-librarian install-skill [--scope user|project] [--agents <list>] [--dry-run]
 ```
 
-`install-skill` remains a compatibility alias for `install`.
+- `init` creates missing wiki and selected agent setup files. It preserves an existing `wiki/`.
+- `update` refreshes managed setup and already-present agent surfaces while preserving wiki content.
+- `install` installs reusable skill files for the selected agents.
+- `install-skill` is a compatibility alias for `install`.
 
-`update` is the explicit existing-project update command. It rejects `--migrate` and `--adopt-existing`; use top-level `--migrate` when legacy docs or wiki content should be preserved into `wiki_legacy*` and reviewed. Without `--agents`, it first preserves Project Librarian-managed surfaces, then falls back to agent roots already present in the repository. It never falls back to all agents during update. If no install or agent root is detectable, it exits before writing and requires `init` or `--agents`. When project-scoped Project Librarian skill installs already exist for the selected agent surfaces, `update` copies the current package's reusable skill files and required local-runner runtime dependencies into those project skill directories before refreshing the managed setup. An existing shared `.agents/skills/project-librarian/` install is synchronized independently without selecting agent-specific setup surfaces.
-
-### Important Options
+## Wiki Diagnostics
 
 | Option | Purpose |
 | --- | --- |
-| `install --scope user|project --agents <list> --dry-run` | Install reusable skill files and required local-runner runtime dependencies globally or into the current repository; `--dry-run` previews copied files for install only. |
-| `update --agents <list>` | Refresh an existing setup and existing project-scoped skill copies; selected surfaces can be `codex`, `claude`, `cursor`, `gemini`, or `all`. |
-| `--migrate`, `--adopt-existing` | Preserve an existing wiki as `wiki_legacy*`, create migration inboxes, and generate unit-map/split-plan/coverage review files. |
-| `--lint` | Validate generated setup without editing files. |
-| `--link-check` | Report broken wiki links, duplicate routes, orphan pages, router reachability, and warning-only topology signals. |
-| `--quality-check` | Report stale, conflicting, and low-quality wiki document signals. |
-| `--doctor` | Run lint, link-check, and quality-check together. |
-| `--doctor --fix` | Safely refresh generated index routing before diagnostics. `--fix` is only a modifier for `--doctor`. |
-| `--migration-lint` | Validate migration coverage, unit-map, split-plan, and review scaffolding separately from normal lint. |
-| `--migration-quality-check` | Report migration policy/structure signals separately from normal quality-check. |
-| `--migration-doctor` | Run migration-lint and migration-quality-check together. |
-| `--query <terms>` | Search wiki paths, metadata, titles, and bodies; answer-first output with per-page TL;DR lines under a hard size cap. |
-| `--wiki-impact <page-or-term>` | Show wiki backlinks, `decision_ref` citations, outgoing links, and router depth for matching pages. |
-| `--wiki-neighborhood <page-or-term>` | Show a bounded read order for nearby wiki pages using links, `decision_ref`, metadata, page class, and router depth. |
-| `--refresh-index` | Update generated auto-discovered wiki routing. |
-| `--capture-inbox --title <title> --content <content> --category <category>` | Append a candidate note to the wiki inbox; category defaults to `project-candidate`. |
-| `--handoff-save --goal <goal> --state <state> --next <action>` | Save generated local session handoff state under `.project-wiki/session/`. Repeat `--next`, `--decision`, `--blocked`, `--open-question`, `--verification`, `--last-success-command`, and `--last-failure-command` as needed. |
-| `--handoff-show`, `--handoff-status`, `--handoff-clear` | Print, inspect, or remove generated session handoff state. Startup hooks mention the handoff when it exists but do not inject the full file by default. |
-| `--handoff-promote-inbox` | Append selected generated handoff facts to `wiki/inbox/project-candidates.md` as a pending candidate. It does not write current-truth, PRD plan, or decision artifacts. |
-| `--handoff-injection-enable`, `--handoff-injection-disable`, `--handoff-injection-status` | Opt in, opt out, or inspect the capped full handoff injection experiment. Default startup behavior remains pointer-only. |
-| `--issue-draft --issue-title <title>` | Print a read-only GitHub issue body draft for problems or side effects. |
-| `--issue-create --issue-title <title> --issue-body-file <path>` | Create a GitHub issue through `gh` after explicit user approval; `--issue-body-file` reuses an existing Markdown body. |
-| `--glossary-init` | Create and route the optional glossary page. |
-| `--prune-check` | Report active pages with stale or unresolved lifecycle signals. |
-| `--prune-check --prune-check-strict` | Omit pages selected only because their `updated` date is older than today. |
-| `--review-migration`, `--semantic-migrate` | Sync migration coverage and inbox statuses into migration review files. |
-| `--no-git-config` | Install hook files without changing `git core.hooksPath`. |
-| `--code-index` | Build the disposable code evidence index. |
-| `--code-scope <path>` | With `--code-index`, restrict indexing to one or more project-relative files or directories. |
-| `--code-index-out <path>` | Use a custom SQLite output path under `.project-wiki/`; applies to index and read modes. |
-| `--acknowledge-small-repo` | With `--code-index`, proceed below the ~5k-file scale gate after the cost warning. |
-| `--incremental`, `--code-index-incremental`, `--code-index-full` | With `--code-index`, require an incremental update or force a full rebuild. |
-| `--code-index-migrate` | With `--code-index`, explicitly approve replacing an existing index whose schema version differs from the current package. |
-| `--code-parser <mode>` | With `--code-index`, select `default` or optional `tree-sitter` extraction. |
-| `--code-index-health` | Inspect code evidence cache compatibility and print rebuild guidance without writing. |
-| `--code-index-engine <engine>` | Override the default `auto` index engine with `typescript` or `native-rust`. |
-| `--code-status`, `--code-files` | Inspect cache freshness or list indexed files. |
-| `--code-report` | Print architecture and ownership summaries from the evidence index. |
-| `--code-report-section <section>` | Print one section: `coverage`, `ownership`, `languages`, `parsers`, `workspaces`, `workspace-graph`, `routes`, `hotspots`, `configs`, or `edges`. |
-| `--code-impact <term>` | Show file, symbol, route, import, edge, and owner impact evidence. |
-| `--code-context-pack <term>` | Print a budgeted first-pass context pack with structural file, symbol, route, import, edge, and ownership evidence. |
-| `--code-search-symbol <term>` | Search indexed symbols. |
-| `--code-query <sql>` | Run conservative read-only SQL over the evidence index. |
+| `--lint` | Validate required files, metadata, and agent setup. |
+| `--link-check` | Report broken links, duplicate routes, orphan pages, and routing problems. |
+| `--quality-check` | Report stale, conflicting, unresolved, or oversized documents. |
+| `--doctor` | Run lint, link, quality, and router-truth checks. |
+| `--fix` | With `--doctor`, refresh the generated index block first. |
+| `--prune-check` | List active pages with stale or unresolved signals. |
+| `--prune-check-strict` | Ignore candidates whose only signal is age. |
 
-### Topology Warnings
+## Wiki Retrieval and Maintenance
 
-`--link-check` keeps topology findings warning-only so they can guide cleanup without blocking bootstrap, update, or release flows.
-
-| Code | Meaning |
+| Option | Purpose |
 | --- | --- |
-| `hub-overload` | A hand-maintained router or meta page links to too many wiki pages and should be split or scoped. |
-| `weak-authority-route` | An active v2 current-truth page with decision or evidence authority signals is reachable only through generated auto-index routing. |
-| `missing-evidence-link` | An active v2 current-truth page makes a source-backed claim without a source link or `decision_ref`. |
-| `stale-fanout` | A heavily linked active page has a broad review trigger that is too weak for topology-sensitive edits. |
+| `--query <terms>` | Search wiki paths, metadata, titles, and bodies. |
+| `--wiki-impact <target>` | Show backlinks, outgoing links, decision citations, and router depth. |
+| `--wiki-neighborhood <target>` | Suggest a bounded read order around a page or term. |
+| `--refresh-index` | Refresh the managed auto-discovered index block. |
+| `--glossary-init` | Create and route `wiki/20-shared/glossary.md`. |
+| `--capture-inbox` | Append a candidate using `--title`, `--content`, and optional `--category`. |
+
+## Session Handoff
+
+| Option | Purpose |
+| --- | --- |
+| `--handoff-save` | Save generated resume state under `.project-wiki/session/`. |
+| `--handoff-show` | Print the saved handoff. |
+| `--handoff-status` | Print handoff state as JSON. |
+| `--handoff-clear` | Remove generated handoff files. |
+| `--handoff-promote-inbox` | Copy selected facts to the wiki inbox. |
+| `--handoff-injection-enable` | Enable capped full handoff injection. |
+| `--handoff-injection-disable` | Disable full handoff injection. |
+| `--handoff-injection-status` | Print injection state as JSON. |
+
+`--handoff-save` accepts `--goal`, `--state`, repeated `--blocked`, `--next`, `--decision`, `--open-question`, and `--verification`, plus last successful and failed commands.
+
+## Setup and Support
+
+- `--agents codex|claude|cursor|gemini|all` selects setup surfaces.
+- `--scope user|project` selects the skill installation scope.
+- `--dry-run` previews skill installation.
+- `--no-git-config` writes hook files without changing `core.hooksPath`.
+- `--issue-draft`, `--issue-create`, `--issue-title`, and `--issue-body-file` support issue reporting.
+- `--help` prints the current public surface.
+
+Removed commands and options are treated as unknown input and fail before writing files.

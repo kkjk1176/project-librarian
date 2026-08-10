@@ -86,30 +86,16 @@ exports.standardWikiFiles = new Set([
     "wiki/30-portfolio/README.md",
     "wiki/90-archive/README.md",
     "wiki/inbox/project-candidates.md",
-    "wiki/inbox/migration-canonical.md",
-    "wiki/inbox/migration-decisions.md",
-    "wiki/inbox/migration-sources.md",
-    "wiki/migration/inventory.md",
-    "wiki/migration/unit-map.md",
-    "wiki/migration/split-plan.md",
-    "wiki/migration/coverage.md",
-    "wiki/migration/plan.md",
-    "wiki/migration/review.md",
-    "wiki/migration/verification.md",
-    "wiki/migration/bulk-review.md",
     "wiki/canonical/glossary.md",
-    "wiki/canonical/migration-inbox.md",
     "wiki/decisions/README.md",
     "wiki/decisions/log.md",
     "wiki/decisions/recent.md",
-    "wiki/decisions/migration-inbox.md",
     "wiki/meta/operating-model.md",
     "wiki/meta/decision-policy.md",
     "wiki/meta/document-taxonomy.md",
     "wiki/meta/wiki-ops-v1-decisions.md",
     "wiki/meta/wiki-ops-v2-decisions.md",
     "wiki/sources/karpathy-llm-wiki.md",
-    "wiki/sources/migration-inbox.md",
     "tools/project-librarian/SKILL.md",
     "tools/project-librarian/agents/openai.yaml",
     "tools/project-librarian/dist/init-project-wiki.js",
@@ -126,8 +112,6 @@ function walkMarkdownFiles(dir = workspace_1.root, acc = [], baseDir = workspace
             if (exports.ignoredDirs.has(entry.name))
                 continue;
             if (relativePath === "tools/project-librarian")
-                continue;
-            if (relativePath.startsWith("wiki/migration"))
                 continue;
             walkMarkdownFiles(fullPath, acc, baseDir);
         }

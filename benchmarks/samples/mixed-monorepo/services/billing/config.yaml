@@ -1,6 +1,0 @@
-service: billing
-owners:
-  - finance-platform
-routes:
-  - /billing/summary
-  - /billing/invoices

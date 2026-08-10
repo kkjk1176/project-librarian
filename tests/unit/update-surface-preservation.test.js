@@ -266,25 +266,6 @@ test("explicit update syncs an existing shared .agents skill install without imp
   }
 });
 
-test("project-scoped local runner can build a code index without parent package dependencies", () => {
-  const root = makeTmpDir("surface-local-runner-code-index-");
-  try {
-    fs.mkdirSync(path.join(root, "src"), { recursive: true });
-    fs.writeFileSync(path.join(root, "src", "app.ts"), "export const app = true;\n");
-    runCommand(root, ["install", "--scope", "project", "--agents", "codex"]);
-    assert.equal(exists(root, ".codex/skills/project-librarian/node_modules/typescript/package.json"), true);
-
-    const result = runLocalSkillCommandResult(root, ["--code-index", "--acknowledge-small-repo", "--code-scope", "src", "--code-index-engine", "typescript"]);
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /Project wiki code evidence index complete\./);
-    assert.match(result.stdout, /engine: typescript/);
-    assert.equal(exists(root, ".project-wiki/code-evidence.sqlite"), true);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("plain re-run preserves existing Codex and Claude surface set", () => {
   const root = makeTmpDir("surface-rerun-");
   try {
