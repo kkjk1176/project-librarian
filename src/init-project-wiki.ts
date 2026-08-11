@@ -50,10 +50,10 @@ import {
 import {
   hasSharedProjectSkillInstall,
   installedProjectSkillSurfaces,
-  runInstallSkillMode,
+  runInstallMode,
   syncProjectSkillInstall,
   syncSharedProjectSkillInstall,
-} from "./install-skill";
+} from "./install";
 import {
   appendCaptureInbox,
   buildRefreshIndexBlock,
@@ -102,7 +102,6 @@ function printUsage(): void {
   console.log(`Usage:
   project-librarian [init|update] [options]
   project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
 
 Wiki options:
   --lint                           Validate the generated project wiki setup without editing files.
@@ -132,7 +131,8 @@ Session handoff options:
   --next, --decision               With --handoff-save, repeat for next actions and decisions.
 
 Setup and support options:
-  --agents <list>                  With init/update, target codex, claude, cursor, gemini, or all.
+  --agents <list>                  With init/update, target agents; with install, skip the interactive agent selector.
+  --scope <value>                 With install, skip the interactive scope selector: user or project.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --dry-run                        With install, preview copied skill files without writing them.
   --issue-draft                    Print a GitHub issue body draft for a Project Librarian problem.
@@ -144,8 +144,7 @@ Setup and support options:
 Commands:
   init                             Create missing wiki and selected agent setup files; preserve an existing wiki.
   update                           Refresh managed setup while preserving existing wiki content and agent surfaces.
-  install                          Install reusable Project Librarian skill files for selected agents.
-  install-skill                    Compatibility alias for install.`);
+  install                          Interactively choose scope and agents, then install reusable skill files.`);
 }
 
 function exitAfterStdoutDrain(code: number): void {
@@ -223,12 +222,16 @@ if (handoffInputMode && !handoffSaveMode) {
   process.exit(1);
 }
 
-if (command === "install" || command === "install-skill") {
-  runInstallSkillMode();
-  process.exit(0);
+if (command === "install") {
+  runInstallMode()
+    .then(() => exitAfterStdoutDrain(0))
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    });
+} else {
+  runInitCommand();
 }
-
-runInitCommand();
 
 function runInitCommand(): void {
   const activeHandoffMode = activeHandoffModes[0];

@@ -52,13 +52,13 @@ wiki/
 | --- | --- |
 | Fresh setup | `init` |
 | Existing setup refresh | `update` |
-| Install reusable skills | `install --scope user\|project --agents codex\|claude\|cursor\|gemini\|all` |
+| Install reusable skills | `install` (interactive; optional `--scope`/`--agents` overrides) |
 | Lint, links, quality, or all diagnostics | `--lint`, `--link-check`, `--quality-check`, `--doctor` |
 | Search and bounded retrieval | `--query`, `--wiki-impact`, `--wiki-neighborhood` |
 | Router, inbox, glossary, or stale-page work | `--refresh-index`, `--capture-inbox`, `--glossary-init`, `--prune-check` |
 | Local session handoff | `--handoff-save`, `--handoff-show`, `--handoff-status`, `--handoff-clear`, `--handoff-promote-inbox` |
 
-`install-skill` remains a compatibility alias. Update targets managed or already-present agent surfaces by default and never creates unrelated agent directories. Use explicit `--agents` to add a surface. Use `--no-git-config` when hook files are wanted without changing `git core.hooksPath`.
+`install` prompts for the scope and agent surfaces when run in a TTY. Use explicit `--scope` and `--agents` for non-interactive automation. Update targets managed or already-present agent surfaces by default and never creates unrelated agent directories. Use `--no-git-config` when hook files are wanted without changing `git core.hooksPath`.
 
 ## Quality standard
 

@@ -3,10 +3,10 @@
 ## 재사용 스킬 설치
 
 ```bash
-npx project-librarian@latest install --scope user --agents all
+npx project-librarian@latest install
 ```
 
-현재 저장소에 설치하려면 `--scope project`를 사용합니다. 에이전트 대상은 `codex`, `claude`, `cursor`, `gemini`, `all` 중에서 선택합니다. `install-skill`은 기존 자동화를 위한 별칭으로 유지됩니다.
+설치 과정에서 설치 범위와 사용할 에이전트를 선택합니다. 방향키로 범위를 고르고, `Space`로 에이전트를 체크하거나 해제한 뒤 `Enter`를 누르면 설치합니다. 자동화 환경에서는 `--scope user|project`와 `--agents codex,claude,cursor,gemini|all`을 명시할 수 있습니다.
 
 ## 저장소 초기화
 

@@ -6,13 +6,11 @@
 project-librarian init [options]
 project-librarian update [options]
 project-librarian install [--scope user|project] [--agents <list>] [--dry-run]
-project-librarian install-skill [--scope user|project] [--agents <list>] [--dry-run]
 ```
 
 - `init` creates missing wiki and selected agent setup files. It preserves an existing `wiki/`.
 - `update` refreshes managed setup and already-present agent surfaces while preserving wiki content.
-- `install` installs reusable skill files for the selected agents.
-- `install-skill` is a compatibility alias for `install`.
+- `install` opens an interactive scope selector and agent checkbox selector when `--scope` and `--agents` are omitted. Explicit options remain available for non-interactive automation.
 
 ## Wiki Diagnostics
 
@@ -54,8 +52,8 @@ project-librarian install-skill [--scope user|project] [--agents <list>] [--dry-
 
 ## Setup and Support
 
-- `--agents codex|claude|cursor|gemini|all` selects setup surfaces.
-- `--scope user|project` selects the skill installation scope.
+- `--agents codex|claude|cursor|gemini|all` selects setup surfaces for `init`/`update`, or skips the interactive agent selector for `install`.
+- `--scope user|project` selects the skill installation scope, or skips the interactive scope selector for `install`.
 - `--dry-run` previews skill installation.
 - `--no-git-config` writes hook files without changing `core.hooksPath`.
 - `--issue-draft`, `--issue-create`, `--issue-title`, and `--issue-body-file` support issue reporting.

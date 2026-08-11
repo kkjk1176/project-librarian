@@ -3,10 +3,10 @@
 ## Install the Reusable Skill
 
 ```bash
-npx project-librarian@latest install --scope user --agents all
+npx project-librarian@latest install
 ```
 
-Use `--scope project` to install into the current repository. Agent targets can be `codex`, `claude`, `cursor`, `gemini`, or `all`. `install-skill` remains an alias for older automation.
+The installer asks where to install the skill and which agent surfaces to enable. Use the arrow keys to choose a scope, then use `Space` to check agents and `Enter` to install. Use `--scope user|project` and `--agents codex,claude,cursor,gemini|all` when running non-interactively.
 
 ## Initialize a Repository
 

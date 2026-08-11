@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as readline from "node:readline";
 import type { AgentSurface } from "./agent-surfaces";
 import { allAgentSurfaces } from "./agent-surfaces";
 import { args, argValue } from "./args";
@@ -48,6 +49,147 @@ function installAgents(): AgentSurface[] {
     }
   }
   return Array.from(agents);
+}
+
+export interface ChoiceState {
+  cursor: number;
+  selected: boolean[];
+}
+
+export type ChoiceAction = "submit" | "cancel" | ChoiceState;
+
+export function applyChoiceKey(state: ChoiceState, key: string, multi: boolean, optionCount: number): ChoiceAction {
+  if (key === "ctrl-c" || key === "escape" || key === "q") return "cancel";
+  if (key === "return" || key === "enter") return "submit";
+  if (optionCount === 0) return state;
+
+  if (key === "up") {
+    return { ...state, cursor: (state.cursor - 1 + optionCount) % optionCount };
+  }
+  if (key === "down") {
+    return { ...state, cursor: (state.cursor + 1) % optionCount };
+  }
+  if (multi && key === "space") {
+    const selected = [...state.selected];
+    selected[state.cursor] = !selected[state.cursor];
+    return { ...state, selected };
+  }
+  if (multi && key === "a") {
+    const selectAll = state.selected.some((value) => !value);
+    return { ...state, selected: state.selected.map(() => selectAll) };
+  }
+  return state;
+}
+
+interface ChoiceOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+function promptChoices<T extends string>(
+  title: string,
+  options: readonly ChoiceOption<T>[],
+  multi: boolean,
+  defaultIndexes: readonly number[],
+): Promise<T[]> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
+    throw new Error("interactive install requires a TTY; pass --scope and/or --agents for non-interactive use");
+  }
+
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+  const initialSelected = options.map((_, index) => defaultIndexes.includes(index));
+  let state: ChoiceState = {
+    cursor: defaultIndexes[0] ?? 0,
+    selected: initialSelected,
+  };
+  let renderedLines = 0;
+
+  const clearFrame = (): void => {
+    if (renderedLines === 0) return;
+    stdout.write(`\u001b[${renderedLines}A`);
+    for (let index = 0; index < renderedLines; index += 1) {
+      stdout.write("\u001b[2K");
+      if (index < renderedLines - 1) stdout.write("\u001b[1B");
+    }
+    stdout.write(`\u001b[${renderedLines - 1}A\r`);
+    renderedLines = 0;
+  };
+
+  const render = (): void => {
+    if (renderedLines > 0) stdout.write(`\u001b[${renderedLines}A`);
+    const lines = [
+      `\u001b[1m${title}\u001b[0m`,
+      multi ? "↑/↓ 이동 · Space 체크/해제 · a 전체 선택 · Enter 확정 · q 취소" : "↑/↓ 이동 · Enter 확정 · q 취소",
+      ...options.map((option, index) => {
+        const pointer = index === state.cursor ? "\u001b[36m❯\u001b[0m" : " ";
+        const marker = multi
+          ? state.selected[index] ? "\u001b[32m☑\u001b[0m" : "☐"
+          : index === state.cursor ? "\u001b[32m●\u001b[0m" : "○";
+        return `${pointer} ${marker} ${option.label}`;
+      }),
+    ];
+    stdout.write(lines.map((line) => `\u001b[2K${line}`).join("\n") + "\n");
+    renderedLines = lines.length;
+  };
+
+  return new Promise<T[]>((resolve, reject) => {
+    const previousRawMode = Boolean(stdin.isRaw);
+    const onKeypress = (_input: string, key: readline.Key): void => {
+      const keyName = key.ctrl && key.name === "c" ? "ctrl-c" : key.name ?? "";
+      const next = applyChoiceKey(state, keyName, multi, options.length);
+      if (next === "cancel") {
+        clearFrame();
+        stdin.setRawMode(previousRawMode);
+        stdin.removeListener("keypress", onKeypress);
+        stdout.write("\n");
+        reject(new Error("설치를 취소했습니다."));
+        return;
+      }
+      if (next === "submit") {
+        const values = options.filter((_option, index) => multi ? state.selected[index] : index === state.cursor).map((option) => option.value);
+        if (values.length === 0) return;
+        clearFrame();
+        stdin.setRawMode(previousRawMode);
+        stdin.removeListener("keypress", onKeypress);
+        resolve(values);
+        return;
+      }
+      state = next;
+      render();
+    };
+
+    readline.emitKeypressEvents(stdin);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on("keypress", onKeypress);
+    render();
+  });
+}
+
+async function interactiveInstallSelection(): Promise<{ scope: InstallScope; agents: AgentSurface[] }> {
+  const selectedScope = (await promptChoices<InstallScope>(
+    "Project Librarian 설치 범위를 선택하세요",
+    [
+      { value: "user", label: "사용자 전체 — 홈 디렉터리의 에이전트에 설치" },
+      { value: "project", label: "현재 프로젝트 — 이 저장소의 에이전트에 설치" },
+    ],
+    false,
+    [0],
+  ))[0];
+  if (!selectedScope) throw new Error("interactive install did not return an install scope");
+  const agents = await promptChoices<AgentSurface>(
+    "설치할 에이전트를 선택하세요",
+    [
+      { value: "codex", label: "Codex" },
+      { value: "claude", label: "Claude Code" },
+      { value: "cursor", label: "Cursor" },
+      { value: "gemini", label: "Gemini CLI" },
+    ],
+    true,
+    allAgentSurfaces.map((_agent, index) => index),
+  );
+  return { scope: selectedScope, agents };
 }
 
 function packageRoot(): string {
@@ -254,9 +396,11 @@ export function syncSharedProjectSkillInstall(): ResultRow[] {
   });
 }
 
-export function runInstallSkillMode(): void {
-  const scope = installScope();
-  const agents = installAgents();
+export async function runInstallMode(): Promise<void> {
+  const hasExplicitSelection = Boolean(argValue("--scope") || argValue("--agents"));
+  const { scope, agents } = hasExplicitSelection
+    ? { scope: installScope(), agents: installAgents() }
+    : await interactiveInstallSelection();
   const dryRun = args.has("--dry-run");
   const rows: InstallRow[] = [];
 
@@ -269,7 +413,6 @@ export function runInstallSkillMode(): void {
   console.log(`scope: ${scope}`);
   console.log(`agents: ${agents.join(", ")}`);
   console.log("note: install only installs the reusable skill files and required local-runner runtime dependencies; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
-  console.log("compatibility: install-skill remains supported as an alias for install.");
   console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
   for (const [label, status] of rows) {
     console.log(`${status.padEnd(7)} ${label}`);

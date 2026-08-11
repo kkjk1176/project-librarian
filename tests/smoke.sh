@@ -17,14 +17,14 @@ cd "$SMOKE_TMP/help"
 node "$CLI" --help > help.log
 grep -Fq "project-librarian [init|update] [options]" help.log
 grep -Fq "project-librarian install " help.log
-grep -Fq "project-librarian install-skill " help.log
+! grep -Fq "install-skill" help.log
 grep -Fq -- "--wiki-neighborhood" help.log
 grep -Fq -- "--quality-check" help.log
 grep -Fq -- "--handoff-save" help.log
 ! grep -Eiq "code-index|code-evidence|project-librarian mcp|--migrate|benchmark" help.log
 test ! -e AGENTS.md
 
-for retired in mcp --code-index --migrate --migration-doctor; do
+for retired in mcp install-skill --code-index --migrate --migration-doctor; do
   if node "$CLI" "$retired" > retired.log 2>&1; then
     echo "expected retired input to fail: $retired" >&2
     exit 1

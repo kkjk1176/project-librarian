@@ -8,7 +8,7 @@ export interface ParsedArgs {
   captureContent: string;
   captureInboxMode: boolean;
   captureTitle: string;
-  command: "init" | "update" | "install" | "install-skill";
+  command: "init" | "update" | "install";
   commandArgs: string[];
   doctorMode: boolean;
   fixMode: boolean;
@@ -57,7 +57,7 @@ export interface ParsedArgs {
 }
 
 export const rawArgs: string[] = process.argv.slice(2);
-const knownCommands = new Set(["init", "update", "install", "install-skill"]);
+const knownCommands = new Set(["init", "update", "install"]);
 
 type FlagValuePolicy = "none" | "value";
 

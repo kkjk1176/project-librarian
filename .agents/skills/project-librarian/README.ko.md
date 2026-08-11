@@ -10,8 +10,10 @@
 ## 설치
 
 ```bash
-npx project-librarian@latest install --scope user --agents all
+npx project-librarian@latest install
 ```
+
+설치 과정에서 사용자 전체 또는 현재 프로젝트를 고르고, 사용할 에이전트 표면을 체크합니다. 자동화 환경에서는 `--scope`와 `--agents`를 명시할 수 있습니다.
 
 그다음 에이전트에게 요청합니다.
 
