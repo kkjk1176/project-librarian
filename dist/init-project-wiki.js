@@ -4,7 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const args_1 = require("./args");
 const agent_surfaces_1 = require("./agent-surfaces");
 const hooks_1 = require("./hooks");
-const install_skill_1 = require("./install-skill");
+const install_1 = require("./install");
 const modes_1 = require("./modes");
 const session_handoff_1 = require("./session-handoff");
 const templates_1 = require("./templates");
@@ -13,7 +13,6 @@ function printUsage() {
     console.log(`Usage:
   project-librarian [init|update] [options]
   project-librarian install [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
-  project-librarian install-skill [--scope user|project] [--agents codex|claude|cursor|gemini|all] [--dry-run]
 
 Wiki options:
   --lint                           Validate the generated project wiki setup without editing files.
@@ -43,7 +42,8 @@ Session handoff options:
   --next, --decision               With --handoff-save, repeat for next actions and decisions.
 
 Setup and support options:
-  --agents <list>                  With init/update, target codex, claude, cursor, gemini, or all.
+  --agents <list>                  With init/update, target agents; with install, skip the interactive agent selector.
+  --scope <value>                 With install, skip the interactive scope selector: user or project.
   --no-git-config                  Install hook files without changing git core.hooksPath.
   --dry-run                        With install, preview copied skill files without writing them.
   --issue-draft                    Print a GitHub issue body draft for a Project Librarian problem.
@@ -55,8 +55,7 @@ Setup and support options:
 Commands:
   init                             Create missing wiki and selected agent setup files; preserve an existing wiki.
   update                           Refresh managed setup while preserving existing wiki content and agent surfaces.
-  install                          Install reusable Project Librarian skill files for selected agents.
-  install-skill                    Compatibility alias for install.`);
+  install                          Interactively choose scope and agents, then install reusable skill files.`);
 }
 function exitAfterStdoutDrain(code) {
     process.stdout.write("", () => process.exit(code));
@@ -120,11 +119,17 @@ if (args_1.handoffInputMode && !args_1.handoffSaveMode) {
     console.error("--goal, --state, --blocked, --next, --decision, --open-question, --last-success-command, --last-failure-command, and --verification are only supported with --handoff-save.");
     process.exit(1);
 }
-if (args_1.command === "install" || args_1.command === "install-skill") {
-    (0, install_skill_1.runInstallSkillMode)();
-    process.exit(0);
+if (args_1.command === "install") {
+    (0, install_1.runInstallMode)()
+        .then(() => exitAfterStdoutDrain(0))
+        .catch((error) => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
 }
-runInitCommand();
+else {
+    runInitCommand();
+}
 function runInitCommand() {
     const activeHandoffMode = activeHandoffModes[0];
     if (activeHandoffMode) {
@@ -208,9 +213,9 @@ function runInitCommand() {
     }
     const selectedAgentSurfaces = agentSurfaceResolution.surfaces;
     const projectSkillSyncSurfaces = args_1.command === "update"
-        ? (0, install_skill_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
+        ? (0, install_1.installedProjectSkillSurfaces)().filter((surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface))
         : [];
-    const syncSharedProjectSkill = args_1.command === "update" && (0, install_skill_1.hasSharedProjectSkillInstall)();
+    const syncSharedProjectSkill = args_1.command === "update" && (0, install_1.hasSharedProjectSkillInstall)();
     const shouldWriteSurface = (surface) => (0, agent_surfaces_1.includesAgentSurface)(selectedAgentSurfaces, surface);
     const writeCodexSurface = shouldWriteSurface("codex");
     const writeClaudeSurface = shouldWriteSurface("claude");
@@ -241,11 +246,11 @@ function runInitCommand() {
         (0, workspace_1.mkdirp)(".gemini/hooks");
     (0, workspace_1.mkdirp)(".githooks");
     for (const surface of projectSkillSyncSurfaces) {
-        for (const result of (0, install_skill_1.syncProjectSkillInstall)(surface))
+        for (const result of (0, install_1.syncProjectSkillInstall)(surface))
             results.push(result);
     }
     if (syncSharedProjectSkill) {
-        for (const result of (0, install_skill_1.syncSharedProjectSkillInstall)())
+        for (const result of (0, install_1.syncSharedProjectSkillInstall)())
             results.push(result);
     }
     const startupForSync = (0, workspace_1.exists)("wiki/startup.md") ? (0, workspace_1.read)("wiki/startup.md") : templates_1.startup;

@@ -15,7 +15,7 @@ At the start of every session:
 ### Startup TL;DR (auto-synced for non-interactive sessions; source: wiki/startup.md)
 
 - Current release: `project-librarian@0.6.4`.
-- Public CLI commands are `init`, `update`, `install`, and the `install-skill` compatibility alias.
+- Public CLI commands are `init`, `update`, and `install`.
 - Keep `wiki/index.md` as the writable router and use `service -> PRD/initiative -> document area` as the primary knowledge structure.
 - Query, impact, neighborhood, and warning-only topology diagnostics support wiki organization and retrieval.
 - Existing lifecycle roots remain read-only compatibility material and are never reorganized automatically.

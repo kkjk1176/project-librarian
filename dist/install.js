@@ -33,16 +33,18 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.applyChoiceKey = applyChoiceKey;
 exports.projectSkillTarget = projectSkillTarget;
 exports.sharedProjectSkillTarget = sharedProjectSkillTarget;
 exports.installedProjectSkillSurfaces = installedProjectSkillSurfaces;
 exports.hasSharedProjectSkillInstall = hasSharedProjectSkillInstall;
 exports.syncProjectSkillInstall = syncProjectSkillInstall;
 exports.syncSharedProjectSkillInstall = syncSharedProjectSkillInstall;
-exports.runInstallSkillMode = runInstallSkillMode;
+exports.runInstallMode = runInstallMode;
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const readline = __importStar(require("node:readline"));
 const agent_surfaces_1 = require("./agent-surfaces");
 const args_1 = require("./args");
 const skillName = "project-librarian";
@@ -84,6 +86,119 @@ function installAgents() {
         }
     }
     return Array.from(agents);
+}
+function applyChoiceKey(state, key, multi, optionCount) {
+    if (key === "ctrl-c" || key === "escape" || key === "q")
+        return "cancel";
+    if (key === "return" || key === "enter")
+        return "submit";
+    if (optionCount === 0)
+        return state;
+    if (key === "up") {
+        return { ...state, cursor: (state.cursor - 1 + optionCount) % optionCount };
+    }
+    if (key === "down") {
+        return { ...state, cursor: (state.cursor + 1) % optionCount };
+    }
+    if (multi && key === "space") {
+        const selected = [...state.selected];
+        selected[state.cursor] = !selected[state.cursor];
+        return { ...state, selected };
+    }
+    if (multi && key === "a") {
+        const selectAll = state.selected.some((value) => !value);
+        return { ...state, selected: state.selected.map(() => selectAll) };
+    }
+    return state;
+}
+function promptChoices(title, options, multi, defaultIndexes) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
+        throw new Error("interactive install requires a TTY; pass --scope and/or --agents for non-interactive use");
+    }
+    const stdin = process.stdin;
+    const stdout = process.stdout;
+    const initialSelected = options.map((_, index) => defaultIndexes.includes(index));
+    let state = {
+        cursor: defaultIndexes[0] ?? 0,
+        selected: initialSelected,
+    };
+    let renderedLines = 0;
+    const clearFrame = () => {
+        if (renderedLines === 0)
+            return;
+        stdout.write(`\u001b[${renderedLines}A`);
+        for (let index = 0; index < renderedLines; index += 1) {
+            stdout.write("\u001b[2K");
+            if (index < renderedLines - 1)
+                stdout.write("\u001b[1B");
+        }
+        stdout.write(`\u001b[${renderedLines - 1}A\r`);
+        renderedLines = 0;
+    };
+    const render = () => {
+        if (renderedLines > 0)
+            stdout.write(`\u001b[${renderedLines}A`);
+        const lines = [
+            `\u001b[1m${title}\u001b[0m`,
+            multi ? "↑/↓ 이동 · Space 체크/해제 · a 전체 선택 · Enter 확정 · q 취소" : "↑/↓ 이동 · Enter 확정 · q 취소",
+            ...options.map((option, index) => {
+                const pointer = index === state.cursor ? "\u001b[36m❯\u001b[0m" : " ";
+                const marker = multi
+                    ? state.selected[index] ? "\u001b[32m☑\u001b[0m" : "☐"
+                    : index === state.cursor ? "\u001b[32m●\u001b[0m" : "○";
+                return `${pointer} ${marker} ${option.label}`;
+            }),
+        ];
+        stdout.write(lines.map((line) => `\u001b[2K${line}`).join("\n") + "\n");
+        renderedLines = lines.length;
+    };
+    return new Promise((resolve, reject) => {
+        const previousRawMode = Boolean(stdin.isRaw);
+        const onKeypress = (_input, key) => {
+            const keyName = key.ctrl && key.name === "c" ? "ctrl-c" : key.name ?? "";
+            const next = applyChoiceKey(state, keyName, multi, options.length);
+            if (next === "cancel") {
+                clearFrame();
+                stdin.setRawMode(previousRawMode);
+                stdin.removeListener("keypress", onKeypress);
+                stdout.write("\n");
+                reject(new Error("설치를 취소했습니다."));
+                return;
+            }
+            if (next === "submit") {
+                const values = options.filter((_option, index) => multi ? state.selected[index] : index === state.cursor).map((option) => option.value);
+                if (values.length === 0)
+                    return;
+                clearFrame();
+                stdin.setRawMode(previousRawMode);
+                stdin.removeListener("keypress", onKeypress);
+                resolve(values);
+                return;
+            }
+            state = next;
+            render();
+        };
+        readline.emitKeypressEvents(stdin);
+        stdin.setRawMode(true);
+        stdin.resume();
+        stdin.on("keypress", onKeypress);
+        render();
+    });
+}
+async function interactiveInstallSelection() {
+    const selectedScope = (await promptChoices("Project Librarian 설치 범위를 선택하세요", [
+        { value: "user", label: "사용자 전체 — 홈 디렉터리의 에이전트에 설치" },
+        { value: "project", label: "현재 프로젝트 — 이 저장소의 에이전트에 설치" },
+    ], false, [0]))[0];
+    if (!selectedScope)
+        throw new Error("interactive install did not return an install scope");
+    const agents = await promptChoices("설치할 에이전트를 선택하세요", [
+        { value: "codex", label: "Codex" },
+        { value: "claude", label: "Claude Code" },
+        { value: "cursor", label: "Cursor" },
+        { value: "gemini", label: "Gemini CLI" },
+    ], true, agent_surfaces_1.allAgentSurfaces.map((_agent, index) => index));
+    return { scope: selectedScope, agents };
 }
 function packageRoot() {
     return path.resolve(__dirname, "..");
@@ -286,9 +401,11 @@ function syncSharedProjectSkillInstall() {
         return [label, status];
     });
 }
-function runInstallSkillMode() {
-    const scope = installScope();
-    const agents = installAgents();
+async function runInstallMode() {
+    const hasExplicitSelection = Boolean((0, args_1.argValue)("--scope") || (0, args_1.argValue)("--agents"));
+    const { scope, agents } = hasExplicitSelection
+        ? { scope: installScope(), agents: installAgents() }
+        : await interactiveInstallSelection();
     const dryRun = args_1.args.has("--dry-run");
     const rows = [];
     for (const agent of agents) {
@@ -299,7 +416,6 @@ function runInstallSkillMode() {
     console.log(`scope: ${scope}`);
     console.log(`agents: ${agents.join(", ")}`);
     console.log("note: install only installs the reusable skill files and required local-runner runtime dependencies; it does not create or update AGENTS.md, CLAUDE.md, GEMINI.md, wiki/, .cursor/rules/, .cursor/hooks.json, .gemini/settings.json, .codex/hooks.json, or .claude/settings.json.");
-    console.log("compatibility: install-skill remains supported as an alias for install.");
     console.log("next: ask your agent to use Project Librarian from the target project root; the installed skill resolves the local runner.");
     for (const [label, status] of rows) {
         console.log(`${status.padEnd(7)} ${label}`);

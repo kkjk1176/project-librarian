@@ -7,7 +7,7 @@ exports.argValue = argValue;
 exports.argValues = argValues;
 const agent_surfaces_1 = require("./agent-surfaces");
 exports.rawArgs = process.argv.slice(2);
-const knownCommands = new Set(["init", "update", "install", "install-skill"]);
+const knownCommands = new Set(["init", "update", "install"]);
 const flagDefinitions = [
     { name: "--agents", value: "value" },
     { name: "--blocked", value: "value" },

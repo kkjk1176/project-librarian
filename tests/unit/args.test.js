@@ -11,12 +11,13 @@ test("parseArgs keeps init as the default command", () => {
   assert.deepEqual(parsed.commandArgs, ["--lint"]);
 });
 
-test("parseArgs exposes only init, update, install, and install-skill commands", () => {
-  for (const command of ["init", "update", "install", "install-skill"]) {
+test("parseArgs exposes only init, update, and install commands", () => {
+  for (const command of ["init", "update", "install"]) {
     const parsed = parseArgs([command, "--no-git-config"]);
     assert.equal(parsed.command, command);
     assert.equal(parsed.unknownCommand, "");
   }
+  assert.equal(parseArgs(["install-skill"]).unknownCommand, "install-skill");
   assert.equal(parseArgs(["mcp"]).unknownCommand, "mcp");
 });
 

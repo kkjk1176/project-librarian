@@ -10,8 +10,10 @@ The wiki is organized by ownership: `service -> PRD/initiative -> document area`
 ## Install
 
 ```bash
-npx project-librarian@latest install --scope user --agents all
+npx project-librarian@latest install
 ```
+
+The installer interactively asks whether to install for the user or current project, then lets you check the agent surfaces to enable. Use `--scope` and `--agents` when running in automation.
 
 Then ask an agent:
 
