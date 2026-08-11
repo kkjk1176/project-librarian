@@ -34,11 +34,14 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyChoiceKey = applyChoiceKey;
+exports.promptChoices = promptChoices;
 exports.projectSkillTarget = projectSkillTarget;
 exports.sharedProjectSkillTarget = sharedProjectSkillTarget;
 exports.installedProjectSkillSurfaces = installedProjectSkillSurfaces;
+exports.installedUserSkillSurfaces = installedUserSkillSurfaces;
 exports.hasSharedProjectSkillInstall = hasSharedProjectSkillInstall;
 exports.syncProjectSkillInstall = syncProjectSkillInstall;
+exports.syncUserSkillInstall = syncUserSkillInstall;
 exports.syncSharedProjectSkillInstall = syncSharedProjectSkillInstall;
 exports.runInstallMode = runInstallMode;
 const fs = __importStar(require("node:fs"));
@@ -111,9 +114,9 @@ function applyChoiceKey(state, key, multi, optionCount) {
     }
     return state;
 }
-function promptChoices(title, options, multi, defaultIndexes) {
+function promptChoices(title, options, multi, defaultIndexes, nonInteractiveMessage = "interactive selection requires a TTY; pass explicit options for non-interactive use") {
     if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
-        throw new Error("interactive install requires a TTY; pass --scope and/or --agents for non-interactive use");
+        throw new Error(nonInteractiveMessage);
     }
     const stdin = process.stdin;
     const stdout = process.stdout;
@@ -186,10 +189,11 @@ function promptChoices(title, options, multi, defaultIndexes) {
     });
 }
 async function interactiveInstallSelection() {
+    const nonInteractiveMessage = "interactive install requires a TTY; pass --scope and/or --agents for non-interactive use";
     const selectedScope = (await promptChoices("Project Librarian 설치 범위를 선택하세요", [
         { value: "user", label: "사용자 전체 — 홈 디렉터리의 에이전트에 설치" },
         { value: "project", label: "현재 프로젝트 — 이 저장소의 에이전트에 설치" },
-    ], false, [0]))[0];
+    ], false, [0], nonInteractiveMessage))[0];
     if (!selectedScope)
         throw new Error("interactive install did not return an install scope");
     const agents = await promptChoices("설치할 에이전트를 선택하세요", [
@@ -197,7 +201,7 @@ async function interactiveInstallSelection() {
         { value: "claude", label: "Claude Code" },
         { value: "cursor", label: "Cursor" },
         { value: "gemini", label: "Gemini CLI" },
-    ], true, agent_surfaces_1.allAgentSurfaces.map((_agent, index) => index));
+    ], true, agent_surfaces_1.allAgentSurfaces.map((_agent, index) => index), nonInteractiveMessage);
     return { scope: selectedScope, agents };
 }
 function packageRoot() {
@@ -246,6 +250,9 @@ function sharedProjectSkillTarget() {
 function installTarget(agent, scope) {
     const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
     return path.join(base, "skills", skillName);
+}
+function userSkillTarget(agent) {
+    return installTarget(agent, "user");
 }
 function assertNoTargetSymlink(targetRoot, target, includeLeaf) {
     const rootResolved = path.resolve(targetRoot);
@@ -369,6 +376,9 @@ function copyPath(source, target, targetRoot, dryRun) {
 function installedProjectSkillSurfaces() {
     return agent_surfaces_1.allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
 }
+function installedUserSkillSurfaces() {
+    return agent_surfaces_1.allAgentSurfaces.filter((agent) => fs.existsSync(path.join(userSkillTarget(agent), "SKILL.md")));
+}
 function hasSharedProjectSkillInstall() {
     return fs.existsSync(path.join(sharedProjectSkillTarget(), "SKILL.md"));
 }
@@ -391,6 +401,14 @@ function syncProjectSkillInstall(agent) {
     return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
         if (status === "dry-run")
             throw new Error("project skill sync does not support dry-run status");
+        return [label, status];
+    });
+}
+function syncUserSkillInstall(agent) {
+    const targetRoot = userSkillTarget(agent);
+    return copyPackageFiles(targetRoot, false, `${agent}:user`).map(([label, status]) => {
+        if (status === "dry-run")
+            throw new Error("user skill sync does not support dry-run status");
         return [label, status];
     });
 }

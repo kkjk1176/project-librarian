@@ -33,6 +33,13 @@ test("parseArgs parses and validates agent surface selection", () => {
   assert.deepEqual(parseArgs(["--agents=all"]).agentTargets, ["codex", "claude", "cursor", "gemini"]);
 });
 
+test("parseArgs accepts update scope and target selection", () => {
+  const parsed = parseArgs(["update", "--scope", "user", "--targets", "skill", "--agents", "codex"]);
+  assert.equal(parsed.command, "update");
+  assert.deepEqual(parsed.commandArgs, ["--scope", "user", "--targets", "skill", "--agents", "codex"]);
+  assert.deepEqual(parsed.unknownOptions, []);
+});
+
 test("parseArgs reports unknown commands and options", () => {
   const parsed = parseArgs(["unknown-command", "--definitely-unknown"]);
   assert.equal(parsed.unknownCommand, "unknown-command");

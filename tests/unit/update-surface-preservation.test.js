@@ -18,18 +18,35 @@ function runCli(cwd, args = []) {
 }
 
 function runCommand(cwd, args = []) {
-  return childProcess.execFileSync(process.execPath, [cliPath, ...args], {
+  const commandArgs = nonInteractiveUpdateArgs(args);
+  return childProcess.execFileSync(process.execPath, [cliPath, ...commandArgs], {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
+function runCommandWithEnv(cwd, args = [], environment = {}) {
+  const commandArgs = nonInteractiveUpdateArgs(args);
+  return childProcess.execFileSync(process.execPath, [cliPath, ...commandArgs], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...environment },
+  });
+}
+
 function runCommandResult(cwd, args = []) {
-  return childProcess.spawnSync(process.execPath, [cliPath, ...args], {
+  const commandArgs = nonInteractiveUpdateArgs(args);
+  return childProcess.spawnSync(process.execPath, [cliPath, ...commandArgs], {
     cwd,
     encoding: "utf8",
   });
+}
+
+function nonInteractiveUpdateArgs(args) {
+  if (args[0] !== "update" || args.includes("--scope") || args.includes("--targets")) return args;
+  return ["update", "--scope", "project", "--targets", "all", ...args.slice(1)];
 }
 
 function runLocalSkillCommandResult(cwd, args = []) {
@@ -151,6 +168,7 @@ for (const [surface, fixture] of Object.entries(bareSurfaceCases)) {
       for (const relativePath of fixture.absent) {
         assert.equal(exists(root, relativePath), false, `${relativePath} should not be created`);
       }
+      assert.equal(exists(root, "wiki"), false, "update all should not create a project wiki");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -240,6 +258,92 @@ test("explicit update syncs existing project-scoped skill installs from the runn
     assert.match(output, /\.codex\/skills\/project-librarian\/SKILL\.md/);
     assert.match(output, /\.codex\/skills\/project-librarian\/node_modules\/typescript/);
     assert.equal(exists(root, ".claude/skills/project-librarian/SKILL.md"), false, "update should not create new project-scoped skill installs by default");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("user-scope update refreshes only the installed user skill", () => {
+  const root = makeTmpDir("surface-user-skill-sync-");
+  const userHome = makeTmpDir("surface-user-home-");
+  try {
+    const environment = { CODEX_HOME: userHome };
+    runCommandWithEnv(root, ["install", "--scope", "user", "--agents", "codex"], environment);
+    const skillPath = path.join(userHome, "skills", "project-librarian", "SKILL.md");
+    fs.writeFileSync(skillPath, "stale user skill copy\n");
+
+    const output = runCommandWithEnv(root, ["update", "--scope", "user", "--targets", "skill", "--agents", "codex"], environment);
+
+    assert.equal(read(userHome, "skills/project-librarian/SKILL.md"), fs.readFileSync(path.resolve(__dirname, "..", "..", "SKILL.md"), "utf8"));
+    assert.match(output, /scope=user/);
+    assert.equal(exists(root, "wiki"), false, "user-scope skill update should not create a project wiki");
+    assert.equal(exists(root, "AGENTS.md"), false, "user-scope skill update should not create project instructions");
+    assert.equal(exists(root, ".githooks"), false, "user-scope skill update should not create project hooks");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(userHome, { recursive: true, force: true });
+  }
+});
+
+test("user-scope update rejects agent targets before writing", () => {
+  const root = makeTmpDir("surface-user-invalid-target-");
+  try {
+    const result = runCommandResult(root, ["update", "--scope", "user", "--targets", "agents"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /user scope only supports --targets skill/);
+    assert.equal(exists(root, "wiki"), false);
+    assert.equal(exists(root, "AGENTS.md"), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project-scope skill-only update does not create wiki or agent setup", () => {
+  const root = makeTmpDir("surface-project-skill-only-");
+  try {
+    runCommand(root, ["install", "--scope", "project", "--agents", "codex"]);
+    fs.writeFileSync(path.join(root, ".codex", "skills", "project-librarian", "SKILL.md"), "stale project skill copy\n");
+
+    runCommand(root, ["update", "--scope", "project", "--targets", "skill", "--no-git-config"]);
+
+    assert.equal(read(root, ".codex/skills/project-librarian/SKILL.md"), fs.readFileSync(path.resolve(__dirname, "..", "..", "SKILL.md"), "utf8"));
+    assert.equal(exists(root, "wiki"), false);
+    assert.equal(exists(root, "AGENTS.md"), false);
+    assert.equal(exists(root, ".codex/hooks.json"), false);
+    assert.equal(exists(root, ".githooks"), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("update rejects the removed wiki target before writing", () => {
+  const root = makeTmpDir("surface-project-invalid-wiki-target-");
+  try {
+    const result = runCommandResult(root, ["update", "--scope", "project", "--targets", "wiki", "--no-git-config"]);
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stderr}\n${result.stdout}`, /invalid --targets entry: wiki; expected skill, agents, or all/);
+    assert.equal(exists(root, "wiki"), false);
+    assert.equal(exists(root, "AGENTS.md"), false);
+    assert.equal(exists(root, ".githooks"), false);
+    assert.equal(exists(root, ".codex"), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("project-scope agent-only update does not create wiki", () => {
+  const root = makeTmpDir("surface-project-agents-only-");
+  try {
+    fs.mkdirSync(path.join(root, ".codex"), { recursive: true });
+
+    runCommand(root, ["update", "--scope", "project", "--targets", "agents", "--agents", "codex", "--no-git-config"]);
+
+    assert.equal(exists(root, "AGENTS.md"), true);
+    assert.equal(exists(root, ".codex/hooks.json"), true);
+    assert.equal(exists(root, ".githooks"), true);
+    assert.equal(exists(root, "wiki"), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

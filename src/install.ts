@@ -7,7 +7,7 @@ import { allAgentSurfaces } from "./agent-surfaces";
 import { args, argValue } from "./args";
 import type { ResultRow } from "./types";
 
-type InstallScope = "user" | "project";
+export type InstallScope = "user" | "project";
 type InstallStatus = "created" | "updated" | "exists" | "dry-run";
 type InstallRow = [label: string, status: InstallStatus];
 
@@ -81,19 +81,20 @@ export function applyChoiceKey(state: ChoiceState, key: string, multi: boolean, 
   return state;
 }
 
-interface ChoiceOption<T extends string> {
+export interface ChoiceOption<T extends string> {
   value: T;
   label: string;
 }
 
-function promptChoices<T extends string>(
+export function promptChoices<T extends string>(
   title: string,
   options: readonly ChoiceOption<T>[],
   multi: boolean,
   defaultIndexes: readonly number[],
+  nonInteractiveMessage = "interactive selection requires a TTY; pass explicit options for non-interactive use",
 ): Promise<T[]> {
   if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
-    throw new Error("interactive install requires a TTY; pass --scope and/or --agents for non-interactive use");
+    throw new Error(nonInteractiveMessage);
   }
 
   const stdin = process.stdin;
@@ -168,6 +169,7 @@ function promptChoices<T extends string>(
 }
 
 async function interactiveInstallSelection(): Promise<{ scope: InstallScope; agents: AgentSurface[] }> {
+  const nonInteractiveMessage = "interactive install requires a TTY; pass --scope and/or --agents for non-interactive use";
   const selectedScope = (await promptChoices<InstallScope>(
     "Project Librarian 설치 범위를 선택하세요",
     [
@@ -176,6 +178,7 @@ async function interactiveInstallSelection(): Promise<{ scope: InstallScope; age
     ],
     false,
     [0],
+    nonInteractiveMessage,
   ))[0];
   if (!selectedScope) throw new Error("interactive install did not return an install scope");
   const agents = await promptChoices<AgentSurface>(
@@ -188,6 +191,7 @@ async function interactiveInstallSelection(): Promise<{ scope: InstallScope; age
     ],
     true,
     allAgentSurfaces.map((_agent, index) => index),
+    nonInteractiveMessage,
   );
   return { scope: selectedScope, agents };
 }
@@ -239,6 +243,10 @@ export function sharedProjectSkillTarget(): string {
 function installTarget(agent: AgentSurface, scope: InstallScope): string {
   const base = scope === "user" ? userAgentRoot(agent) : path.join(process.cwd(), projectAgentRoot(agent));
   return path.join(base, "skills", skillName);
+}
+
+function userSkillTarget(agent: AgentSurface): string {
+  return installTarget(agent, "user");
 }
 
 function assertNoTargetSymlink(targetRoot: string, target: string, includeLeaf: boolean): void {
@@ -362,6 +370,10 @@ export function installedProjectSkillSurfaces(): AgentSurface[] {
   return allAgentSurfaces.filter((agent) => fs.existsSync(path.join(projectSkillTarget(agent), "SKILL.md")));
 }
 
+export function installedUserSkillSurfaces(): AgentSurface[] {
+  return allAgentSurfaces.filter((agent) => fs.existsSync(path.join(userSkillTarget(agent), "SKILL.md")));
+}
+
 export function hasSharedProjectSkillInstall(): boolean {
   return fs.existsSync(path.join(sharedProjectSkillTarget(), "SKILL.md"));
 }
@@ -385,6 +397,14 @@ function copyPackageFiles(targetRoot: string, dryRun: boolean, labelRoot = targe
 export function syncProjectSkillInstall(agent: AgentSurface): ResultRow[] {
   return copyPackageFiles(projectSkillTarget(agent), false, projectSkillRelativeRoot(agent)).map(([label, status]) => {
     if (status === "dry-run") throw new Error("project skill sync does not support dry-run status");
+    return [label, status];
+  });
+}
+
+export function syncUserSkillInstall(agent: AgentSurface): ResultRow[] {
+  const targetRoot = userSkillTarget(agent);
+  return copyPackageFiles(targetRoot, false, `${agent}:user`).map(([label, status]) => {
+    if (status === "dry-run") throw new Error("user skill sync does not support dry-run status");
     return [label, status];
   });
 }

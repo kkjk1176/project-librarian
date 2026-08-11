@@ -17,11 +17,22 @@ cd "$SMOKE_TMP/help"
 node "$CLI" --help > help.log
 grep -Fq "project-librarian [init|update] [options]" help.log
 grep -Fq "project-librarian install " help.log
+grep -Fq -- "--targets <list>" help.log
 ! grep -Fq "install-skill" help.log
 grep -Fq -- "--wiki-neighborhood" help.log
 grep -Fq -- "--quality-check" help.log
 grep -Fq -- "--handoff-save" help.log
 ! grep -Eiq "code-index|code-evidence|project-librarian mcp|--migrate|benchmark" help.log
+test ! -e AGENTS.md
+
+mkdir -p "$SMOKE_TMP/update-no-selection"
+cd "$SMOKE_TMP/update-no-selection"
+if node "$CLI" update > update-no-selection.log 2>&1; then
+  echo "expected non-interactive update without selection to fail" >&2
+  exit 1
+fi
+grep -Fq "interactive update requires a TTY" update-no-selection.log
+test ! -e wiki
 test ! -e AGENTS.md
 
 for retired in mcp install-skill --code-index --migrate --migration-doctor; do
@@ -117,8 +128,8 @@ node "$CLI" --handoff-clear > handoff-clear.log
 test ! -e .project-wiki/session/last-handoff.md
 
 printf '%s\n' "preserve me" > wiki/user-preserved.txt
-node "$CLI" update --no-git-config > update.log
-grep -Fq "Project Librarian + no-git-config complete." update.log
+node "$CLI" update --scope project --targets all --no-git-config > update.log
+grep -Fq "Project Librarian update complete (scope=project + targets=skill,agents + no-git-config)." update.log
 grep -Fq "preserve me" wiki/user-preserved.txt
 test ! -e wiki/migration
 

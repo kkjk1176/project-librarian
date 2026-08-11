@@ -49,10 +49,12 @@ import {
 } from "./hooks";
 import {
   hasSharedProjectSkillInstall,
+  installedUserSkillSurfaces,
   installedProjectSkillSurfaces,
   runInstallMode,
   syncProjectSkillInstall,
   syncSharedProjectSkillInstall,
+  syncUserSkillInstall,
 } from "./install";
 import {
   appendCaptureInbox,
@@ -96,6 +98,8 @@ import {
   wikiOperatingModelV2,
 } from "./templates";
 import type { ResultRow } from "./types";
+import { resolveUpdateSelection } from "./update";
+import type { UpdateSelection, UpdateTarget } from "./update";
 import { exists, makeExecutable, mkdirp, read, upsertMarkedSection, writeManaged, writeStarter } from "./workspace";
 
 function printUsage(): void {
@@ -132,8 +136,9 @@ Session handoff options:
 
 Setup and support options:
   --agents <list>                  With init/update, target agents; with install, skip the interactive agent selector.
-  --scope <value>                 With install, skip the interactive scope selector: user or project.
-  --no-git-config                  Install hook files without changing git core.hooksPath.
+  --scope <value>                  With install/update, skip the interactive scope selector: user or project.
+  --targets <list>                 With update, target skill, agents, or all; skips the target selector.
+  --no-git-config                  With init/update, write hook files without changing git core.hooksPath.
   --dry-run                        With install, preview copied skill files without writing them.
   --issue-draft                    Print a GitHub issue body draft for a Project Librarian problem.
   --issue-create                   Create the issue with gh after explicit user approval.
@@ -143,7 +148,7 @@ Setup and support options:
 
 Commands:
   init                             Create missing wiki and selected agent setup files; preserve an existing wiki.
-  update                           Refresh managed setup while preserving existing wiki content and agent surfaces.
+  update                           Interactively choose scope and update targets, then refresh selected skills or agent setup.
   install                          Interactively choose scope and agents, then install reusable skill files.`);
 }
 
@@ -230,10 +235,13 @@ if (command === "install") {
       process.exit(1);
     });
 } else {
-  runInitCommand();
+  runInitCommand().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
 
-function runInitCommand(): void {
+async function runInitCommand(): Promise<void> {
   const activeHandoffMode = activeHandoffModes[0];
   if (activeHandoffMode) {
     try {
@@ -301,16 +309,13 @@ function runInitCommand(): void {
     process.exit(0);
   }
 
-  const agentSurfaceResolution = resolveBootstrapAgentSurfaces(command === "update" ? "update" : "init", agentTargets, exists, read);
-  if (agentSurfaceResolution.source === "missing-update-target") {
-    console.error("update cannot detect an existing Project Librarian install or agent surface; use init for a fresh project or pass --agents explicitly.");
-    process.exit(1);
+  if (command === "update") {
+    runUpdateMode(await resolveUpdateSelection());
+    return;
   }
+
+  const agentSurfaceResolution = resolveBootstrapAgentSurfaces("init", agentTargets, exists, read);
   const selectedAgentSurfaces = agentSurfaceResolution.surfaces;
-  const projectSkillSyncSurfaces = command === "update"
-    ? installedProjectSkillSurfaces().filter((surface) => includesAgentSurface(selectedAgentSurfaces, surface))
-    : [];
-  const syncSharedProjectSkill = command === "update" && hasSharedProjectSkillInstall();
   const shouldWriteSurface = (surface: "codex" | "claude" | "cursor" | "gemini"): boolean => includesAgentSurface(selectedAgentSurfaces, surface);
   const writeCodexSurface = shouldWriteSurface("codex");
   const writeClaudeSurface = shouldWriteSurface("claude");
@@ -337,13 +342,6 @@ function runInitCommand(): void {
   }
   if (writeGeminiSurface) mkdirp(".gemini/hooks");
   mkdirp(".githooks");
-
-  for (const surface of projectSkillSyncSurfaces) {
-    for (const result of syncProjectSkillInstall(surface)) results.push(result);
-  }
-  if (syncSharedProjectSkill) {
-    for (const result of syncSharedProjectSkillInstall()) results.push(result);
-  }
 
   const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
   const startupTldrForAgents = extractStartupTldr(startupForSync);
@@ -400,6 +398,102 @@ function runInitCommand(): void {
   if (refreshIndexMode) modes.push("refresh-index");
   if (noGitConfigMode) modes.push("no-git-config");
   console.log(modes.length > 0 ? `Project Librarian + ${modes.join(" + ")} complete.` : "Project Librarian complete.");
+  for (const [relativePath, status] of results) console.log(`${String(status).padEnd(7)} ${relativePath}`);
+}
+
+function hasUpdateTarget(selection: UpdateSelection, target: UpdateTarget): boolean {
+  return selection.targets.includes(target);
+}
+
+function runUpdateMode(selection: UpdateSelection): void {
+  const updateSkill = hasUpdateTarget(selection, "skill");
+  const updateAgents = hasUpdateTarget(selection, "agents");
+  const results: ResultRow[] = [];
+
+  if (selection.scope === "user") {
+    const installed = installedUserSkillSurfaces();
+    const selected = agentTargets.length > 0 ? installed.filter((surface) => includesAgentSurface(agentTargets, surface)) : installed;
+    if (selected.length === 0) {
+      throw new Error("update cannot detect an existing user-scope Project Librarian skill; use install for a fresh user-scope install.");
+    }
+    for (const surface of selected) {
+      for (const result of syncUserSkillInstall(surface)) results.push(result);
+    }
+  } else {
+    const projectSkillSurfaces = updateSkill
+      ? installedProjectSkillSurfaces().filter((surface) => agentTargets.length === 0 || includesAgentSurface(agentTargets, surface))
+      : [];
+    const syncSharedProjectSkill = updateSkill && hasSharedProjectSkillInstall();
+
+    let selectedAgentSurfaces: ReturnType<typeof resolveBootstrapAgentSurfaces>["surfaces"] = [];
+    if (updateAgents) {
+      const agentSurfaceResolution = resolveBootstrapAgentSurfaces("update", agentTargets, exists, read);
+      if (agentSurfaceResolution.source === "missing-update-target") {
+        throw new Error("update cannot detect an existing Project Librarian install or agent surface; use init for a fresh project or pass --agents explicitly.");
+      }
+      selectedAgentSurfaces = agentSurfaceResolution.surfaces;
+    }
+
+    const shouldWriteSurface = (surface: "codex" | "claude" | "cursor" | "gemini"): boolean => includesAgentSurface(selectedAgentSurfaces, surface);
+    const writeCodexSurface = shouldWriteSurface("codex");
+    const writeClaudeSurface = shouldWriteSurface("claude");
+    const writeCursorSurface = shouldWriteSurface("cursor");
+    const writeGeminiSurface = shouldWriteSurface("gemini");
+
+    if (updateAgents) {
+      if (writeCodexSurface) mkdirp(".codex/hooks");
+      if (writeClaudeSurface) mkdirp(".claude/hooks");
+      if (writeCursorSurface) {
+        mkdirp(".cursor/hooks");
+        mkdirp(".cursor/rules");
+      }
+      if (writeGeminiSurface) mkdirp(".gemini/hooks");
+      mkdirp(".githooks");
+    }
+
+    if (updateSkill) {
+      for (const surface of projectSkillSurfaces) {
+        for (const result of syncProjectSkillInstall(surface)) results.push(result);
+      }
+      if (syncSharedProjectSkill) {
+        for (const result of syncSharedProjectSkillInstall()) results.push(result);
+      }
+    }
+
+    if (updateAgents) {
+      const startupForSync = exists("wiki/startup.md") ? read("wiki/startup.md") : startup;
+      const startupTldrForAgents = extractStartupTldr(startupForSync);
+      results.push(["AGENTS.md", upsertMarkedSection("AGENTS.md", "<!-- PROJECT-WIKI-FIRST:START -->", "<!-- PROJECT-WIKI-FIRST:END -->", agentsSection(startupTldrForAgents))]);
+      if (writeClaudeSurface) results.push(["CLAUDE.md", upsertMarkedSection("CLAUDE.md", "<!-- PROJECT-WIKI-CLAUDE:START -->", "<!-- PROJECT-WIKI-CLAUDE:END -->", claudeSection)]);
+      if (writeGeminiSurface) results.push(["GEMINI.md", upsertMarkedSection("GEMINI.md", "<!-- PROJECT-WIKI-GEMINI:START -->", "<!-- PROJECT-WIKI-GEMINI:END -->", geminiSection)]);
+      if (writeCursorSurface) results.push([".cursor/rules/project-librarian.mdc", writeManaged(".cursor/rules/project-librarian.mdc", cursorRule)]);
+      results.push([".githooks/prepare-commit-msg", writeManaged(".githooks/prepare-commit-msg", gitPrepareCommitMsgHook)]);
+      makeExecutable(".githooks/prepare-commit-msg");
+      results.push([".githooks/wiki-commit-trailers.js", writeManaged(".githooks/wiki-commit-trailers.js", gitWikiCommitTrailersScript)]);
+      makeExecutable(".githooks/wiki-commit-trailers.js");
+      if (!noGitConfigMode) results.push(["git core.hooksPath", upsertGitHooksPath()]);
+      if (writeCodexSurface) {
+        results.push([".codex/hooks.json", upsertHookConfig()]);
+        results.push([".codex/hooks/wiki-session-start.js", writeManaged(".codex/hooks/wiki-session-start.js", hookScript)]);
+      }
+      if (writeClaudeSurface) {
+        results.push([".claude/settings.json", upsertClaudeHookConfig()]);
+        results.push([".claude/hooks/wiki-session-start.js", writeManaged(".claude/hooks/wiki-session-start.js", hookScript)]);
+      }
+      if (writeCursorSurface) {
+        results.push([".cursor/hooks.json", upsertCursorHookConfig()]);
+        results.push([".cursor/hooks/wiki-session-start.js", writeManaged(".cursor/hooks/wiki-session-start.js", cursorHookScript)]);
+      }
+      if (writeGeminiSurface) {
+        results.push([".gemini/settings.json", upsertGeminiHookConfig()]);
+        results.push([".gemini/hooks/wiki-session-start.js", writeManaged(".gemini/hooks/wiki-session-start.js", hookScript)]);
+      }
+    }
+  }
+
+  const modes: string[] = [`scope=${selection.scope}`, `targets=${selection.targets.join(",")}`];
+  if (noGitConfigMode && updateAgents) modes.push("no-git-config");
+  console.log(`Project Librarian update complete (${modes.join(" + ")}).`);
   for (const [relativePath, status] of results) console.log(`${String(status).padEnd(7)} ${relativePath}`);
 }
 

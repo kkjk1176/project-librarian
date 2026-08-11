@@ -105,6 +105,7 @@ const flagDefinitions: readonly FlagDefinition[] = [
   { name: "--scope", value: "value" },
   { name: "--state", value: "value" },
   { name: "--title", value: "value" },
+  { name: "--targets", value: "value" },
   { name: "--verification", value: "value" },
   { name: "--wiki-impact", value: "value" },
   { name: "--wiki-neighborhood", value: "value" },

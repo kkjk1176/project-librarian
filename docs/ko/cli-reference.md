@@ -4,12 +4,12 @@
 
 ```text
 project-librarian init [옵션]
-project-librarian update [옵션]
+project-librarian update [--scope user|project] [--targets skill|agents|all] [--agents <목록>]
 project-librarian install [--scope user|project] [--agents <목록>] [--dry-run]
 ```
 
 - `init`은 빠진 위키 및 선택한 에이전트 설정 파일을 만들고 기존 `wiki/`는 보존합니다.
-- `update`는 위키 내용과 이미 존재하는 에이전트 표면을 보존하면서 관리 설정을 갱신합니다.
+- `update`는 TTY에서 먼저 범위를 선택하게 합니다. 사용자 범위는 대상 선택 없이 설치된 사용자 스킬을 바로 갱신하고, 프로젝트 범위에서만 재사용 스킬과 프로젝트 에이전트 설정/훅을 선택할 수 있습니다. 프로젝트 위키는 쓰지 않습니다.
 - `install`은 `--scope`와 `--agents`를 생략하면 대화형 범위 선택과 에이전트 체크박스를 보여 줍니다. 자동화에서는 두 옵션을 명시해 비대화형으로 사용할 수 있습니다.
 
 ## 위키 진단
@@ -42,7 +42,8 @@ project-librarian install [--scope user|project] [--agents <목록>] [--dry-run]
 ## 설정과 지원
 
 - `--agents codex|claude|cursor|gemini|all`은 `init`/`update`의 설정 대상을 선택하거나 `install`의 대화형 에이전트 선택을 건너뜁니다.
-- `--scope user|project`는 스킬 설치 범위를 선택하거나 `install`의 대화형 범위 선택을 건너뜁니다.
+- `--scope user|project`는 설치/업데이트 범위를 선택하거나 대화형 범위 선택을 건너뜁니다.
+- `--targets skill|agents|all`은 업데이트 대상을 선택하거나 `update`의 대화형 대상 선택을 건너뜁니다.
 - `--dry-run`은 스킬 설치 결과를 미리 보여 줍니다.
 - `--no-git-config`는 훅 파일만 쓰고 `core.hooksPath`는 바꾸지 않습니다.
 - 이슈 작성에는 `--issue-draft`, `--issue-create`, `--issue-title`, `--issue-body-file`을 사용합니다.
