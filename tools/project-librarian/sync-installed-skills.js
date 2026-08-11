@@ -10,12 +10,9 @@ const rootDist = path.join(root, "dist");
 const rootPackagePath = path.join(root, "package.json");
 const rootReadmeNames = ["README.md", "README.ko.md"];
 const rootSkillPath = path.join(root, "SKILL.md");
-const compatibilitySkillPath = path.join(root, ".agents", "skills", "project-wiki-bootstrap", "SKILL.md");
 const skillRoots = [
-  { path: ".agents/skills/project-librarian", compatibility: false },
-  { path: ".claude/skills/project-librarian", compatibility: false },
-  { path: ".agents/skills/project-wiki-bootstrap", compatibility: true },
-  { path: ".claude/skills/project-wiki-bootstrap", compatibility: true },
+  ".agents/skills/project-librarian",
+  ".claude/skills/project-librarian",
 ];
 
 function managedPath(relativePath) {
@@ -56,29 +53,9 @@ function copyRuntimeEntry(source, target) {
   }
 }
 
-function syncPackageMetadata(skillRoot, compatibility, rootPackage) {
+function syncPackageMetadata(skillRoot) {
   const target = path.join(skillRoot, "package.json");
-  if (!compatibility) {
-    fs.copyFileSync(rootPackagePath, target);
-    return;
-  }
-
-  const existing = JSON.parse(fs.readFileSync(target, "utf8"));
-  const {
-    scripts: _removedScripts,
-    devDependencies: _removedDevDependencies,
-    optionalDependencies: _removedOptionalDependencies,
-    ...packageIdentity
-  } = existing;
-  const compatible = {
-    ...packageIdentity,
-    type: rootPackage.type,
-    engines: rootPackage.engines,
-    dependencies: rootPackage.dependencies,
-    optionalDependencies: rootPackage.optionalDependencies,
-    projectLibrarianRuntimeVersion: rootPackage.version,
-  };
-  fs.writeFileSync(target, `${JSON.stringify(compatible, null, 2)}\n`);
+  fs.copyFileSync(rootPackagePath, target);
 }
 
 function syncReadmes(skillRoot) {
@@ -87,27 +64,25 @@ function syncReadmes(skillRoot) {
   }
 }
 
-function syncSkillContract(skillRoot, compatibility) {
-  const source = compatibility ? compatibilitySkillPath : rootSkillPath;
+function syncSkillContract(skillRoot) {
   const target = path.join(skillRoot, "SKILL.md");
-  if (path.resolve(source) !== path.resolve(target)) fs.copyFileSync(source, target);
+  if (path.resolve(rootSkillPath) !== path.resolve(target)) fs.copyFileSync(rootSkillPath, target);
 }
 
 function main() {
   if (!fs.statSync(rootDist).isDirectory()) throw new Error(`missing built root runtime: ${rootDist}`);
-  const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, "utf8"));
-  for (const skill of skillRoots) {
-    const skillRoot = managedPath(skill.path);
+  for (const skillPath of skillRoots) {
+    const skillRoot = managedPath(skillPath);
     // Claude's checked-in copy is optional because .claude is normally a
     // developer-local agent surface. When it is present, it must receive the
     // exact same runtime snapshot as the shared checked-in skills.
     if (!fs.existsSync(skillRoot)) continue;
     assertNoSymlink(skillRoot);
-    if (!fs.statSync(skillRoot).isDirectory()) throw new Error(`missing checked-in skill root: ${skill.path}`);
+    if (!fs.statSync(skillRoot).isDirectory()) throw new Error(`missing checked-in skill root: ${skillPath}`);
     copyRuntime(rootDist, path.join(skillRoot, "dist"));
-    syncPackageMetadata(skillRoot, skill.compatibility, rootPackage);
+    syncPackageMetadata(skillRoot);
     syncReadmes(skillRoot);
-    syncSkillContract(skillRoot, skill.compatibility);
+    syncSkillContract(skillRoot);
   }
 }
 
