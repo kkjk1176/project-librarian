@@ -12,17 +12,11 @@ const root = path.resolve(__dirname, "..", "..");
 const rootDist = path.join(root, "dist");
 const configuredSkillRoots = [
   ".agents/skills/project-librarian",
-  ".agents/skills/project-wiki-bootstrap",
   ".claude/skills/project-librarian",
-  ".claude/skills/project-wiki-bootstrap",
 ];
 const installedSkills = configuredSkillRoots.filter((relativeSkillRoot) => fs.existsSync(path.join(root, relativeSkillRoot)));
 
-assert.deepEqual(
-  installedSkills.slice(0, 2),
-  [".agents/skills/project-librarian", ".agents/skills/project-wiki-bootstrap"],
-  "the checked-in shared skill snapshots must remain available for parity checks",
-);
+assert.equal(installedSkills.includes(".agents/skills/project-librarian"), true, "the checked-in primary skill snapshot must remain available for parity checks");
 
 function runtimeDigest(directory) {
   const files = [];
@@ -52,7 +46,7 @@ function run(runner, cwd, args) {
   assert.equal(result.status, 0, `${runner} ${args.join(" ")}\n${result.stderr}\n${result.stdout}`);
 }
 
-test("installed primary and compatibility skills keep the complete v2 runtime in sync", () => {
+test("installed primary skills keep the complete v2 runtime in sync", () => {
   const expectedRuntime = runtimeDigest(rootDist);
   const rootPackage = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
@@ -61,21 +55,11 @@ test("installed primary and compatibility skills keep the complete v2 runtime in
     assert.deepEqual(runtimeDigest(path.join(skillRoot, "dist")), expectedRuntime, `${relativeSkillRoot} runtime differs from root dist`);
 
     const metadata = JSON.parse(fs.readFileSync(path.join(skillRoot, "package.json"), "utf8"));
-    if (relativeSkillRoot.endsWith("project-librarian")) {
-      assert.deepEqual(metadata, rootPackage, `${relativeSkillRoot} package metadata differs from root package`);
-    } else {
-      assert.equal(metadata.name, "project-wiki-bootstrap");
-      assert.equal(metadata.version, "0.1.2", "the compatibility package keeps its independent package version");
-      assert.equal(metadata.projectLibrarianRuntimeVersion, rootPackage.version);
-      assert.deepEqual(metadata.engines, rootPackage.engines);
-      assert.deepEqual(metadata.dependencies, rootPackage.dependencies);
-      assert.deepEqual(metadata.optionalDependencies, rootPackage.optionalDependencies);
-      assert.equal(metadata.scripts, undefined, "the compatibility package must not advertise removed development workflows");
-    }
+    assert.deepEqual(metadata, rootPackage, `${relativeSkillRoot} package metadata differs from root package`);
   }
 });
 
-test("checked-in skill documentation exposes only the wiki product surface", () => {
+test("checked-in primary skill documentation exposes only the wiki product surface", () => {
   const rootReadmes = {
     "README.md": fs.readFileSync(path.join(root, "README.md"), "utf8"),
     "README.ko.md": fs.readFileSync(path.join(root, "README.ko.md"), "utf8"),
@@ -85,17 +69,12 @@ test("checked-in skill documentation exposes only the wiki product surface", () 
     for (const [readme, expected] of Object.entries(rootReadmes)) {
       assert.equal(fs.readFileSync(path.join(skillRoot, readme), "utf8"), expected, `${relativeSkillRoot}/${readme} differs from the root documentation`);
     }
-    const canonicalSkill = fs.readFileSync(path.join(
-      root,
-      relativeSkillRoot.endsWith("project-librarian")
-        ? "SKILL.md"
-        : ".agents/skills/project-wiki-bootstrap/SKILL.md",
-    ), "utf8");
+    const canonicalSkill = fs.readFileSync(path.join(root, "SKILL.md"), "utf8");
     assert.equal(fs.readFileSync(path.join(skillRoot, "SKILL.md"), "utf8"), canonicalSkill, `${relativeSkillRoot}/SKILL.md differs from its canonical contract`);
   }
 });
 
-test("every installed primary and compatibility runner fresh-initializes a lintable v2-only wiki", () => {
+test("every installed primary runner fresh-initializes a lintable v2-only wiki", () => {
   for (const relativeSkillRoot of installedSkills) {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "project-librarian-installed-v2-"));
     try {
