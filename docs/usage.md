@@ -30,9 +30,46 @@ Use `--no-git-config` when hook files are wanted but the repository's `core.hook
 npx project-librarian@latest update
 ```
 
-Update refreshes managed instructions, hooks, operating templates, and installed project-scope skill copies. It preserves existing wiki documents and targets managed or already-present agent surfaces unless `--agents` is explicit. If no installation or agent root can be detected, it fails before writing and asks for `init` or an explicit agent selection.
+In a TTY, update first asks for a scope. Project scope then asks for update targets; user scope immediately updates the installed user skill without a second prompt:
+
+- `user`: refresh installed user-scope skill copies only. It never writes the current project's wiki, agent instructions, or hooks.
+- `project`: check any combination of reusable skill copies and project agent setup/hooks. Update does not write the project wiki.
+
+For non-interactive automation, use explicit selections such as:
+
+```bash
+npx project-librarian@latest update --scope user --targets skill --agents codex
+npx project-librarian@latest update --scope project --targets skill,agents --agents codex,cursor --no-git-config
+```
+
+`--targets` accepts `skill`, `agents`, or `all`. Existing project-scope skill copies are refreshed only when the skill target is selected; missing project-scope skill copies are not created by update. The agents target requires an existing agent root unless `--agents` explicitly selects one. Use `init` for missing wiki setup and explicit wiki maintenance options such as `--refresh-index` for wiki changes.
 
 Existing lifecycle-style directories are left in place as read-only compatibility material. Project Librarian does not automatically reorganize them.
+
+## PRD Visual Artifacts
+
+PRDs support the complete set of visual artifacts below. When one is needed, write the canonical visual as an HTML file and link it from the owning Markdown page or area index.
+
+| Area | Visual artifacts |
+| --- | --- |
+| Discovery | Journey map; ecosystem and stakeholder map |
+| Requirements | User flow; service blueprint/swimlane; permission matrix |
+| Design | System context/architecture; sequence diagram; state machine; screen flow/wireframes; domain/data model |
+| Delivery/Roadmap | Dependency and rollout map |
+| Validation/Metrics | Experiment flow; funnel; KPI tree; cohort view |
+| Decisions/Sources | Decision-impact map; evidence map |
+
+Use this layout under the owning PRD:
+
+```text
+wiki/10-services/<service>/prds/<PRD-ID-slug>/03-design/
+  index.md
+  visuals/
+    system-architecture.html
+    state-machine.html
+```
+
+Markdown remains the source of truth for metadata, rationale, requirements, decisions, and text summaries. HTML is the source for the visual presentation. Each visual must be self-contained, responsive, printable, keyboard-navigable, accessible without color alone, and include a title, purpose, legend, text summary, updated date, and source or decision references. Mermaid or ASCII diagrams may be used for small inline explanations, but the canonical PRD visual must be HTML. See [PRD visual artifact guidance](prd-visual-artifacts.md) for the full contract.
 
 ## Organize the Wiki
 

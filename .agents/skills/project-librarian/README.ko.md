@@ -31,6 +31,8 @@ npx project-librarian@latest init
 npx project-librarian@latest update
 ```
 
+TTY에서 `update`를 실행하면 먼저 범위를 고릅니다. 사용자 범위는 대상 체크 없이 설치된 사용자 스킬을 바로 갱신하고, 프로젝트 범위에서만 재사용 스킬과 프로젝트 에이전트 설정/훅 중 대상을 체크합니다. `update`는 프로젝트 위키를 만들거나 다시 쓰지 않습니다. 자동화에서는 `--scope user|project`와 `--targets skill|agents|all`을 명시합니다. 빠진 위키 설정은 `init`으로 만들고, `--refresh-index` 같은 위키 유지관리 옵션은 명시적으로 실행합니다.
+
 ## 생성 구조
 
 | 경로 | 용도 |
@@ -77,6 +79,7 @@ project-librarian --capture-inbox --title "열린 질문" --content "결제 재�
 | 안내서 | 내용 |
 | --- | --- |
 | [사용법](docs/ko/usage.md) | 설정, 생성 파일, 위키 작업 흐름, 에이전트 요청. |
+| [PRD 시각 자료](docs/ko/prd-visual-artifacts.md) | 지원하는 PRD 시각 자료와 HTML 작성 규칙. |
 | [CLI 참고](docs/ko/cli-reference.md) | 명령과 옵션. |
 | [관리자 안내서](docs/ko/maintainer.md) | 개발, 검증, 패키징, 배포. |
 | [영문 README](README.md) | 영문 소개와 사용법. |

@@ -59,14 +59,14 @@ test("glossary initialization routes the v2 shared glossary", () => {
   }
 });
 
-test("update adds v2 hubs while preserving legacy lifecycle documents", () => {
-  const root = makeTmpDir("wiki-layout-v2-update-");
+test("init adds v2 hubs while preserving legacy lifecycle documents", () => {
+  const root = makeTmpDir("wiki-layout-v2-init-");
   try {
     fs.mkdirSync(path.join(root, "wiki/canonical"), { recursive: true });
     fs.mkdirSync(path.join(root, ".codex"), { recursive: true });
     const legacy = "---\nstatus: active\n---\n\n# User Legacy Truth\n\nKeep this content.\n";
     fs.writeFileSync(path.join(root, "wiki/canonical/user-truth.md"), legacy);
-    childProcess.execFileSync(process.execPath, [cliPath, "update", "--no-git-config"], { cwd: root, encoding: "utf8" });
+    childProcess.execFileSync(process.execPath, [cliPath, "init", "--no-git-config"], { cwd: root, encoding: "utf8" });
     assert.equal(fs.readFileSync(path.join(root, "wiki/canonical/user-truth.md"), "utf8"), legacy);
     assert.equal(fs.existsSync(path.join(root, "wiki/00-index/prd-registry.md")), true);
     assert.equal(fs.existsSync(path.join(root, "wiki/meta/wiki-ops-v2-decisions.md")), true);
@@ -75,7 +75,7 @@ test("update adds v2 hubs while preserving legacy lifecycle documents", () => {
   }
 });
 
-test("update preserves user-authored v2 operating documents", () => {
+test("update leaves user-authored v2 operating documents untouched", () => {
   const root = makeTmpDir("wiki-layout-v2-operating-preserve-");
   try {
     runCli(root);
@@ -93,7 +93,7 @@ test("update preserves user-authored v2 operating documents", () => {
       expected.set(file, customized);
     }
 
-    childProcess.execFileSync(process.execPath, [cliPath, "update", "--no-git-config"], { cwd: root, encoding: "utf8" });
+    childProcess.execFileSync(process.execPath, [cliPath, "update", "--scope", "project", "--targets", "agents", "--no-git-config"], { cwd: root, encoding: "utf8" });
 
     for (const [file, content] of expected) {
       assert.equal(fs.readFileSync(path.join(root, file), "utf8"), content, `${file} was overwritten by update`);

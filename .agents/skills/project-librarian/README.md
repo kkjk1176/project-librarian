@@ -31,6 +31,8 @@ npx project-librarian@latest init
 npx project-librarian@latest update
 ```
 
+In a TTY, `update` first asks for the scope. User scope immediately refreshes the installed user skill; project scope then lets you check reusable skills and project agent setup/hooks. It does not create or rewrite the project wiki. For automation, pass `--scope user|project` and `--targets skill|agents|all` explicitly. Use `init` for missing wiki setup and explicit wiki maintenance options such as `--refresh-index` when needed.
+
 ## What It Creates
 
 | Path | Purpose |
@@ -77,6 +79,7 @@ Local session handoff commands preserve short-lived resume context under `.proje
 | Guide | Contents |
 | --- | --- |
 | [Usage](docs/usage.md) | Setup, generated files, wiki workflow, and agent requests. |
+| [PRD visual artifacts](docs/prd-visual-artifacts.md) | Supported PRD visuals and the HTML artifact contract. |
 | [CLI reference](docs/cli-reference.md) | Commands and options. |
 | [Maintainer guide](docs/maintainer.md) | Development, verification, packaging, and publishing. |
 | [한국어 README](README.ko.md) | Korean introduction and usage. |

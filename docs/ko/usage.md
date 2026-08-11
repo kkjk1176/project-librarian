@@ -30,9 +30,46 @@ npx project-librarian@latest init --agents codex,cursor
 npx project-librarian@latest update
 ```
 
-업데이트는 관리 지침, 훅, 운영 템플릿, 프로젝트 범위 스킬 복사본을 갱신합니다. 기존 위키 문서를 보존하며, `--agents`를 명시하지 않으면 관리 중이거나 이미 존재하는 에이전트 표면만 대상으로 삼습니다. 설치 흔적이나 에이전트 루트를 찾지 못하면 파일을 쓰기 전에 실패하고 `init` 또는 명시적 에이전트 선택을 안내합니다.
+TTY에서 업데이트를 실행하면 먼저 범위를 고릅니다. 프로젝트 범위에서만 업데이트 대상을 체크하며, 사용자 범위는 두 번째 선택 없이 설치된 사용자 스킬을 바로 갱신합니다.
+
+- `user`: 사용자 범위에 설치된 스킬 복사본만 갱신합니다. 현재 프로젝트의 위키, 에이전트 지침, 훅은 쓰지 않습니다.
+- `project`: 재사용 스킬과 프로젝트 에이전트 설정/훅 중 원하는 대상을 조합해 갱신합니다. `update`는 프로젝트 위키를 쓰지 않습니다.
+
+자동화에서는 대상을 명시합니다.
+
+```bash
+npx project-librarian@latest update --scope user --targets skill --agents codex
+npx project-librarian@latest update --scope project --targets skill,agents --agents codex,cursor --no-git-config
+```
+
+`--targets`에는 `skill`, `agents`, `all`을 사용할 수 있습니다. 프로젝트 범위 스킬 복사본은 스킬 대상을 선택했을 때만 갱신하며, 없는 프로젝트 범위 스킬 복사본을 update가 새로 만들지는 않습니다. 에이전트 대상은 기존 에이전트 루트가 필요하고, 없을 때는 `--agents`로 대상을 명시해야 합니다. 빠진 위키 설정은 `init`으로 만들고, `--refresh-index` 같은 위키 변경은 명시적인 위키 유지관리 옵션으로 실행합니다.
 
 기존 생명주기형 디렉터리는 읽기 전용 호환 자료로 그대로 둡니다. Project Librarian은 이를 자동으로 재정리하지 않습니다.
+
+## PRD 시각 자료
+
+PRD는 아래 시각 자료를 모두 지원합니다. 시각 자료가 필요하면 소유한 Markdown 문서나 영역 인덱스에서 연결하고, 표준 시각 자료 자체는 HTML 파일로 작성합니다.
+
+| 영역 | 시각 자료 |
+| --- | --- |
+| 탐색 | 사용자 여정 지도, 생태계·이해관계자 지도 |
+| 요구사항 | 사용자 플로우, 서비스 블루프린트/스윔레인, 권한 매트릭스 |
+| 설계 | 시스템 컨텍스트/아키텍처, 시퀀스 다이어그램, 상태 머신, 화면 플로우/와이어프레임, 도메인·데이터 모델 |
+| 출시·로드맵 | 의존성·롤아웃 맵 |
+| 검증·지표 | 실험 흐름, 퍼널, KPI 트리, 코호트 뷰 |
+| 결정·출처 | 결정 영향도 맵, 근거 맵 |
+
+PRD 안에서는 다음과 같이 둡니다.
+
+```text
+wiki/10-services/<service>/prds/<PRD-ID-slug>/03-design/
+  index.md
+  visuals/
+    system-architecture.html
+    state-machine.html
+```
+
+Markdown는 메타데이터, 근거, 요구사항, 결정사항, 텍스트 요약의 원본으로 유지하고, HTML은 시각적 표현의 원본으로 사용합니다. 모든 시각 자료는 자체 완결형·반응형·인쇄 가능하고 키보드로 탐색할 수 있어야 하며, 색상에만 의존하지 않고 제목, 목적, 범례, 텍스트 요약, 갱신일, 출처 또는 결정 참조를 포함해야 합니다. 작은 설명에는 Mermaid나 ASCII를 사용할 수 있지만, PRD의 표준 시각 자료는 HTML로 작성합니다. 전체 계약은 [PRD 시각 자료 안내](prd-visual-artifacts.md)를 따릅니다.
 
 ## 위키 정리
 
