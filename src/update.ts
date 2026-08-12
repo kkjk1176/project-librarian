@@ -43,11 +43,11 @@ function hasExplicitSelection(): boolean {
 
 async function chooseScope(): Promise<UpdateScope> {
   const options: readonly ChoiceOption<UpdateScope>[] = [
-    { value: "user", label: "사용자 전체 — 홈 디렉터리에 설치된 스킬만 업데이트" },
-    { value: "project", label: "현재 프로젝트 — 프로젝트 에이전트와 스킬을 업데이트" },
+    { value: "user", label: "User — update only the skill installed in the home directory" },
+    { value: "project", label: "Project — update project agents and skill" },
   ];
   const selected = await promptChoices<UpdateScope>(
-    "Project Librarian 업데이트 범위를 선택하세요",
+    "Select Project Librarian update scope",
     options,
     false,
     [0],
@@ -60,12 +60,12 @@ async function chooseScope(): Promise<UpdateScope> {
 
 async function chooseTargets(): Promise<UpdateTarget[]> {
   const options: readonly ChoiceOption<UpdateTarget>[] = [
-    { value: "skill", label: "재사용 스킬 — 프로젝트에 설치된 스킬 갱신" },
-    { value: "agents", label: "프로젝트 에이전트 — AGENTS.md, 설정, hook 갱신" },
+    { value: "skill", label: "Reusable skill — update the skill installed in this project" },
+    { value: "agents", label: "Project agents — update AGENTS.md, settings, and hooks" },
   ];
   const defaults = options.map((_option, index) => index);
   return promptChoices<UpdateTarget>(
-    "업데이트할 대상을 선택하세요",
+    "Select update targets",
     options,
     true,
     defaults,

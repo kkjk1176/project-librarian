@@ -143,7 +143,7 @@ function promptChoices(title, options, multi, defaultIndexes, nonInteractiveMess
             stdout.write(`\u001b[${renderedLines}A`);
         const lines = [
             `\u001b[1m${title}\u001b[0m`,
-            multi ? "↑/↓ 이동 · Space 체크/해제 · a 전체 선택 · Enter 확정 · q 취소" : "↑/↓ 이동 · Enter 확정 · q 취소",
+            multi ? "↑/↓ Move · Space toggle · a select all · Enter submit · q cancel" : "↑/↓ Move · Enter submit · q cancel",
             ...options.map((option, index) => {
                 const pointer = index === state.cursor ? "\u001b[36m❯\u001b[0m" : " ";
                 const marker = multi
@@ -165,7 +165,7 @@ function promptChoices(title, options, multi, defaultIndexes, nonInteractiveMess
                 stdin.setRawMode(previousRawMode);
                 stdin.removeListener("keypress", onKeypress);
                 stdout.write("\n");
-                reject(new Error("설치를 취소했습니다."));
+                reject(new Error("Installation cancelled."));
                 return;
             }
             if (next === "submit") {
@@ -190,13 +190,13 @@ function promptChoices(title, options, multi, defaultIndexes, nonInteractiveMess
 }
 async function interactiveInstallSelection() {
     const nonInteractiveMessage = "interactive install requires a TTY; pass --scope and/or --agents for non-interactive use";
-    const selectedScope = (await promptChoices("Project Librarian 설치 범위를 선택하세요", [
-        { value: "user", label: "사용자 전체 — 홈 디렉터리의 에이전트에 설치" },
-        { value: "project", label: "현재 프로젝트 — 이 저장소의 에이전트에 설치" },
+    const selectedScope = (await promptChoices("Select Project Librarian installation scope", [
+        { value: "user", label: "User — install to agent skills in the home directory" },
+        { value: "project", label: "Project — install to agents in this repository" },
     ], false, [0], nonInteractiveMessage))[0];
     if (!selectedScope)
         throw new Error("interactive install did not return an install scope");
-    const agents = await promptChoices("설치할 에이전트를 선택하세요", [
+    const agents = await promptChoices("Select agents to install", [
         { value: "codex", label: "Codex" },
         { value: "claude", label: "Claude Code" },
         { value: "cursor", label: "Cursor" },
